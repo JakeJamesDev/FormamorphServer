@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
 const { register, login, getMe, changePassword } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
+const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
 
@@ -12,6 +13,7 @@ const authLimiter = rateLimit({
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: clientIpKeyGenerator,
   message: { success: false, error: 'Too many attempts, please try again later' }
 });
 

@@ -136,27 +136,15 @@ exports.createWorld = async (req, res, next) => {
     // Extract data from request body
     const { name, description, thumbnail, previewData, contentData } = req.body;
     
-    // Extract tags from contentData.worldOverview if it exists, or from direct tags field
+    // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
     let tags;
-    
-    // First try to get tags from contentData.worldOverview (preferred source)
     if (contentData && contentData.worldOverview && contentData.worldOverview.tags !== undefined) {
       tags = contentData.worldOverview.tags;
-      console.log('POST /api/worlds - Tags extracted from contentData.worldOverview:', tags);
-    } 
-    // Then try worldOverview directly if present
-    else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
+    } else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
       tags = req.body.worldOverview.tags;
-      console.log('POST /api/worlds - Tags extracted from worldOverview:', tags);
-    }
-    // Finally, use tags field if provided directly
-    else if (req.body.tags !== undefined) {
+    } else if (req.body.tags !== undefined) {
       tags = req.body.tags;
-      console.log('POST /api/worlds - Tags extracted from direct tags field:', tags);
     }
-    
-    // Print tags for debugging
-    console.log('POST /api/worlds - Final tags to be used:', tags);
 
     // Validate required fields
     if (!name || !contentData) {
@@ -254,29 +242,14 @@ exports.updateWorld = async (req, res, next) => {
     // Extract data from request body
     const { name, description, thumbnail, previewData, contentData } = req.body;
     
-    // Extract tags from contentData.worldOverview if it exists, or from direct tags field
+    // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
     let tags;
-    
-    // First try to get tags from contentData.worldOverview (preferred source)
     if (req.body.contentData && req.body.contentData.worldOverview && req.body.contentData.worldOverview.tags !== undefined) {
       tags = req.body.contentData.worldOverview.tags;
-      console.log('PUT /api/worlds/:id - Tags extracted from contentData.worldOverview:', tags);
-    } 
-    // Then try worldOverview directly if present
-    else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
+    } else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
       tags = req.body.worldOverview.tags;
-      console.log('PUT /api/worlds/:id - Tags extracted from worldOverview:', tags);
-    }
-    // Finally, use tags field if provided directly
-    else if (req.body.tags !== undefined) {
+    } else if (req.body.tags !== undefined) {
       tags = req.body.tags;
-      console.log('PUT /api/worlds/:id - Tags extracted from direct tags field:', tags);
-    }
-
-    // Print debugging information
-    console.log('PUT /api/worlds/:id - Request body keys:', Object.keys(req.body));
-    if (req.body.contentData && req.body.contentData.worldOverview) {
-      console.log('PUT /api/worlds/:id - ContentData worldOverview:', req.body.contentData.worldOverview);
     }
 
     // Prepare update data

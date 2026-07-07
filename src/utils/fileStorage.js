@@ -9,6 +9,25 @@ const thumbnailsStorageDir = path.join(__dirname, '..', 'storage', 'thumbnails')
 // Maximum world content size in bytes (200MB)
 const MAX_CONTENT_SIZE = 200 * 1024 * 1024;
 
+// Maximum thumbnail size in bytes (5MB)
+const MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024;
+
+// Allowed thumbnail image types, mapped to their stored file extension
+const ALLOWED_THUMBNAIL_TYPES = {
+  jpeg: 'jpeg',
+  jpg: 'jpeg',
+  png: 'png',
+  gif: 'gif',
+  webp: 'webp'
+};
+
+// Client-input error tagged so the error handler returns 400, not 500
+const badRequest = (message) => {
+  const err = new Error(message);
+  err.statusCode = 400;
+  return err;
+};
+
 // Ensure storage directories exist
 const initStorage = () => {
   if (!fs.existsSync(worldsStorageDir)) {
@@ -44,26 +63,38 @@ const saveWorldContent = async (worldId, content) => {
 // Save thumbnail image to a file
 const saveThumbnail = async (base64Image) => {
   try {
-    // Extract the image data from the base64 string
-    const matches = base64Image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    
-    if (!matches || matches.length !== 3) {
-      throw new Error('Invalid base64 image string');
+    // Parse a base64 image data-URI (data:image/<subtype>;base64,<data>)
+    const matches = typeof base64Image === 'string'
+      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
+
+    if (!matches) {
+      throw badRequest('Invalid base64 image string');
     }
-    
-    const imageType = matches[1].split('/')[1] || 'jpeg';
+
+    // Extension comes from an allowlist, never from the raw MIME (avoids arbitrary/unsafe types)
+    const extension = ALLOWED_THUMBNAIL_TYPES[matches[1].toLowerCase()];
+    if (!extension) {
+      throw badRequest(`Unsupported thumbnail type '${matches[1]}' (allowed: jpeg, png, gif, webp)`);
+    }
+
     const imageData = Buffer.from(matches[2], 'base64');
-    
+    if (imageData.length > MAX_THUMBNAIL_SIZE) {
+      throw badRequest('Thumbnail exceeds maximum size of 5MB');
+    }
+
     // Generate a unique filename
-    const filename = `${uuidv4()}.${imageType}`;
+    const filename = `${uuidv4()}.${extension}`;
     const filePath = path.join(thumbnailsStorageDir, filename);
-    
+
     // Write the image file
     await fs.promises.writeFile(filePath, imageData);
-    
+
     return filename;
   } catch (error) {
-    console.error('Error saving thumbnail:', error);
+    // Don't log expected client-input rejections (bad/oversized image); only real failures
+    if (!error.statusCode) {
+      console.error('Error saving thumbnail:', error);
+    }
     throw error;
   }
 };
