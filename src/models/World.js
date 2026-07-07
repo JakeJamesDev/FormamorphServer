@@ -1,0 +1,451 @@
+const db = require('../config/db');
+const { v4: uuidv4 } = require('uuid');
+const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
+const Comment = require('./Comment');
+
+/**
+ * World model
+ */
+const World = {
+  /**
+   * Find a world by ID
+   * @param {string} id - World ID
+   * @returns {Object|null} World object or null if not found
+   */
+  findById: (id) => {
+    return db.prepare('SELECT * FROM worlds WHERE id = ?').get(id);
+  },
+
+  /**
+   * Find a world by ID and populate with author data
+   * @param {string} id - World ID
+   * @returns {Object|null} World object with author data or null if not found
+   */
+  findByIdWithAuthor: (id) => {
+    const world = World.findById(id);
+    
+    if (!world) {
+      return null;
+    }
+    
+    // Get author data
+    const author = db.prepare('SELECT id, username FROM users WHERE id = ?').get(world.author_id);
+    
+    // Parse tags
+    world.tags = world.tags ? JSON.parse(world.tags) : [];
+    
+    // Convert spoiler from INTEGER to boolean
+    world.spoiler = world.spoiler === 1;
+    
+    // Don't include preview_data as it contains megabytes due to thumbnail
+    
+    // Return world with author but without preview_data
+    const { preview_data, ...worldWithoutPreviewData } = world;
+    
+    // Add thumbnail URL - ensure we're using the correct path
+    // The thumbnail_file might contain a full path, so we need to extract just the filename
+    const thumbnailFilename = world.thumbnail_file.split('/').pop();
+    const thumbnailUrl = `/api/thumbnails/${thumbnailFilename}`;
+    
+    return {
+      ...worldWithoutPreviewData,
+      thumbnailUrl,
+      author
+    };
+  },
+
+  /**
+   * Find a world by ID and populate with author data and comments
+   * @param {string} id - World ID
+   * @param {Object} options - Query options for comments
+   * @returns {Object|null} World object with author data and comments or null if not found
+   */
+  findByIdWithAuthorAndComments: (id, options = {}) => {
+    const world = World.findByIdWithAuthor(id);
+    
+    if (!world) {
+      return null;
+    }
+    
+    // Get comments for the world
+    const commentsResult = Comment.getByWorldId(id, options);
+    
+    // Add comments to world
+    world.comments = commentsResult.comments;
+    world.commentCount = commentsResult.total;
+    world.commentPagination = commentsResult.pagination;
+    
+    return world;
+  },
+
+  /**
+   * Get all worlds with pagination and filtering
+   * @param {Object} options - Query options
+   * @returns {Object} Object containing worlds, count, and pagination info
+   */
+  getAll: (options = {}) => {
+    try {
+      const {
+        page = 1,
+        limit = 10,
+        search = '',
+        tags = '',
+        searchByAuthor = false,
+        authorId = null,
+        sort = 'created_at',
+        order = 'desc'
+      } = options;
+      
+      // Calculate offset
+      const offset = (page - 1) * limit;
+      
+      // Base query
+      let query = 'SELECT w.*, u.username as author_username FROM worlds w JOIN users u ON w.author_id = u.id';
+      let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
+      let whereClause = [];
+      let params = [];
+      
+      // Filter by author ID
+      if (authorId) {
+        whereClause.push('w.author_id = ?');
+        params.push(authorId);
+      }
+      
+      // Search by author name
+      if (searchByAuthor && search) {
+        whereClause.push('u.username LIKE ?');
+        params.push(`%${search}%`);
+      }
+      
+      // Search by world name, description, or tags
+      if (!searchByAuthor && search) {
+        whereClause.push('(w.name LIKE ? OR w.description LIKE ? OR w.tags LIKE ?)');
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+      
+      // Filter by tags
+      if (tags) {
+        const tagList = tags.split(',');
+        const tagConditions = tagList.map(tag => `w.tags LIKE ?`);
+        whereClause.push(`(${tagConditions.join(' OR ')})`);
+        tagList.forEach(tag => params.push(`%${tag}%`));
+      }
+      
+      // Add where clause to queries
+      if (whereClause.length > 0) {
+        query += ' WHERE ' + whereClause.join(' AND ');
+        countQuery += ' WHERE ' + whereClause.join(' AND ');
+      }
+      
+      // Validate sort field to prevent SQL injection
+      const validSortFields = ['created_at', 'updated_at', 'downloads', 'name'];
+      const sortField = validSortFields.includes(sort) ? sort : 'created_at';
+      
+      // Validate order direction
+      const orderDirection = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      
+      // Add order by and limit to main query
+      query += ` ORDER BY w.${sortField} ${orderDirection} LIMIT ? OFFSET ?`;
+      params.push(limit, offset);
+      
+      // Execute queries
+      const worlds = db.prepare(query).all(...params);
+      const countResult = db.prepare(countQuery).get(...params.slice(0, params.length - 2));
+      const total = countResult ? countResult.count : 0;
+      
+      // Process worlds
+      const processedWorlds = worlds.map(world => {
+        // Parse tags
+        world.tags = world.tags ? JSON.parse(world.tags) : [];
+        
+        // Convert spoiler from INTEGER to boolean
+        world.spoiler = world.spoiler === 1;
+        
+        // Format author
+        world.author = {
+          id: world.author_id,
+          username: world.author_username
+        };
+        
+        // Remove redundant fields
+        delete world.author_id;
+        delete world.author_username;
+        delete world.content_file;
+        delete world.preview_data; // Don't include preview_data as it contains megabytes due to thumbnail
+        
+        // Add thumbnail URL - ensure we're using the correct path
+        // The thumbnail_file might contain a full path, so we need to extract just the filename
+        const thumbnailFilename = world.thumbnail_file.split('/').pop();
+        world.thumbnailUrl = `/api/thumbnails/${thumbnailFilename}`;
+        
+        return world;
+      });
+      
+      // Calculate pagination
+      const pagination = {};
+      
+      if (offset + limit < total) {
+        pagination.next = {
+          page: page + 1,
+          limit
+        };
+      }
+      
+      if (page > 1) {
+        pagination.prev = {
+          page: page - 1,
+          limit
+        };
+      }
+      
+      return {
+        worlds: processedWorlds,
+        count: processedWorlds.length,
+        pagination,
+        total
+      };
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Create a new world
+   * @param {Object} worldData - World data
+   * @param {string} contentFile - Content file name
+   * @param {string} thumbnailFile - Thumbnail file name
+   * @returns {Object} Created world object
+   */
+  create: (worldData, contentFile, thumbnailFile) => {
+    try {
+      // Generate UUID for world ID
+      const worldId = worldData.id || uuidv4();
+      
+      // Ensure tags is an array before stringifying
+      let tags = [];
+      if (worldData.tags) {
+        if (Array.isArray(worldData.tags)) {
+          tags = worldData.tags;
+          console.log('World.create - Tags is an array:', tags);
+        } else if (typeof worldData.tags === 'string') {
+          // Try to parse if it's a JSON string
+          try {
+            const parsedTags = JSON.parse(worldData.tags);
+            tags = Array.isArray(parsedTags) ? parsedTags : [];
+            console.log('World.create - Tags parsed from JSON string:', tags);
+          } catch (e) {
+            // If parsing fails, treat as a single tag
+            tags = [worldData.tags];
+            console.log('World.create - Tags as single string tag:', tags);
+          }
+        }
+      }
+      
+      // Stringify the tags array for storage
+      const tagsString = JSON.stringify(tags);
+      console.log('World.create - Final tags string for storage:', tagsString);
+      
+      // Parse preview data if it's a string
+      const previewData = typeof worldData.preview_data === 'string'
+        ? worldData.preview_data
+        : JSON.stringify(worldData.preview_data || {});
+      
+      // Insert world into database
+      db.prepare(`
+        INSERT INTO worlds (
+          id, name, description, author_id, thumbnail_file,
+          preview_data, content_file, tags, comment_count, spoiler
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        worldId,
+        worldData.name,
+        worldData.description,
+        worldData.author_id,
+        thumbnailFile,
+        previewData,
+        contentFile,
+        tagsString,
+        0, // Initialize comment_count to 0
+        worldData.spoiler ? 1 : 0 // Convert boolean to INTEGER (0 or 1)
+      );
+      
+      // Return created world
+      return World.findById(worldId);
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Update a world
+   * @param {string} id - World ID
+   * @param {Object} worldData - World data to update
+   * @returns {Object} Updated world object
+   */
+  update: (id, worldData) => {
+    try {
+      // Update timestamp
+      worldData.updated_at = new Date().toISOString();
+      
+      // Handle tags properly
+      if (worldData.tags !== undefined) {
+        // Ensure tags is an array before stringifying
+        let tags = [];
+        if (worldData.tags) {
+          if (Array.isArray(worldData.tags)) {
+            tags = worldData.tags;
+            console.log('World.update - Tags is an array:', tags);
+          } else if (typeof worldData.tags === 'string') {
+            // Try to parse if it's a JSON string
+            try {
+              const parsedTags = JSON.parse(worldData.tags);
+              tags = Array.isArray(parsedTags) ? parsedTags : [];
+              console.log('World.update - Tags parsed from JSON string:', tags);
+            } catch (e) {
+              // If parsing fails, treat as a single tag
+              tags = [worldData.tags];
+              console.log('World.update - Tags as single string tag:', tags);
+            }
+          }
+        }
+        
+        // Stringify the tags array for storage
+        worldData.tags = JSON.stringify(tags);
+        console.log('World.update - Final tags string for storage:', worldData.tags);
+      }
+      
+      // Parse preview data if it's an object
+      if (worldData.preview_data && typeof worldData.preview_data === 'object') {
+        worldData.preview_data = JSON.stringify(worldData.preview_data);
+      }
+      
+      // Build update query
+      const fields = Object.keys(worldData).filter(key => key !== 'id');
+      const placeholders = fields.map(field => `${field} = ?`).join(', ');
+      const values = fields.map(field => worldData[field]);
+      
+      // Add ID to values
+      values.push(id);
+      
+      // Update world in database
+      db.prepare(`
+        UPDATE worlds
+        SET ${placeholders}
+        WHERE id = ?
+      `).run(...values);
+      
+      // Return updated world
+      return World.findById(id);
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Delete a world
+   * @param {string} id - World ID
+   * @returns {boolean} True if world was deleted successfully
+   */
+  delete: (id) => {
+    try {
+      // Delete world from database
+      const result = db.prepare('DELETE FROM worlds WHERE id = ?').run(id);
+      
+      return result.changes > 0;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Increment download count for a world
+   * @param {string} id - World ID
+   * @returns {number} New download count
+   */
+  incrementDownloads: (id) => {
+    try {
+      // Update download count only, not updated_at
+      db.prepare(`
+        UPDATE worlds
+        SET downloads = downloads + 1
+        WHERE id = ?
+      `).run(id);
+      
+      // Get updated world
+      const world = World.findById(id);
+      
+      return world ? world.downloads : 0;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Update spoiler status for a world without updating the updated_at timestamp
+   * @param {string} id - World ID
+   * @param {boolean} spoiler - Spoiler status
+   * @returns {Object} Updated world object
+   */
+  updateSpoilerStatus: (id, spoiler) => {
+    try {
+      // Update spoiler status only, not updated_at
+      db.prepare(`
+        UPDATE worlds
+        SET spoiler = ?
+        WHERE id = ?
+      `).run(spoiler ? 1 : 0, id);
+      
+      // Return updated world
+      return World.findById(id);
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Get worlds by author ID
+   * @param {string} authorId - Author ID
+   * @returns {Array} Array of world objects
+   */
+  getByAuthor: (authorId) => {
+    try {
+      return World.getAll({ authorId });
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  /**
+   * Get world content
+   * @param {string} id - World ID
+   * @returns {Object} World content
+   */
+  getContent: async (id) => {
+    try {
+      // Get world
+      const world = World.findByIdWithAuthor(id);
+      
+      if (!world) {
+        throw new Error('World not found');
+      }
+      
+      // Read content from file
+      const contentData = await readWorldContent(world.content_file);
+      
+      // Get thumbnail as base64
+      const thumbnail = await getThumbnailBase64(world.thumbnail_file);
+      
+      // Return world with content
+      return {
+        ...world,
+        thumbnail,
+        contentData
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+};
+
+module.exports = World;

@@ -1,0 +1,444 @@
+const World = require('../models/World');
+const User = require('../models/User');
+const { validationResult } = require('express-validator');
+const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, getThumbnailBase64 } = require('../utils/fileStorage');
+const { v4: uuidv4 } = require('uuid');
+
+/**
+ * @desc    Get all worlds
+ * @route   GET /api/worlds
+ * @access  Public
+ */
+exports.getWorlds = async (req, res, next) => {
+  try {
+    // Extract query parameters
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 10;
+    const search = req.query.search || '';
+    const tags = req.query.tags || '';
+    const searchByAuthor = req.query.searchByAuthor === 'true';
+    const sort = req.query.sort || 'created_at';
+    const order = req.query.order || 'desc';
+
+    // Get worlds
+    const result = World.getAll({
+      page,
+      limit,
+      search,
+      tags,
+      searchByAuthor,
+      sort,
+      order
+    });
+
+    res.status(200).json({
+      success: true,
+      count: result.worlds.length,
+      pagination: result.pagination,
+      total: result.total,
+      data: result.worlds
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get single world
+ * @route   GET /api/worlds/:id
+ * @access  Public
+ */
+exports.getWorld = async (req, res, next) => {
+  try {
+    // Extract query parameters for comments
+    const page = parseInt(req.query.commentsPage, 10) || 1;
+    const limit = parseInt(req.query.commentsLimit, 10) || 5;
+    const includeComments = req.query.includeComments === 'true';
+    
+    // Get world with or without comments based on query parameter
+    const world = includeComments 
+      ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit })
+      : World.findByIdWithAuthor(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
+    // Get thumbnail as base64
+    world.thumbnail = await getThumbnailBase64(world.thumbnail_file);
+    delete world.thumbnail_file;
+
+    res.status(200).json({
+      success: true,
+      data: world
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get world content
+ * @route   GET /api/worlds/:id/content
+ * @access  Public
+ */
+exports.getWorldContent = async (req, res, next) => {
+  try {
+    // Increment download count
+    World.incrementDownloads(req.params.id);
+
+    // Get world with content
+    const world = await World.getContent(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: world
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Create new world
+ * @route   POST /api/worlds
+ * @access  Private
+ */
+exports.createWorld = async (req, res, next) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    // Check if user is suspended
+    if (req.user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        error: 'Suspended users cannot upload worlds'
+      });
+    }
+
+    // Extract data from request body
+    const { name, description, thumbnail, previewData, contentData } = req.body;
+    
+    // Extract tags from contentData.worldOverview if it exists, or from direct tags field
+    let tags;
+    
+    // First try to get tags from contentData.worldOverview (preferred source)
+    if (contentData && contentData.worldOverview && contentData.worldOverview.tags !== undefined) {
+      tags = contentData.worldOverview.tags;
+      console.log('POST /api/worlds - Tags extracted from contentData.worldOverview:', tags);
+    } 
+    // Then try worldOverview directly if present
+    else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
+      tags = req.body.worldOverview.tags;
+      console.log('POST /api/worlds - Tags extracted from worldOverview:', tags);
+    }
+    // Finally, use tags field if provided directly
+    else if (req.body.tags !== undefined) {
+      tags = req.body.tags;
+      console.log('POST /api/worlds - Tags extracted from direct tags field:', tags);
+    }
+    
+    // Print tags for debugging
+    console.log('POST /api/worlds - Final tags to be used:', tags);
+
+    // Validate required fields
+    if (!name || !contentData) {
+      return res.status(400).json({ success: false, message: 'Name and content data are required' });
+    }
+
+    // Generate UUID for the world
+    const worldId = uuidv4();
+
+    try {
+      // Save thumbnail to file
+      const thumbnailFile = await saveThumbnail(thumbnail);
+
+      // Save content to file
+      const contentFile = await saveWorldContent(worldId, contentData);
+
+      // Create world in database
+      const world = World.create(
+        {
+          id: worldId,
+          name,
+          description,
+          author_id: req.user.id,
+          preview_data: previewData,
+          tags
+        },
+        contentFile,
+        thumbnailFile
+      );
+
+      // Get full world data for response
+      const fullWorld = await World.getContent(worldId);
+
+      res.status(201).json({
+        success: true,
+        data: fullWorld
+      });
+    } catch (error) {
+      // If the error is related to content size, return a 400 error
+      if (error.message && error.message.includes('exceeds maximum size')) {
+        return res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update world
+ * @route   PUT /api/worlds/:id
+ * @access  Private
+ */
+exports.updateWorld = async (req, res, next) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    // Get world
+    let world = World.findById(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
+    // Check if user is suspended and not an admin
+    if (req.user.status === 'suspended' && req.user.account_type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Suspended users cannot update worlds'
+      });
+    }
+
+    // Check if user is world owner or admin
+    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to update this world'
+      });
+    }
+
+    // Extract data from request body
+    const { name, description, thumbnail, previewData, contentData } = req.body;
+    
+    // Extract tags from contentData.worldOverview if it exists, or from direct tags field
+    let tags;
+    
+    // First try to get tags from contentData.worldOverview (preferred source)
+    if (req.body.contentData && req.body.contentData.worldOverview && req.body.contentData.worldOverview.tags !== undefined) {
+      tags = req.body.contentData.worldOverview.tags;
+      console.log('PUT /api/worlds/:id - Tags extracted from contentData.worldOverview:', tags);
+    } 
+    // Then try worldOverview directly if present
+    else if (req.body.worldOverview && req.body.worldOverview.tags !== undefined) {
+      tags = req.body.worldOverview.tags;
+      console.log('PUT /api/worlds/:id - Tags extracted from worldOverview:', tags);
+    }
+    // Finally, use tags field if provided directly
+    else if (req.body.tags !== undefined) {
+      tags = req.body.tags;
+      console.log('PUT /api/worlds/:id - Tags extracted from direct tags field:', tags);
+    }
+
+    // Print debugging information
+    console.log('PUT /api/worlds/:id - Request body keys:', Object.keys(req.body));
+    if (req.body.contentData && req.body.contentData.worldOverview) {
+      console.log('PUT /api/worlds/:id - ContentData worldOverview:', req.body.contentData.worldOverview);
+    }
+
+    // Prepare update data
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (previewData) updateData.preview_data = previewData;
+    if (tags !== undefined) updateData.tags = tags; // Include tags if provided
+
+    try {
+      // If thumbnail is provided, update it
+      if (thumbnail) {
+        // Delete old thumbnail
+        if (world.thumbnail_file) {
+          await deleteThumbnail(world.thumbnail_file);
+        }
+        
+        // Save new thumbnail
+        const thumbnailFile = await saveThumbnail(thumbnail);
+        updateData.thumbnail_file = thumbnailFile;
+      }
+
+      // If content data is provided, update it
+      if (contentData) {
+        // Save new content
+        await saveWorldContent(world.id, contentData);
+      }
+
+      // Update world in database
+      if (Object.keys(updateData).length > 0) {
+        world = World.update(req.params.id, updateData);
+      }
+
+      // Get full world data for response
+      const fullWorld = await World.getContent(req.params.id);
+
+      res.status(200).json({
+        success: true,
+        data: fullWorld
+      });
+    } catch (error) {
+      // If the error is related to content size, return a 400 error
+      if (error.message && error.message.includes('exceeds maximum size')) {
+        return res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Set world spoiler status
+ * @route   PUT /api/worlds/:id/spoiler
+ * @access  Private (world owner or admin only)
+ */
+exports.setSpoilerStatus = async (req, res, next) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    // Get world
+    let world = World.findById(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
+    // Check if user is world owner or admin
+    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to update this world'
+      });
+    }
+
+    // Extract spoiler status from request body
+    const { spoiler } = req.body;
+
+    // Validate spoiler is a boolean
+    if (typeof spoiler !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'Spoiler must be a boolean value'
+      });
+    }
+
+    // Update world spoiler status without updating the updated_at timestamp
+    world = World.updateSpoilerStatus(req.params.id, spoiler);
+
+    // Convert spoiler back to boolean for response
+    world.spoiler = world.spoiler === 1;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: world.id,
+        name: world.name,
+        spoiler: world.spoiler
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete world
+ * @route   DELETE /api/worlds/:id
+ * @access  Private
+ */
+exports.deleteWorld = async (req, res, next) => {
+  try {
+    // Get world
+    const world = World.findById(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
+    // Check if user is world owner or admin
+    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to delete this world'
+      });
+    }
+
+    // Delete content file
+    if (world.content_file) {
+      await deleteWorldContent(world.content_file);
+    }
+
+    // Delete thumbnail file
+    if (world.thumbnail_file) {
+      await deleteThumbnail(world.thumbnail_file);
+    }
+
+    // Delete world from database
+    World.delete(req.params.id);
+
+    res.status(200).json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    next(error);
+  }
+};

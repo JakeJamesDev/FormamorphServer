@@ -14,16 +14,24 @@ Admin users have additional capabilities:
 1. Manage user accounts (view all users, update user status and account type)
 2. Edit or delete any world, not just their own
 
+## Key Features
+
+- **SQLite Database**: Reliable and corruption-resistant database solution
+- **File-based Storage**: World content (20MB+ JSON files) stored as separate files
+- **Separate Thumbnail Storage**: Thumbnails stored as image files rather than base64 in the database
+- **JWT Authentication**: Secure user authentication with JSON Web Tokens
+- **Role-based Access Control**: Different permissions for normal users and admins
+- **Search & Filtering**: Search worlds by name, description, tags, or author
+
 ## Installation & Setup
 
 ### Prerequisites
 - Node.js (v14 or higher)
 - npm or yarn
-- MongoDB (installed and running locally)
 
 ### Installation
 
-1. Clone the repository or navigate to the server directory
+1. Clone the repository
 2. Install dependencies:
 ```bash
 npm install
@@ -33,55 +41,20 @@ npm install
    - Create a `.env` file in the root directory with the following variables (or use the existing one):
    ```
    PORT=8797
-   MONGODB_URI=mongodb://localhost:27017/exotic-dangerous
    JWT_SECRET=your_jwt_secret_key_change_this_in_production
    JWT_EXPIRE=24h
    NODE_ENV=development
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=admin123
+   ADMIN_EMAIL=admin@example.com
    ```
 
-4. Ensure MongoDB is running:
-   - The application requires a running MongoDB instance
-   - The default connection string is `mongodb://localhost:27017/exotic-dangerous`
-   - The database and collections will be created automatically when the application connects
+4. Initialize the database:
+```bash
+npm run init-db
+```
 
-5. Configure admin account (optional):
-   - By default, the server creates an admin account on first startup with the following credentials:
-     - Username: `admin`
-     - Password: `admin123`
-     - Email: `admin@example.com`
-   - You can customize these values by adding the following to your `.env` file:
-   ```
-   ADMIN_USERNAME=your_admin_username
-   ADMIN_PASSWORD=your_admin_password
-   ADMIN_EMAIL=your_admin_email
-   ```
-   - It is highly recommended to change these default values in production environments
-
-### Creating Additional Admin Accounts
-
-There are two ways to create additional admin accounts:
-
-1. **Using the Admin API** (requires an existing admin account):
-   - Login with an existing admin account
-   - Use the `PUT /api/users/:id/status` endpoint to promote a user to admin:
-   ```
-   PUT /api/users/user_id_here/status
-   {
-     "accountType": "admin"
-   }
-   ```
-
-2. **Manually in MongoDB**:
-   - Connect to your MongoDB instance
-   - Update a user document in the `users` collection:
-   ```javascript
-   db.users.updateOne(
-     { username: "username_to_promote" },
-     { $set: { accountType: "admin" } }
-   )
-   ```
-
-6. Start the server:
+5. Start the server:
 ```bash
 npm start
 ```
@@ -91,353 +64,92 @@ For development with auto-restart:
 npm run dev
 ```
 
-### Database Management
+## Project Structure
 
-To reset the database (this will delete all data and recreate the admin account):
-```bash
-npm run reset-db
 ```
-
-This command:
-1. Drops all collections in the MongoDB database
-2. Re-seeds the admin user with the credentials specified in your `.env` file
-3. Provides a clean slate for testing or development
+server/
+├── src/                   # Source code
+│   ├── config/            # Configuration files
+│   │   └── db.js          # Database connection
+│   ├── controllers/       # Route controllers
+│   │   ├── authController.js  # Authentication logic
+│   │   ├── userController.js  # User management logic
+│   │   └── worldController.js # World management logic
+│   ├── middleware/        # Custom middleware
+│   │   ├── auth.js        # Authentication middleware
+│   │   └── error.js       # Error handling middleware
+│   ├── models/            # Data models
+│   │   ├── User.js        # User model
+│   │   └── World.js       # World model
+│   ├── routes/            # API routes
+│   │   ├── auth.js        # Authentication routes
+│   │   ├── users.js       # User routes
+│   │   └── worlds.js      # World routes
+│   ├── utils/             # Utility functions
+│   │   ├── fileStorage.js # File storage utilities
+│   │   ├── generateToken.js # JWT token generation
+│   │   └── initDb.js      # Database initialization
+│   ├── storage/           # File storage
+│   │   ├── worlds/        # World content JSON files
+│   │   └── thumbnails/    # Thumbnail image files
+│   ├── app.js             # Express application setup
+│   └── server.js          # Server entry point
+├── data/                  # SQLite database file
+├── package.json           # Project dependencies
+└── .env                   # Environment variables
+```
 
 ## API Endpoints
 
 ### Authentication
 - `POST /api/auth/register` - Register a new user
-  - Required parameters:
-    - `username`: String (3-20 characters)
-    - `password`: String (minimum 6 characters)
-  - Optional parameters:
-    - `email`: String (valid email format)
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "token": "jwt_token_string",
-      "user": {
-        "id": "user_id",
-        "username": "username",
-        "email": "user@example.com",
-        "status": "normal",
-        "accountType": "normal"
-      }
-    }
-    ```
-
 - `POST /api/auth/login` - Login and get JWT token
-  - Required parameters:
-    - `username`: String
-    - `password`: String
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "token": "jwt_token_string",
-      "user": {
-        "id": "user_id",
-        "username": "username",
-        "email": "user@example.com",
-        "status": "normal",
-        "accountType": "normal"
-      }
-    }
-    ```
-
-- `POST /api/auth/change-password` - Change password (requires authentication)
-  - Required parameters:
-    - `currentPassword`: String
-    - `newPassword`: String (minimum 6 characters)
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "message": "Password updated successfully"
-    }
-    ```
-
-- `GET /api/auth/me` - Get current user profile (requires authentication)
-  - No parameters required
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "user": {
-        "id": "user_id",
-        "username": "username",
-        "email": "user@example.com",
-        "status": "normal",
-        "accountType": "normal",
-        "createdAt": "2025-04-29T19:30:00.000Z"
-      }
-    }
-    ```
+- `POST /api/auth/change-password` - Change password
+- `GET /api/auth/me` - Get current user profile
 
 ### World Management
-- `GET /api/worlds` - List worlds with filtering options
-  - Query parameters:
-    - `search`: String - Search by name, description, or tags (default) or by author name when searchByAuthor is true. Supports partial matches (e.g., "sugar" will match "Sugarscape")
-    - `searchByAuthor`: Boolean - When set to 'true', the search parameter will search by author username instead of world name/description/tags
-    - `tags`: String - Comma-separated list of tags to filter by
-    - `page`: Number - Page number for pagination (default: 1)
-    - `limit`: Number - Number of results per page (default: 10)
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "count": 5,
-      "pagination": {
-        "next": { "page": 2, "limit": 10 },
-        "prev": { "page": 1, "limit": 10 }
-      },
-      "total": 25,
-      "data": [
-        {
-          "id": "world_id",
-          "name": "World Name",
-          "description": "World Description",
-          "thumbnail": "base64_encoded_image",
-          "downloads": 42,
-          "tags": ["adventure", "puzzle"],
-          "createdAt": "2025-04-29T19:30:00.000Z",
-          "updatedAt": "2025-04-29T19:30:00.000Z",
-          "author": {
-            "id": "user_id",
-            "username": "creator_username"
-          }
-        },
-        ...
-      ]
-    }
-    ```
-
+- `GET /api/worlds` - List worlds with filtering and sorting options
 - `GET /api/worlds/:id` - Get world details
-  - URL parameters:
-    - `id`: String - World ID
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "data": {
-        "id": "world_id",
-        "name": "World Name",
-        "description": "World Description",
-        "thumbnail": "base64_encoded_image",
-        "downloads": 42,
-        "tags": ["adventure", "puzzle"],
-        "createdAt": "2025-04-29T19:30:00.000Z",
-        "updatedAt": "2025-04-29T19:30:00.000Z",
-        "author": {
-          "id": "user_id",
-          "username": "creator_username"
-        }
-      }
-    }
-    ```
+- `GET /api/worlds/:id/content` - Download world content
+- `POST /api/worlds` - Create/upload a new world
+- `PUT /api/worlds/:id` - Update world metadata or content
+- `PUT /api/worlds/:id/spoiler` - Set world spoiler status (world owner or admin only)
+- `DELETE /api/worlds/:id` - Delete a world
 
-- `GET /api/worlds/:id/content` - Download world content, this downloads the entire world object as-is
-  - URL parameters:
-    - `id`: String - World ID
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "data": {
-        "id": "world_id",
-        "name": "World Name",
-        "description": "World Description",
-        "thumbnail": "base64_encoded_image",
-        "previewData": { ... },
-        "contentData": { ... },
-        "downloads": 42,
-        "tags": ["adventure", "puzzle"],
-        "createdAt": "2025-04-29T19:30:00.000Z",
-        "updatedAt": "2025-04-29T19:30:00.000Z",
-        "author": "user_id"
-      }
-    }
-    ```
+#### World Listing and Sorting
+The `GET /api/worlds` endpoint supports the following query parameters:
 
-- `POST /api/worlds` - Create/upload a new world (requires authentication)
-  - Required parameters:
-    - `name`: String (max 100 characters)
-    - `description`: String (max 1000 characters)
-    - `thumbnail`: String (base64 encoded image)
-    - `previewData`: Object - Preview data for the world
-    - `contentData`: Object - Full world content data
-  - Optional parameters:
-    - `tags`: Array of Strings - Tags for categorizing the world
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "data": {
-        "id": "world_id",
-        "name": "World Name",
-        "description": "World Description",
-        "thumbnail": "base64_encoded_image",
-        "previewData": { ... },
-        "contentData": { ... },
-        "downloads": 0,
-        "tags": ["adventure", "puzzle"],
-        "createdAt": "2025-04-29T19:30:00.000Z",
-        "updatedAt": "2025-04-29T19:30:00.000Z",
-        "author": "user_id"
-      }
-    }
-    ```
+- `page` - Page number for pagination (default: 1)
+- `limit` - Number of worlds per page (default: 10)
+- `search` - Search term for filtering worlds by name, description, or tags
+- `tags` - Comma-separated list of tags to filter by
+- `searchByAuthor` - Set to 'true' to search by author username instead of world properties
+- `sort` - Field to sort by (options: 'created_at', 'updated_at', 'downloads', 'name')
+- `order` - Sort direction ('asc' or 'desc', default: 'desc')
 
-- `PUT /api/worlds/:id` - Update world metadata or content (requires authentication, owner or admin only)
-  - URL parameters:
-    - `id`: String - World ID
-  - Optional parameters (at least one required):
-    - `name`: String (max 100 characters)
-    - `description`: String (max 1000 characters)
-    - `thumbnail`: String (base64 encoded image)
-    - `previewData`: Object - Preview data for the world
-    - `contentData`: Object - Full world content data
-    - `tags`: Array of Strings - Tags for categorizing the world
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "data": {
-        "id": "world_id",
-        "name": "Updated World Name",
-        "description": "Updated World Description",
-        "thumbnail": "base64_encoded_image",
-        "previewData": { ... },
-        "contentData": { ... },
-        "downloads": 42,
-        "tags": ["adventure", "puzzle", "new_tag"],
-        "createdAt": "2025-04-29T19:30:00.000Z",
-        "updatedAt": "2025-04-29T19:35:00.000Z",
-        "author": "user_id"
-      }
-    }
-    ```
+Example requests:
+```
+GET /api/worlds?sort=downloads&order=desc  # Sort by most downloaded
+GET /api/worlds?sort=updated_at&order=desc  # Sort by most recently updated
+GET /api/worlds?sort=name&order=asc  # Sort alphabetically by name
+```
 
-- `DELETE /api/worlds/:id` - Delete a world (requires authentication, owner or admin only)
-  - URL parameters:
-    - `id`: String - World ID
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "data": {}
-    }
-    ```
+### Comment Management
+- `GET /api/worlds/:worldId/comments` - Get all comments for a world
+- `POST /api/worlds/:worldId/comments` - Create a new comment for a world
+- `GET /api/comments/:id` - Get a single comment
+- `PUT /api/comments/:id` - Update a comment (comment author or admin only)
+- `DELETE /api/comments/:id` - Delete a comment (comment author, world owner, or admin only)
+
+### Thumbnails
+- `GET /api/thumbnails/:filename` - Get thumbnail image by filename
 
 ### User Management
 - `GET /api/users/:id/worlds` - Get worlds created by a specific user
-  - URL parameters:
-    - `id`: String - User ID
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "count": 3,
-      "data": [
-        {
-          "id": "world_id",
-          "name": "World Name",
-          "description": "World Description",
-          "thumbnail": "base64_encoded_image",
-          "downloads": 42,
-          "tags": ["adventure", "puzzle"],
-          "createdAt": "2025-04-29T19:30:00.000Z",
-          "updatedAt": "2025-04-29T19:30:00.000Z"
-        },
-        ...
-      ]
-    }
-    ```
-
-- `GET /api/users/me` - Get current user profile (requires authentication)
-  - No parameters required
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "user": {
-        "id": "user_id",
-        "username": "username",
-        "email": "user@example.com",
-        "status": "normal",
-        "accountType": "normal",
-        "createdAt": "2025-04-29T19:30:00.000Z"
-      }
-    }
-    ```
-
-- `GET /api/users/me/worlds` - Get worlds created by the current user (requires authentication)
-  - No parameters required
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "count": 3,
-      "data": [
-        {
-          "id": "world_id",
-          "name": "World Name",
-          "description": "World Description",
-          "thumbnail": "base64_encoded_image",
-          "downloads": 42,
-          "tags": ["adventure", "puzzle"],
-          "createdAt": "2025-04-29T19:30:00.000Z",
-          "updatedAt": "2025-04-29T19:30:00.000Z"
-        },
-        ...
-      ]
-    }
-    ```
-
-- `GET /api/users` - Get all users (requires authentication, admin only)
-  - No parameters required
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "count": 3,
-      "data": [
-        {
-          "id": "user_id",
-          "username": "username",
-          "email": "user@example.com",
-          "status": "normal",
-          "accountType": "normal",
-          "createdAt": "2025-04-29T19:30:00.000Z",
-          "updatedAt": "2025-04-29T19:30:00.000Z"
-        },
-        ...
-      ]
-    }
-    ```
-
-- `PUT /api/users/:id/status` - Update user status and account type (requires authentication, admin only)
-  - URL parameters:
-    - `id`: String - User ID
-  - Optional parameters (at least one required):
-    - `status`: String - User status (normal, flagged, or suspended)
-    - `accountType`: String - Account type (normal or admin)
-  - Returns: 
-    ```json
-    {
-      "success": true,
-      "user": {
-        "id": "user_id",
-        "username": "username",
-        "email": "user@example.com",
-        "status": "flagged",
-        "accountType": "normal",
-        "createdAt": "2025-04-29T19:30:00.000Z",
-        "updatedAt": "2025-04-29T19:35:00.000Z"
-      }
-    }
-    ```
+- `GET /api/users/me` - Get current user profile
+- `GET /api/users/me/worlds` - Get worlds created by the current user
+- `GET /api/users` - Get all users (admin only)
+- `PUT /api/users/:id/status` - Update user status and account type (admin only)
 
 ## Authentication
 
@@ -490,48 +202,22 @@ async function login(username, password) {
   return { success: false, error: data.error || 'Login failed' };
 }
 
-async function changePassword(currentPassword, newPassword) {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  
-  const response = await fetch(`${API_URL}/auth/change-password`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${authToken}`
-    },
-    body: JSON.stringify({ currentPassword, newPassword })
-  });
-  const data = await response.json();
-  return { success: response.ok, message: data.message, error: data.error };
-}
-
-async function getProfile() {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  
-  const response = await fetch(`${API_URL}/auth/me`, {
-    headers: { 'Authorization': `Bearer ${authToken}` }
-  });
-  const data = await response.json();
-  return { success: response.ok, user: data.user, error: data.error };
-}
-
-// World management methods
-async function fetchRemoteWorlds(page = 1, limit = 10, search = '', tags = '', searchByAuthor = false) {
+// World fetching methods
+async function fetchRemoteWorlds(page = 1, limit = 10, search = '', tags = '', searchByAuthor = false, sort = 'created_at', order = 'desc') {
   let url = `${API_URL}/worlds?page=${page}&limit=${limit}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (tags) url += `&tags=${encodeURIComponent(tags)}`;
   if (searchByAuthor) url += `&searchByAuthor=true`;
+  if (sort) url += `&sort=${encodeURIComponent(sort)}`;
+  if (order) url += `&order=${encodeURIComponent(order)}`;
   
   const response = await fetch(url, {
     headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
   });
-  return await response.json();
-}
-
-async function getWorldDetails(worldId) {
-  const response = await fetch(`${API_URL}/worlds/${worldId}`, {
-    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
-  });
+  
+  // Response will include thumbnailUrl for each world
+  // Example: thumbnailUrl: "/api/thumbnails/abc123.jpg"
+  // This URL can be used directly in <img> tags
   return await response.json();
 }
 
@@ -561,82 +247,98 @@ async function uploadWorld(worldData) {
         thumbnail: worldData.worldOverview.thumbnail
       },
       contentData: worldData,
-      tags: worldData.worldOverview.tags || []
+      tags: worldData.worldOverview.tags || [],
+      spoiler: worldData.worldOverview.spoiler || false
     })
   });
   const data = await response.json();
   return { success: response.ok, world: data.data, error: data.error };
 }
 
-async function updateWorld(worldId, updateData) {
+// Set world spoiler status
+async function setWorldSpoilerStatus(worldId, spoiler) {
   if (!authToken) return { success: false, error: 'Not authenticated' };
   
-  const response = await fetch(`${API_URL}/worlds/${worldId}`, {
+  const response = await fetch(`${API_URL}/worlds/${worldId}/spoiler`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${authToken}`
     },
-    body: JSON.stringify(updateData)
+    body: JSON.stringify({ spoiler })
   });
-  const data = await response.json();
-  return { success: response.ok, world: data.data, error: data.error };
+  return await response.json();
 }
 
-async function deleteWorld(worldId) {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  
-  const response = await fetch(`${API_URL}/worlds/${worldId}`, {
-    method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${authToken}` }
-  });
-  const data = await response.json();
-  return { success: response.ok, error: data.error };
-}
-
-// User worlds methods
-async function getUserWorlds(userId) {
-  const response = await fetch(`${API_URL}/users/${userId}/worlds`, {
+// Comment methods
+async function getWorldComments(worldId, page = 1, limit = 10) {
+  const response = await fetch(`${API_URL}/worlds/${worldId}/comments?page=${page}&limit=${limit}`, {
     headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
   });
   return await response.json();
 }
 
-async function getMyWorlds() {
-  if (!authToken) return { success: false, error: 'Not authenticated' };
-  
-  const response = await fetch(`${API_URL}/users/me/worlds`, {
-    headers: { 'Authorization': `Bearer ${authToken}` }
+async function getWorldWithComments(worldId, commentsPage = 1, commentsLimit = 5) {
+  const response = await fetch(`${API_URL}/worlds/${worldId}?includeComments=true&commentsPage=${commentsPage}&commentsLimit=${commentsLimit}`, {
+    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
   });
   return await response.json();
 }
 
-// Admin methods
-async function getAllUsers() {
+async function createComment(worldId, content) {
   if (!authToken) return { success: false, error: 'Not authenticated' };
   
-  const response = await fetch(`${API_URL}/users`, {
-    headers: { 'Authorization': `Bearer ${authToken}` }
+  const response = await fetch(`${API_URL}/worlds/${worldId}/comments`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`
+    },
+    body: JSON.stringify({ content })
   });
-  const data = await response.json();
-  return { success: response.ok, users: data.data, count: data.count, error: data.error };
+  return await response.json();
 }
 
-async function updateUserStatus(userId, status, accountType) {
+async function updateComment(commentId, content) {
   if (!authToken) return { success: false, error: 'Not authenticated' };
   
-  const updateData = {};
-  if (status) updateData.status = status;
-  if (accountType) updateData.accountType = accountType;
-  
-  const response = await fetch(`${API_URL}/users/${userId}/status`, {
+  const response = await fetch(`${API_URL}/comments/${commentId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${authToken}`
     },
-    body: JSON.stringify(updateData)
+    body: JSON.stringify({ content })
   });
-  const data = await response.json();
-  return { success: response.ok, user: data.user, error: data.error };
+  return await response.json();
 }
+
+async function deleteComment(commentId) {
+  if (!authToken) return { success: false, error: 'Not authenticated' };
+  
+  const response = await fetch(`${API_URL}/comments/${commentId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${authToken}`
+    }
+  });
+  return await response.json();
+}
+```
+
+## Differences from Previous Implementation
+
+1. **Database**: SQLite instead of MongoDB for improved reliability and resistance to corruption
+2. **Thumbnail Storage**: Thumbnails stored as separate files instead of base64 strings in the database
+3. **File Organization**: Improved storage structure with separate directories for worlds and thumbnails
+4. **Error Handling**: Enhanced error handling and validation
+5. **Code Structure**: More modular and maintainable code organization
+6. **Comments System**: Added ability for users to comment on worlds
+
+## Security Considerations
+
+1. All passwords are hashed using bcrypt
+2. JWT tokens are used for authentication
+3. Users can only modify their own worlds
+4. Input validation is implemented for all API endpoints
+5. Proper error handling prevents information leakage
