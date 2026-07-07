@@ -22,6 +22,10 @@ const errorHandler = (err, req, res, next) => {
   } else if (err.message && err.message.includes('exceeds maximum size')) {
     message = err.message;
     statusCode = 400;
+  } else if (err.status || err.statusCode) {
+    // Honor status set by body-parser and similar (e.g. 413 payload too large, 400 malformed JSON)
+    statusCode = err.status || err.statusCode;
+    if (err.message) message = err.message;
   } else if (err.message) {
     message = err.message;
   }

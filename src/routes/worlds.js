@@ -6,6 +6,10 @@ const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
+// World content can be large (up to 200MB); other bodies here stay tightly capped.
+const largeJson = express.json({ limit: '200mb' });
+const smallJson = express.json({ limit: '100kb' });
+
 // Get all worlds
 router.get('/', getWorlds);
 
@@ -18,6 +22,7 @@ router.get('/:id/content', getWorldContent);
 // Create new world
 router.post(
   '/',
+  largeJson,
   [
     check('name', 'Name is required').not().isEmpty(),
     check('name', 'Name cannot exceed 100 characters').isLength({ max: 100 }),
@@ -32,6 +37,7 @@ router.post(
 // Update world
 router.put(
   '/:id',
+  largeJson,
   [
     check('name', 'Name cannot exceed 100 characters').optional().isLength({ max: 100 })
   ],
@@ -42,6 +48,7 @@ router.put(
 // Set world spoiler status
 router.put(
   '/:id/spoiler',
+  smallJson,
   [
     check('spoiler', 'Spoiler must be a boolean value').isBoolean()
   ],
@@ -59,6 +66,7 @@ router.get('/:worldId/comments', getComments);
 // Create new comment for a world
 router.post(
   '/:worldId/comments',
+  smallJson,
   [
     check('content', 'Content is required').not().isEmpty(),
     check('content', 'Content cannot exceed 1000 characters').isLength({ max: 1000 })
