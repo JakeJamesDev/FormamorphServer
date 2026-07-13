@@ -31,7 +31,12 @@ router.get('/:filename', async (req, res, next) => {
     
     // Set content type header
     res.setHeader('Content-Type', contentType);
-    
+
+    // Thumbnails are public assets meant to be embedded by the web/desktop client on a different origin,
+    // so relax Helmet's default Cross-Origin-Resource-Policy (same-origin) for this route — otherwise the
+    // browser blocks the <img> from loading cross-origin.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
     // Stream the file
     const fileStream = fs.createReadStream(thumbnailPath);
     fileStream.pipe(res);
