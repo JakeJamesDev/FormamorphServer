@@ -7,7 +7,15 @@ const app = require('./app');
 // against a database that predates it would 500 the entire catalog until someone ran the migration by
 // hand — the deploy order must not be able to cause an outage. The migration is additive and idempotent,
 // so this is a no-op on every boot after the first. `npm run migrate-kind` still runs it ahead of a deploy.
-addKindColumn();
+//
+// Never fatal: a migration that throws must not take the process down, or a bad database turns into a
+// boot loop under any restart policy. Booting with a loud error leaves the operator a running server to
+// diagnose from, which is what this server did before the migration existed.
+try {
+  addKindColumn();
+} catch (error) {
+  console.error('Schema migration failed — starting anyway; list endpoints may fail until resolved:', error);
+}
 
 // Initialize storage directories
 initStorage();

@@ -80,6 +80,18 @@ describe('addKindColumn migration', () => {
     legacy.close();
   });
 
+  it('is a no-op on a database with no schema yet, rather than crashing the boot', () => {
+    // server.js runs this at startup. A fresh deploy (empty DATA_DIR, `npm start` before `npm run init-db`)
+    // has a database file with no tables — `PRAGMA table_info` returns [] there rather than throwing, so
+    // without an explicit table check this reached ALTER TABLE and killed the process on boot.
+    const empty = new Database(':memory:');
+
+    expect(() => addKindColumn(empty)).not.toThrow();
+    expect(addKindColumn(empty)).toBe(false);
+
+    empty.close();
+  });
+
   it('leaves a pre-kind database queryable, so a deploy cannot outrun the migration', () => {
     // The hazard this guards: every list query filters on `worlds.kind`. Booting the new code against a
     // database that predates the column 500s the whole catalog ("no such column: w.kind"), for everyone,

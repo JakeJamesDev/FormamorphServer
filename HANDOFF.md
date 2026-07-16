@@ -49,8 +49,12 @@ Verified against a database on the old schema with real rows: data intact, downl
 existing rows classified `world`, second run a no-op.
 
 **Rollback** is just redeploying the old code. The extra column is additive and the old code never
-references it, so a rolled-back server ignores it. Any characters or dictionaries published in the interim
-would become invisible (the old code has no `kind` filter, so they'd appear as worlds — worth knowing).
+references it, so a rolled-back server ignores it and worlds behave exactly as before.
+
+One thing to know if you do: the old `getAll` has no `kind` filter, so any characters or dictionaries
+published in the interim would be **returned from `GET /api/worlds` as worlds**. A pre-kinds client hands
+that payload to `migrateWorld`, which expects a `worldOverview` a character doesn't have — a broken card,
+or an error on open. Deleting those rows (or re-deploying) clears it; nothing is corrupted.
 
 ## What changed beyond `kind`
 

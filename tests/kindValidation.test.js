@@ -144,3 +144,62 @@ describe('per-kind size caps', () => {
     expect(rulesFor('banana')).toBe(KIND_RULES[DEFAULT_KIND]);
   });
 });
+
+describe('updating a listing', () => {
+  it('refuses to turn one kind into another', async () => {
+    // The stored row's kind is authoritative. Without this a PUT naming your world writes character
+    // content into it while the row still reads kind='world' — the catalog lists it as a world and the
+    // client migrates a character as one. The UI only offers same-kind targets, but that's a convention.
+    const user = createUser();
+    const world = await post(user, worldPayload({ name: 'My World' }));
+
+    const res = await request(app)
+      .put(`/api/worlds/${world.body.data.id}`)
+      .set(authHeader(user))
+      .send({ name: 'Hijacked', kind: 'entity', contentData: { id: 'e1', name: 'Mara' } });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Cannot change a world listing into a entity/);
+  });
+
+  it('keeps the row’s kind when the body names it correctly', async () => {
+    const user = createUser();
+    const created = await post(user, without({ name: 'Mara', kind: 'entity' }, 'thumbnail'));
+
+    const res = await request(app)
+      .put(`/api/worlds/${created.body.data.id}`)
+      .set(authHeader(user))
+      .send({ name: 'Mara the Bold', kind: 'entity' });
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT kind FROM worlds WHERE id = ?').get(created.body.data.id).kind).toBe('entity');
+  });
+
+  it('enforces the kind’s size cap on update, not just on create', async () => {
+    // The bypass this closes: publish a 1KB dictionary (accepted), then PUT the oversized body onto it.
+    const user = createUser();
+    const small = await post(user, without({ name: 'Small Book', kind: 'dictionary' }, 'thumbnail'));
+
+    const fat = { entries: ['x'.repeat(KIND_RULES.dictionary.maxContentBytes + 100)] };
+    const res = await request(app)
+      .put(`/api/worlds/${small.body.data.id}`)
+      .set(authHeader(user))
+      .send({ contentData: fat });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Dictionary');
+  });
+
+  it('still allows a world the content a world may carry', async () => {
+    const user = createUser();
+    const world = await post(user, worldPayload({ name: 'Big World' }));
+    const payload = { blob: 'x'.repeat(KIND_RULES.dictionary.maxContentBytes + 100) };
+
+    const res = await request(app)
+      .put(`/api/worlds/${world.body.data.id}`)
+      .set(authHeader(user))
+      .send({ contentData: payload });
+
+    expect(res.status).toBe(200); // same bytes a dictionary is refused
+  });
+});

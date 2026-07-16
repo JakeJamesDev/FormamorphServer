@@ -3,10 +3,10 @@ const path = require('path');
 /**
  * Every on-disk location the server reads or writes, in one place.
  *
- * These were previously re-derived inline in fileStorage, the thumbnails route, deleteUser, backupRestore,
- * and worldSnapshot — five copies that could drift apart. Each is overridable by an environment variable so
- * user data can live outside the source tree (the defaults put uploads under `src/`, which a redeploy or a
- * clean checkout can wipe) and so tests can point at a scratch directory.
+ * One module rather than a copy per consumer: fileStorage, the thumbnails route, deleteUser, backupRestore,
+ * and worldSnapshot all read from here, so the directories can't drift apart. Each is overridable by an
+ * environment variable so user data can live outside the source tree (the defaults put uploads under
+ * `src/`, which a redeploy or a clean checkout can wipe) and so tests can point at a scratch directory.
  *
  * Defaults reproduce the original hard-coded paths exactly, so an install that sets nothing is unchanged.
  */

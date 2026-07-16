@@ -10,6 +10,19 @@ const db = require('../config/db');
  * that actually matters, and the one the shared connection can't reproduce.
  */
 const addKindColumn = (database = db) => {
+  // A fresh database has no schema at all yet — `npm run init-db` creates `worlds` with `kind` already on
+  // it, so there is nothing to migrate. Checked explicitly because `PRAGMA table_info` on a missing table
+  // returns `[]` rather than throwing, which is indistinguishable from "table exists, column doesn't" —
+  // and taking that path would run ALTER TABLE against nothing.
+  const tableExists = database
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='worlds'")
+    .get();
+
+  if (!tableExists) {
+    console.log('No worlds table yet — nothing to migrate (init-db creates it with kind)');
+    return false;
+  }
+
   const columnExists = database
     .prepare('PRAGMA table_info(worlds)')
     .all()

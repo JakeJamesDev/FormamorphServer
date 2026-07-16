@@ -8,6 +8,19 @@ const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 
 /**
+ * The kind's content ceiling as an error string, or null when it fits.
+ *
+ * Shared by create and update so the cap is a property of the row rather than of whichever path wrote it:
+ * enforcing it on create alone means a 1KB dictionary can be PUT up to the global 200MB a moment later.
+ */
+function contentSizeError(contentData, rules) {
+  if (!contentData) return null;
+  const bytes = Buffer.byteLength(JSON.stringify(contentData));
+  if (bytes <= rules.maxContentBytes) return null;
+  return `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`;
+}
+
+/**
  * @desc    Get all worlds
  * @route   GET /api/worlds
  * @access  Public
@@ -164,12 +177,9 @@ exports.createWorld = async (req, res, next) => {
     const rules = rulesFor(kind);
 
     // Size is capped per kind: a world may legitimately carry 200MB of base64 art, a lorebook may not.
-    const contentBytes = Buffer.byteLength(JSON.stringify(contentData));
-    if (contentBytes > rules.maxContentBytes) {
-      return res.status(400).json({
-        success: false,
-        error: `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`
-      });
+    const tooLarge = contentSizeError(contentData, rules);
+    if (tooLarge) {
+      return res.status(400).json({ success: false, error: tooLarge });
     }
 
     // Generate UUID for the world
@@ -267,7 +277,25 @@ exports.updateWorld = async (req, res, next) => {
 
     // Extract data from request body
     const { name, description, thumbnail, previewData, contentData } = req.body;
-    
+
+    // The stored row's kind is authoritative and immutable — a listing cannot turn from a world into a
+    // character. Without this, a PUT naming someone's world writes character content into it while the row
+    // still reads `kind='world'`: the catalog lists it as a world and the client migrates a character as
+    // one. The client only ever offers same-kind targets, but that's a UI convention, not a rule.
+    const kind = world.kind || DEFAULT_KIND;
+    if (req.body.kind && req.body.kind !== kind) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot change a ${kind} listing into a ${req.body.kind}`
+      });
+    }
+
+    // Same ceiling as create: the cap belongs to the row, not to the path that wrote it.
+    const tooLarge = contentSizeError(contentData, rulesFor(kind));
+    if (tooLarge) {
+      return res.status(400).json({ success: false, error: tooLarge });
+    }
+
     // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
     let tags;
     if (req.body.contentData && req.body.contentData.worldOverview && req.body.contentData.worldOverview.tags !== undefined) {
