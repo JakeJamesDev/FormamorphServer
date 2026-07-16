@@ -2,9 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-// Define storage directories
-const worldsStorageDir = path.join(__dirname, '..', 'storage', 'worlds');
-const thumbnailsStorageDir = path.join(__dirname, '..', 'storage', 'thumbnails');
+// Storage directories (configurable — see config/paths)
+const { WORLDS_DIR: worldsStorageDir, THUMBNAILS_DIR: thumbnailsStorageDir } = require('../config/paths');
 
 // Maximum world content size in bytes (200MB)
 const MAX_CONTENT_SIZE = 200 * 1024 * 1024;

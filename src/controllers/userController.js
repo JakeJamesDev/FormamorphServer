@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const World = require('../models/World');
+const { kindFromQuery } = require('../utils/kindQuery');
 
 /**
  * @desc    Get all users
@@ -52,11 +53,21 @@ exports.getMe = async (req, res, next) => {
  */
 exports.getMyWorlds = async (req, res, next) => {
   try {
-    const result = World.getByAuthor(req.user.id);
+    // Same default as every other list endpoint: no `kind` means worlds only, so a client that predates
+    // the column never sees a character among its own published worlds.
+    const { kind, error } = kindFromQuery(req);
+    if (error) {
+      return res.status(400).json({ success: false, error });
+    }
+
+    const result = World.getByAuthor(req.user.id, kind);
 
     res.status(200).json({
       success: true,
       count: result.worlds.length,
+      // `total` is what matched, `count` is what's in this response — they differ only if the row ceiling
+      // cut something off, which a caller offering each row as a target needs to be able to notice.
+      total: result.total,
       data: result.worlds
     });
   } catch (error) {
@@ -80,11 +91,19 @@ exports.getUserWorlds = async (req, res, next) => {
       });
     }
 
-    const result = World.getByAuthor(req.params.id);
+    const { kind, error } = kindFromQuery(req);
+    if (error) {
+      return res.status(400).json({ success: false, error });
+    }
+
+    const result = World.getByAuthor(req.params.id, kind);
 
     res.status(200).json({
       success: true,
       count: result.worlds.length,
+      // `total` is what matched, `count` is what's in this response — they differ only if the row ceiling
+      // cut something off, which a caller offering each row as a target needs to be able to notice.
+      total: result.total,
       data: result.worlds
     });
   } catch (error) {

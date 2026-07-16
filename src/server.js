@@ -1,6 +1,13 @@
 require('dotenv').config();
 const { initStorage } = require('./utils/fileStorage');
+const { addKindColumn } = require('./utils/addKindColumn');
 const app = require('./app');
+
+// Bring the schema up to date before serving. Every list query filters on `worlds.kind`, so booting
+// against a database that predates it would 500 the entire catalog until someone ran the migration by
+// hand — the deploy order must not be able to cause an outage. The migration is additive and idempotent,
+// so this is a no-op on every boot after the first. `npm run migrate-kind` still runs it ahead of a deploy.
+addKindColumn();
 
 // Initialize storage directories
 initStorage();

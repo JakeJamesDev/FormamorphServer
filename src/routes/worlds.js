@@ -3,6 +3,7 @@ const { check } = require('express-validator');
 const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { protect } = require('../middleware/auth');
+const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 
 const router = express.Router();
 
@@ -26,9 +27,22 @@ router.post(
   [
     check('name', 'Name is required').not().isEmpty(),
     check('name', 'Name cannot exceed 100 characters').isLength({ max: 100 }),
-    check('description', 'Description is required').not().isEmpty(),
-    check('thumbnail', 'Thumbnail is required').not().isEmpty(),
-    check('contentData', 'Content data is required').not().isEmpty()
+    check('contentData', 'Content data is required').not().isEmpty(),
+    check('kind', `Kind must be one of: ${KINDS.join(', ')}`).optional().isIn(KINDS),
+    // Worlds must still supply a description and a thumbnail; characters and dictionaries have no such
+    // fields to give, so the controller fills an empty description and placeholder art (see config/kinds).
+    check('description').custom((value, { req }) => {
+      if (rulesFor(req.body.kind || DEFAULT_KIND).requiresDescription && !value) {
+        throw new Error('Description is required');
+      }
+      return true;
+    }),
+    check('thumbnail').custom((value, { req }) => {
+      if (rulesFor(req.body.kind || DEFAULT_KIND).requiresThumbnail && !value) {
+        throw new Error('Thumbnail is required');
+      }
+      return true;
+    })
   ],
   protect,
   createWorld

@@ -14,7 +14,11 @@
     "cleanup-backups": "node src/utils/cleanupBackups.js",
     "snapshot": "node src/utils/runSnapshot.js",
     "list-snapshots": "node src/utils/listSnapshots.js",
-    "cleanup-snapshots": "node src/utils/cleanupSnapshots.js"
+    "cleanup-snapshots": "node src/utils/cleanupSnapshots.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "migrate-kind": "node src/utils/addKindColumn.js"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -31,6 +35,9 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "@vitest/coverage-v8": "^4.1.10",
+    "nodemon": "^3.0.1",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.10"
   }
 }

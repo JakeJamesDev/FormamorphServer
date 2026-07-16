@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { THUMBNAILS_DIR } = require('../config/paths');
 const router = express.Router();
 
 /**
@@ -11,7 +12,7 @@ const router = express.Router();
 router.get('/:filename', async (req, res, next) => {
   try {
     const filename = path.basename(req.params.filename); // strip any traversal segments
-    const thumbnailPath = path.join(__dirname, '..', 'storage', 'thumbnails', filename);
+    const thumbnailPath = path.join(THUMBNAILS_DIR, filename);
     
     // Check if file exists
     if (!fs.existsSync(thumbnailPath)) {

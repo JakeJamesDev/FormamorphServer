@@ -1,7 +1,14 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
+const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
 const Comment = require('./Comment');
+
+/**
+ * Ceiling for an author listing. High because the question is "everything I published", not "the first
+ * page" — the browse catalog is fetched the same way. `getAll`'s `total` reveals if it ever bites.
+ */
+const AUTHOR_LIST_LIMIT = 1000;
 
 /**
  * World model
@@ -93,7 +100,8 @@ const World = {
         searchByAuthor = false,
         authorId = null,
         sort = 'created_at',
-        order = 'desc'
+        order = 'desc',
+        kind = DEFAULT_KIND
       } = options;
       
       // Calculate offset
@@ -104,7 +112,15 @@ const World = {
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
-      
+
+      // Scope to one kind unless every kind was asked for by name. Defaulted rather than optional on
+      // purpose: a caller that forgets it gets worlds, never a mixed list — which is what keeps clients
+      // written before `kind` existed correct.
+      if (kind !== ALL_KINDS) {
+        whereClause.push('w.kind = ?');
+        params.push(kind);
+      }
+
       // Filter by author ID
       if (authorId) {
         whereClause.push('w.author_id = ?');
@@ -254,9 +270,9 @@ const World = {
       db.prepare(`
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
-          preview_data, content_file, tags, comment_count, spoiler
+          preview_data, content_file, tags, comment_count, spoiler, kind
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -267,7 +283,8 @@ const World = {
         contentFile,
         tagsString,
         0, // Initialize comment_count to 0
-        worldData.spoiler ? 1 : 0 // Convert boolean to INTEGER (0 or 1)
+        worldData.spoiler ? 1 : 0, // Convert boolean to INTEGER (0 or 1)
+        worldData.kind || DEFAULT_KIND
       );
       
       // Return created world
@@ -404,13 +421,21 @@ const World = {
   },
 
   /**
-   * Get worlds by author ID
+   * Get an author's rows of one kind (or every kind, with `ALL_KINDS`).
+   *
+   * An author listing answers "what have I published" — it wants everything, not a first page, since
+   * callers like the publish dialog offer each row as an overwrite target. `getAll` always applies a
+   * LIMIT, so `AUTHOR_LIST_LIMIT` is a ceiling rather than a page size; the caller can pass its own, and
+   * the returned `total` tells it whether the ceiling actually cut anything off.
+   *
    * @param {string} authorId - Author ID
-   * @returns {Array} Array of world objects
+   * @param {string} kind - Kind to list; defaults to worlds, as the list endpoints do
+   * @param {number} limit - Row ceiling
+   * @returns {Object} `{ worlds, total, pagination }` from getAll
    */
-  getByAuthor: (authorId) => {
+  getByAuthor: (authorId, kind = DEFAULT_KIND, limit = AUTHOR_LIST_LIMIT) => {
     try {
-      return World.getAll({ authorId });
+      return World.getAll({ authorId, kind, limit });
     } catch (error) {
       throw error;
     }

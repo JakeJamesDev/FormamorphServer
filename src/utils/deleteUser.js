@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const fs = require('fs').promises;
 const path = require('path');
+const { WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
 
 /**
  * Delete a user and all their associated data
@@ -38,7 +39,7 @@ async function deleteUser(username) {
         // Delete world content file
         if (world.content_file) {
           try {
-            const contentPath = path.join(__dirname, '..', 'storage', 'worlds', world.content_file);
+            const contentPath = path.join(WORLDS_DIR, world.content_file);
             await fs.unlink(contentPath);
             console.log(`  - Deleted content file: ${world.content_file}`);
           } catch (err) {
@@ -49,7 +50,7 @@ async function deleteUser(username) {
         // Delete thumbnail file
         if (world.thumbnail_file) {
           try {
-            const thumbnailPath = path.join(__dirname, '..', 'storage', 'thumbnails', world.thumbnail_file);
+            const thumbnailPath = path.join(THUMBNAILS_DIR, world.thumbnail_file);
             await fs.unlink(thumbnailPath);
             console.log(`  - Deleted thumbnail file: ${world.thumbnail_file}`);
           } catch (err) {

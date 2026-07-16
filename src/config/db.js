@@ -1,19 +1,15 @@
 const Database = require('better-sqlite3');
-const path = require('path');
 const fs = require('fs');
+const { DATA_DIR, DB_PATH } = require('./paths');
 
-// Ensure the data directory exists
-const dataDir = path.join(__dirname, '..', '..', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Ensure the data directory exists. An in-memory database has no directory to create.
+if (DB_PATH !== ':memory:' && !fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Database file path
-const dbPath = path.join(dataDir, 'exotic-dangerous.db');
-
 // Create and configure the database connection
-const db = new Database(dbPath, { 
-  verbose: process.env.NODE_ENV === 'development' ? console.log : null 
+const db = new Database(DB_PATH, {
+  verbose: process.env.NODE_ENV === 'development' ? console.log : null
 });
 
 // Enable foreign keys

@@ -11,12 +11,9 @@ const stat = promisify(fs.stat);
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
-// Define paths
-const PROJECT_ROOT = path.join(__dirname, '..', '..');
-const DATABASE_PATH = path.join(PROJECT_ROOT, 'data', 'exotic-dangerous.db');
-const WORLDS_DIR = path.join(PROJECT_ROOT, 'src', 'storage', 'worlds');
-const THUMBNAILS_DIR = path.join(PROJECT_ROOT, 'src', 'storage', 'thumbnails');
-const BACKUPS_DIR = path.join(PROJECT_ROOT, 'backups');
+// Define paths (the shared, configurable ones come from config/paths)
+const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
+const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
 // Utility function to ensure directory exists
 const ensureDir = async (dirPath) => {

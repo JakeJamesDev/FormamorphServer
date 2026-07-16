@@ -10,11 +10,9 @@ const readFile = promisify(fs.readFile);
 const mkdir = promisify(fs.mkdir);
 const stat = promisify(fs.stat);
 
-// Define paths
-const PROJECT_ROOT = path.join(__dirname, '..', '..');
-const WORLDS_DIR = path.join(PROJECT_ROOT, 'src', 'storage', 'worlds');
-const THUMBNAILS_DIR = path.join(PROJECT_ROOT, 'src', 'storage', 'thumbnails');
-const SNAPSHOTS_DIR = path.join(PROJECT_ROOT, 'snapshots');
+// Define paths (the shared, configurable ones come from config/paths)
+const { PROJECT_ROOT, WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
+const SNAPSHOTS_DIR = process.env.SNAPSHOTS_DIR || path.join(PROJECT_ROOT, 'snapshots');
 
 // Ensure directory exists
 const ensureDir = async (dirPath) => {

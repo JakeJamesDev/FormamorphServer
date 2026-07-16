@@ -33,6 +33,7 @@ const createTables = () => {
       comment_count INTEGER DEFAULT 0,
       tags TEXT,
       spoiler INTEGER DEFAULT 0,
+      kind TEXT NOT NULL DEFAULT 'world',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id)
@@ -99,6 +100,7 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_worlds_name ON worlds(name);
     CREATE INDEX IF NOT EXISTS idx_worlds_author ON worlds(author_id);
     CREATE INDEX IF NOT EXISTS idx_worlds_tags ON worlds(tags);
+    CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
   `);
 
   // Create indexes for comments table
@@ -115,13 +117,13 @@ const initDb = async () => {
   try {
     // Create tables
     createTables();
-    
+
     // Create indexes
     createIndexes();
-    
+
     // Create admin user
     await createAdminUser();
-    
+
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
@@ -131,5 +133,10 @@ const initDb = async () => {
   }
 };
 
-// Run initialization
-initDb();
+// Only self-run as a script (`npm run init-db`). Importing this must not initialize or, worse, close the
+// shared connection — tests build their schema by calling createTables/createIndexes directly.
+if (require.main === module) {
+  initDb();
+}
+
+module.exports = { createTables, createIndexes, createAdminUser, initDb };

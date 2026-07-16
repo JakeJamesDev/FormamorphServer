@@ -2,6 +2,9 @@ const World = require('../models/World');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, getThumbnailBase64 } = require('../utils/fileStorage');
+const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
+const { kindFromQuery } = require('../utils/kindQuery');
+const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -19,6 +22,11 @@ exports.getWorlds = async (req, res, next) => {
     const searchByAuthor = req.query.searchByAuthor === 'true';
     const sort = req.query.sort || 'created_at';
     const order = req.query.order || 'desc';
+    // Absent `kind` means a client that predates the column — it must keep seeing worlds only.
+    const { kind, error } = kindFromQuery(req);
+    if (error) {
+      return res.status(400).json({ success: false, error });
+    }
 
     // Get worlds
     const result = World.getAll({
@@ -28,7 +36,8 @@ exports.getWorlds = async (req, res, next) => {
       tags,
       searchByAuthor,
       sort,
-      order
+      order,
+      kind
     });
 
     res.status(200).json({
@@ -151,12 +160,26 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Name and content data are required' });
     }
 
+    const kind = req.body.kind || DEFAULT_KIND;
+    const rules = rulesFor(kind);
+
+    // Size is capped per kind: a world may legitimately carry 200MB of base64 art, a lorebook may not.
+    const contentBytes = Buffer.byteLength(JSON.stringify(contentData));
+    if (contentBytes > rules.maxContentBytes) {
+      return res.status(400).json({
+        success: false,
+        error: `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`
+      });
+    }
+
     // Generate UUID for the world
     const worldId = uuidv4();
 
     try {
-      // Save thumbnail to file
-      const thumbnailFile = await saveThumbnail(thumbnail);
+      // A kind that can't promise an image falls back to its stand-in art, routed through the same save
+      // path so the row owns its own copy and per-row deletion still applies.
+      const thumbnailSource = thumbnail || placeholderFor(kind);
+      const thumbnailFile = await saveThumbnail(thumbnailSource);
 
       // Save content to file
       const contentFile = await saveWorldContent(worldId, contentData);
@@ -166,10 +189,13 @@ exports.createWorld = async (req, res, next) => {
         {
           id: worldId,
           name,
-          description,
+          // `description` is NOT NULL; an empty string satisfies it for the kinds that have none to give,
+          // which avoids a table rebuild on a live database just to relax the constraint.
+          description: description || '',
           author_id: req.user.id,
           preview_data: previewData,
-          tags
+          tags,
+          kind
         },
         contentFile,
         thumbnailFile
