@@ -132,11 +132,47 @@ const User = {
   },
 
   /**
-   * Get all users
-   * @returns {Array} Array of user objects
+   * Get a page of users, optionally filtered by a username/email substring.
+   *
+   * Paged and counted the same way as `World.getAll` so the admin table can share its client logic.
+   *
+   * @param {Object} [options] - `{ page, limit, search }`
+   * @returns {Object} `{ users, count, pagination, total }` — `total` is the match count before paging
    */
-  getAll: () => {
-    return db.prepare('SELECT id, username, email, status, account_type, created_at, updated_at FROM users').all();
+  getAll: (options = {}) => {
+    const { page = 1, limit = 10, search = '' } = options;
+    const offset = (page - 1) * limit;
+
+    let query = 'SELECT id, username, email, status, account_type, created_at, updated_at FROM users';
+    let countQuery = 'SELECT COUNT(*) as count FROM users';
+    const params = [];
+
+    if (search) {
+      // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
+      const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
+      const clause = " WHERE (username LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\')";
+      query += clause;
+      countQuery += clause;
+      params.push(term, term);
+    }
+
+    // `created_at` is CURRENT_TIMESTAMP, i.e. second-resolution, so same-second signups tie. `id` breaks
+    // the tie: without it a tied row's page is a query-plan detail, and a page could repeat or skip a user.
+    query += ' ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?';
+
+    const users = db.prepare(query).all(...params, limit, offset);
+    const countResult = db.prepare(countQuery).get(...params);
+    const total = countResult ? countResult.count : 0;
+
+    const pagination = {};
+    if (offset + limit < total) {
+      pagination.next = { page: page + 1, limit };
+    }
+    if (page > 1) {
+      pagination.prev = { page: page - 1, limit };
+    }
+
+    return { users, count: users.length, pagination, total };
   },
 
   /**

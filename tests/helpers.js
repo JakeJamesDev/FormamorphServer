@@ -11,11 +11,35 @@ const { v4: uuidv4 } = require('uuid');
  * limited to 20 attempts per window and supertest sends every request from one IP, so registering per
  * test would eventually 429 and make the suite flaky. Register/login are covered directly in auth.test.js.
  */
-export function createUser({ username = `user-${uuidv4().slice(0, 8)}`, password = 'password123', accountType = 'normal' } = {}) {
+export function createUser({ username = `user-${uuidv4().slice(0, 8)}`, password = 'password123', accountType = 'normal', email = null } = {}) {
   const id = uuidv4();
-  db.prepare('INSERT INTO users (id, username, password, account_type) VALUES (?, ?, ?, ?)')
-    .run(id, username, bcrypt.hashSync(password, 10), accountType);
-  return { id, username, password, accountType };
+  db.prepare('INSERT INTO users (id, username, password, account_type, email) VALUES (?, ?, ?, ?, ?)')
+    .run(id, username, bcrypt.hashSync(password, 10), accountType, email);
+  return { id, username, password, accountType, email };
+}
+
+/**
+ * Seed `count` users in one transaction, sharing a pre-computed hash. `createUser` runs bcrypt at cost 10
+ * (~40ms each), so seeding enough rows to push past a page ceiling times the test out. These users exist to
+ * be listed, never to log in — use `createUser` for anyone who authenticates.
+ *
+ * @param {number} count - How many users to insert
+ * @param {string} [prefix] - Username prefix; names are zero-padded so listing order is readable
+ * @returns {Array<Object>} The seeded `{ id, username }` rows
+ */
+export function seedUsers(count, prefix = 'seeded') {
+  const hash = bcrypt.hashSync('password123', 10);
+  const insert = db.prepare('INSERT INTO users (id, username, password, account_type) VALUES (?, ?, ?, ?)');
+  const rows = [];
+  db.transaction(() => {
+    for (let i = 0; i < count; i++) {
+      const id = uuidv4();
+      const username = `${prefix}-${String(i).padStart(3, '0')}`;
+      insert.run(id, username, hash, 'normal');
+      rows.push({ id, username });
+    }
+  })();
+  return rows;
 }
 
 /** A bearer header for a seeded user, signed with the same secret `protect` verifies against. */

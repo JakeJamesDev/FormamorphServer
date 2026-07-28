@@ -9,12 +9,29 @@ const { kindFromQuery } = require('../utils/kindQuery');
  */
 exports.getUsers = async (req, res, next) => {
   try {
-    const users = User.getAll();
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    // Clamped so a hand-rolled `limit=100000` can't turn the admin list into a full table dump.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+    const search = req.query.search || '';
+
+    const result = User.getAll({ page, limit, search });
 
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users
+      count: result.count,
+      pagination: result.pagination,
+      // `total` is what matched, `count` is what's in this response — they differ whenever paging bites.
+      total: result.total,
+      // camelCase to match every other user-shaped response (getMe, updateUserStatus).
+      data: result.users.map(user => ({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        status: user.status,
+        accountType: user.account_type,
+        createdAt: user.created_at,
+        updatedAt: user.updated_at
+      }))
     });
   } catch (error) {
     next(error);
