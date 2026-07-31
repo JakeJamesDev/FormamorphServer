@@ -14,7 +14,7 @@ const commentRoutes = require('./routes/comments');
 const thumbnailRoutes = require('./routes/thumbnails');
 const messageRoutes = require('./routes/messages');
 const policyRoutes = require('./routes/policies');
-const bugRoutes = require('./routes/bugs');
+const feedbackRoutes = require('./routes/feedback');
 
 const app = express();
 
@@ -56,7 +56,7 @@ app.use('/api/worlds', worldRoutes);
 app.use('/api/comments', smallJson, commentRoutes);
 app.use('/api/messages', smallJson, messageRoutes);
 app.use('/api/policies', smallJson, policyRoutes);
-app.use('/api/bugs', smallJson, bugRoutes);
+app.use('/api/feedback', smallJson, feedbackRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
 
 // Base route

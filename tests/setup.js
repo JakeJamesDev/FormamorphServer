@@ -9,6 +9,8 @@ createIndexes();
 initStorage();
 
 afterEach(() => {
-  // Order matters: message states reference messages, comments reference worlds, everything references users.
-  db.exec('DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
+  // Order matters: message states reference messages, comments reference worlds, everything references
+  // users. Feedback is cleared by name rather than left to cascade — its `reporter_id` is SET NULL, so a
+  // thread deliberately outlives the account that filed it and would survive into the next test.
+  db.exec('DELETE FROM feedback; DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
 });

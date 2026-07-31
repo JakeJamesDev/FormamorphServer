@@ -9,11 +9,14 @@ const { v4: uuidv4 } = require('uuid');
  * Columns the admin table may order by, keyed by the name a client sends. A whitelist rather than a
  * check: the value is interpolated into the ORDER BY, so nothing outside this map can reach the SQL.
  *
+ * Null-prototype, so an inherited name like `constructor` is a miss rather than a hit carrying a
+ * function where a column string is expected.
+ *
  * `terms` has no column of its own — it is how the user last answered the upload gate, which is only an
  * answer at all while it matches the policy's current version. The buckets read worst-first ascending:
  * unanswered, then declined, then accepted.
  */
-const SORT_FIELDS = {
+const SORT_FIELDS = Object.assign(Object.create(null), {
   username: 'u.username COLLATE NOCASE',
   email: 'u.email COLLATE NOCASE',
   type: 'u.account_type COLLATE NOCASE',
@@ -23,7 +26,7 @@ const SORT_FIELDS = {
     WHEN a.response = 'declined' THEN 1
     ELSE 2
   END`
-};
+});
 
 const User = {
   /**

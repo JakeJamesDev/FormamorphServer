@@ -923,3 +923,37 @@ describe('edit re-notification', () => {
     expect((await inbox(user)).body.data).toEqual([]);
   });
 });
+
+describe('when the sending admin’s account is deleted', () => {
+  it('leaves their messages in every inbox', async () => {
+    // Cascading would pull a suspension notice out of an inbox while the suspension itself stood.
+    const root = admin();
+    const user = createUser({ username: 'reader' });
+    await send(root, compose({ subject: 'Still here', broadcast: true }));
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(root.id);
+
+    expect((await inbox(user)).body.data.map((m) => m.subject)).toEqual(['Still here']);
+  });
+
+  it('falls back to the team signature for one they had signed', async () => {
+    // The name is resolved by join, so an unlinked sender reads as the team rather than as nobody.
+    const root = admin();
+    const user = createUser({ username: 'reader' });
+    await send(root, compose({ subject: 'Signed', broadcast: true, senderAs: 'username' }));
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(root.id);
+
+    expect((await inbox(user)).body.data[0].senderName).toBeNull();
+  });
+
+  it('keeps it on the sent list for the admins who remain', async () => {
+    const root = admin();
+    const second = createUser({ username: 'other-admin', accountType: 'admin' });
+    await send(root, compose({ subject: 'Still listed', broadcast: true }));
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(root.id);
+
+    expect((await sentList(second)).body.data.map((m) => m.subject)).toEqual(['Still listed']);
+  });
+});

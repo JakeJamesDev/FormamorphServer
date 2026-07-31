@@ -301,17 +301,6 @@ const Message = {
   },
 
   /**
-   * The admin sent list, newest first, including recalled rows.
-   *
-   * Each row carries its own receipt shape: a 1:1 message reports that one recipient's read/dismiss state,
-   * a broadcast reports how many of the users eligible to see it have read it.
-   *
-   * @param {Object} [options] - `{ page, limit, recipientId, audience }`. `recipientId` narrows to one
-   *   user's 1:1 history; `audience` is `direct` (1:1 only) or `broadcast` (broadcasts only), and is
-   *   ignored when `recipientId` is given. Omit both to list everything.
-   * @returns {Object} `{ messages, count, total }`
-   */
-  /**
    * How many direct messages each of the given users has been sent. One query for a whole page of the
    * admin table rather than a count per row.
    *
@@ -335,6 +324,17 @@ const Message = {
     return new Map(rows.map((row) => [row.recipient_id, row.count]));
   },
 
+  /**
+   * The admin sent list, newest first, including recalled rows.
+   *
+   * Each row carries its own receipt shape: a 1:1 message reports that one recipient's read/dismiss state,
+   * a broadcast reports how many of the users eligible to see it have read it.
+   *
+   * @param {Object} [options] - `{ page, limit, recipientId, audience }`. `recipientId` narrows to one
+   *   user's 1:1 history; `audience` is `direct` (1:1 only) or `broadcast` (broadcasts only), and is
+   *   ignored when `recipientId` is given. Omit both to list everything.
+   * @returns {Object} `{ messages, count, total }`
+   */
   getSent: (options = {}) => {
     const { page = 1, limit = 20, recipientId = null, audience = null } = options;
     const offset = (page - 1) * limit;

@@ -64,7 +64,9 @@ const createTables = () => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
-      sender_id TEXT NOT NULL,
+      -- Nullable, and SET NULL on delete: a deleted admin's notices stay where they were read. Cascading
+      -- would pull a suspension notice out of an inbox while the suspension itself stood.
+      sender_id TEXT,
       sender_as TEXT NOT NULL DEFAULT 'team' CHECK (sender_as IN ('team', 'username')),
       recipient_id TEXT,
       subject TEXT NOT NULL,
@@ -74,7 +76,7 @@ const createTables = () => {
       recalled_at TEXT,
       edited_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_id) REFERENCES users (id) ON DELETE SET NULL,
       FOREIGN KEY (recipient_id) REFERENCES users (id) ON DELETE CASCADE
     )
   `);
@@ -127,50 +129,80 @@ const createTables = () => {
     )
   `);
 
-  // Bug reports and their threads. A report is user-authored, unlike everything else an admin surface
-  // lists — the reporter and the admins are the only readers, and the thread is what keeps a reply
-  // scoped to the bug rather than reopening the one-way message channel.
+  // User-filed feedback: bug reports and suggestions. One tree with a `type` branch rather than two
+  // parallel systems — a thread, a status and a read-marker mean the same thing on both, and only the
+  // vocabulary and who may write differ.
+  //
+  // `status` and `category` are checked per type, so a suggestion can't be marked 'confirmed' and a bug
+  // can't be filed under 'interface'. `reporter_id` is nullable and SET NULL rather than cascading: a
+  // suggestion others have voted on and discussed must outlive the account that happened to file it.
+  // `locked_at` closes a thread to further replies while leaving it readable.
   db.exec(`
-    CREATE TABLE IF NOT EXISTS bug_reports (
+    CREATE TABLE IF NOT EXISTS feedback (
       id TEXT PRIMARY KEY,
-      reporter_id TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'bug' CHECK (type IN ('bug', 'suggestion')),
+      reporter_id TEXT,
       title TEXT NOT NULL,
-      category TEXT NOT NULL CHECK (category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other')),
+      category TEXT NOT NULL,
       body TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open'
-        CHECK (status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')),
+      status TEXT NOT NULL DEFAULT 'open',
       -- What the client reported about itself (version, platform), shown to the reporter before sending.
+      -- Bugs only: a suggestion is about the game, not about the machine it was written on.
       diagnostics TEXT NOT NULL DEFAULT '{}',
+      locked_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE CASCADE
+      CHECK (
+        (type = 'bug' AND status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')
+                      AND category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other'))
+        OR
+        (type = 'suggestion' AND status IN ('open', 'considering', 'planned', 'declined', 'done')
+                             AND category IN ('gameplay', 'writing', 'editor', 'community', 'interface', 'other'))
+      ),
+      FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE SET NULL
     )
   `);
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS bug_comments (
+    CREATE TABLE IF NOT EXISTS feedback_comments (
       id TEXT PRIMARY KEY,
-      report_id TEXT NOT NULL,
-      author_id TEXT NOT NULL,
+      feedback_id TEXT NOT NULL,
+      -- Nullable for the same reason as the message sender: a deleted author leaves the thread
+      -- readable rather than tearing their half of the conversation out of it.
+      author_id TEXT,
       body TEXT NOT NULL,
       created_at TEXT NOT NULL,
       -- Set the first time an author rewrites their own comment, so the thread can say "edited".
       edited_at TEXT,
-      FOREIGN KEY (report_id) REFERENCES bug_reports (id) ON DELETE CASCADE,
-      FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE
+      FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
+      FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE SET NULL
     )
   `);
 
   // One row per reader per thread. The badge counts threads holding a comment newer than this, written
   // by somebody else — the same shape as message read-state, kept separate because a thread is read as
-  // a whole rather than message by message.
+  // a whole rather than message by message. Written only for someone the thread badges, so a passing
+  // reader of the public queue leaves nothing behind.
   db.exec(`
-    CREATE TABLE IF NOT EXISTS bug_report_reads (
-      report_id TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS feedback_reads (
+      feedback_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       last_seen_at TEXT NOT NULL,
-      PRIMARY KEY (report_id, user_id),
-      FOREIGN KEY (report_id) REFERENCES bug_reports (id) ON DELETE CASCADE,
+      PRIMARY KEY (feedback_id, user_id),
+      FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // One vote per account per suggestion. Filing counts as one, so nothing sits at zero that its own
+  // author wanted. Cascades on both sides: a deleted account takes its votes with it.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_votes (
+      feedback_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (feedback_id, user_id),
+      FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )
   `);
@@ -242,12 +274,13 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_policy_acceptances_user ON policy_acceptances(user_id);
   `);
 
-  // Create indexes for bug reports
+  // Create indexes for feedback
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_bug_reports_reporter ON bug_reports(reporter_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_bug_reports_status ON bug_reports(status);
-    CREATE INDEX IF NOT EXISTS idx_bug_comments_report ON bug_comments(report_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_bug_report_reads_user ON bug_report_reads(user_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_reporter ON feedback(reporter_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_feedback_type_status ON feedback(type, status);
+    CREATE INDEX IF NOT EXISTS idx_feedback_comments_thread ON feedback_comments(feedback_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_feedback_reads_user ON feedback_reads(user_id);
+    CREATE INDEX IF NOT EXISTS idx_feedback_votes_thread ON feedback_votes(feedback_id);
   `);
 
   console.log('Database indexes created successfully');
