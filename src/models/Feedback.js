@@ -23,12 +23,6 @@ const STATUSES = {
   suggestion: ['open', 'considering', 'planned', 'declined', 'done']
 };
 
-/** Statuses that mean nobody is waiting on anything — used to split an admin's queue. */
-const CLOSED_STATUSES = {
-  bug: ['resolved', 'wontfix'],
-  suggestion: ['declined', 'done']
-};
-
 /** Caps, mirrored by the client so its field limits agree with what this will accept. */
 const TITLE_MAX = 120;
 const BODY_MAX = 4000;
@@ -89,7 +83,6 @@ const Feedback = {
   TYPES,
   CATEGORIES,
   STATUSES,
-  CLOSED_STATUSES,
   SORT_FIELDS,
   TITLE_MAX,
   BODY_MAX,
