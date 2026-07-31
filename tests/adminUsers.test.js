@@ -283,3 +283,151 @@ describe('GET /api/users shape', () => {
     expect(res.body.data.every((u) => u.password === undefined)).toBe(true);
   });
 });
+
+describe('GET /api/users sorting', () => {
+  const names = (res) => res.body.data.map((user) => user.username);
+
+  it('orders by username in both directions', async () => {
+    const root = admin();
+    createUser({ username: 'carol' });
+    createUser({ username: 'alice' });
+    createUser({ username: 'bob' });
+
+    expect(names(await list(root, '?sort=username&order=asc'))).toEqual(['alice', 'bob', 'carol', 'root-admin']);
+    expect(names(await list(root, '?sort=username&order=desc'))).toEqual(['root-admin', 'carol', 'bob', 'alice']);
+  });
+
+  it('sorts case-insensitively', async () => {
+    // A binary collation puts every capital ahead of every lowercase, so `Zoe` would lead `alice`.
+    const root = admin();
+    createUser({ username: 'Zoe' });
+    createUser({ username: 'alice' });
+
+    expect(names(await list(root, '?sort=username&order=asc'))).toEqual(['alice', 'root-admin', 'Zoe']);
+  });
+
+  it('orders across the whole userbase, not within a page', async () => {
+    // The table is paged, so sorting only what a page holds would sort ten rows out of however many.
+    const root = admin();
+    for (let i = 20; i >= 1; i--) createUser({ username: `user-${String(i).padStart(2, '0')}` });
+
+    const first = await list(root, '?sort=username&order=asc&limit=5');
+
+    // `root-admin` leads on name; the point is that page one holds the global first five, not the
+    // alphabetical head of whatever ten rows the unsorted query happened to return.
+    expect(names(first)).toEqual(['root-admin', 'user-01', 'user-02', 'user-03', 'user-04']);
+  });
+
+  it('orders by account type and by status', async () => {
+    const root = admin();
+    createUser({ username: 'plain', accountType: 'normal', status: 'suspended' });
+
+    expect(names(await list(root, '?sort=type&order=asc'))).toEqual(['root-admin', 'plain']);
+    expect(names(await list(root, '?sort=status&order=desc'))).toEqual(['plain', 'root-admin']);
+  });
+
+  it('orders by the terms answer, worst first', async () => {
+    const root = admin();
+    await request(app).put('/api/policies/upload_gate').set(authHeader(root))
+      .send({ enabled: true, title: 'Terms', body: 'Be excellent.' });
+
+    const yes = createUser({ username: 'z-accepted' });
+    const no = createUser({ username: 'y-declined' });
+    createUser({ username: 'x-unanswered' });
+    await request(app).post('/api/policies/upload-gate/accept').set(authHeader(yes));
+    await request(app).post('/api/policies/upload-gate/decline').set(authHeader(no));
+
+    // Names run backwards through the alphabet so a fallback to name order can't pass by accident.
+    const res = await list(root, '?sort=terms&order=asc');
+    const answers = res.body.data.map((user) => user.termsResponse);
+
+    expect(answers.indexOf('unanswered')).toBeLessThan(answers.indexOf('declined'));
+    expect(answers.indexOf('declined')).toBeLessThan(answers.indexOf('accepted'));
+  });
+
+  it('counts a stale acceptance as unanswered when sorting', async () => {
+    const root = admin();
+    await request(app).put('/api/policies/upload_gate').set(authHeader(root))
+      .send({ enabled: true, title: 'Terms', body: 'Be excellent.' });
+    const user = createUser({ username: 'stale' });
+    await request(app).post('/api/policies/upload-gate/accept').set(authHeader(user));
+    await request(app).post('/api/policies/upload-gate/reset').set(authHeader(root)).send({});
+
+    // Someone genuinely accepted against the new version, to sort the stale row against.
+    const current = createUser({ username: 'current' });
+    await request(app).post('/api/policies/upload-gate/accept').set(authHeader(current));
+
+    const res = await list(root, '?sort=terms&order=desc');
+
+    // Sorted best-first, only the live acceptance may lead — the invalidated one is unanswered now.
+    expect(res.body.data[0].username).toBe('current');
+    expect(res.body.data.find((u) => u.username === 'stale').termsResponse).toBe('unanswered');
+  });
+
+  it('ignores a sort field it does not know', async () => {
+    const root = admin();
+    createUser({ username: 'alice' });
+
+    const res = await list(root, '?sort=password&order=asc');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+  });
+
+  it('survives a sort field that is a SQL fragment', async () => {
+    const root = admin();
+    createUser({ username: 'alice' });
+
+    const res = await list(root, `?sort=${encodeURIComponent('u.id; DROP TABLE users --')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(2);
+  });
+
+  it('pages a sorted list without repeating or skipping anyone', async () => {
+    const root = admin();
+    // Everyone shares a status, so the sort key ties for all of them and only the ID tiebreak separates.
+    seedUsers(25, 'tied');
+
+    const seen = [];
+    for (let page = 1; page <= 3; page += 1) {
+      const res = await list(root, `?sort=status&order=asc&page=${page}&limit=10`);
+      seen.push(...names(res));
+    }
+
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen).toHaveLength(26);
+  });
+});
+
+describe('GET /api/users message counts', () => {
+  const countFor = (res, username) =>
+    res.body.data.find((user) => user.username === username).messageCount;
+
+  it('counts the direct messages each user was sent', async () => {
+    const root = admin();
+    const one = createUser({ username: 'written-to' });
+    createUser({ username: 'never-written-to' });
+
+    for (const subject of ['First', 'Second']) {
+      await request(app).post('/api/messages').set(authHeader(root))
+        .send({ recipientIds: [one.id], subject, body: 'Hello.' });
+    }
+
+    const res = await list(root);
+
+    expect(countFor(res, 'written-to')).toBe(2);
+    expect(countFor(res, 'never-written-to')).toBe(0);
+  });
+
+  it('does not count broadcasts against anyone', async () => {
+    // A broadcast is stored once and belongs to nobody's history; counting it would inflate every row.
+    const root = admin();
+    createUser({ username: 'reader' });
+
+    await request(app).post('/api/messages').set(authHeader(root))
+      .send({ subject: 'To everyone', body: 'Hello all.', scope: 'existing' });
+
+    expect(countFor(await list(root), 'reader')).toBe(0);
+  });
+});

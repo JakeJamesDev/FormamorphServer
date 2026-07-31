@@ -5,6 +5,26 @@ const { v4: uuidv4 } = require('uuid');
 /**
  * User model
  */
+/**
+ * Columns the admin table may order by, keyed by the name a client sends. A whitelist rather than a
+ * check: the value is interpolated into the ORDER BY, so nothing outside this map can reach the SQL.
+ *
+ * `terms` has no column of its own — it is how the user last answered the upload gate, which is only an
+ * answer at all while it matches the policy's current version. The buckets read worst-first ascending:
+ * unanswered, then declined, then accepted.
+ */
+const SORT_FIELDS = {
+  username: 'u.username COLLATE NOCASE',
+  email: 'u.email COLLATE NOCASE',
+  type: 'u.account_type COLLATE NOCASE',
+  status: 'u.status COLLATE NOCASE',
+  terms: `CASE
+    WHEN a.accepted_version IS NULL OR a.accepted_version <> p.acceptance_version THEN 0
+    WHEN a.response = 'declined' THEN 1
+    ELSE 2
+  END`
+};
+
 const User = {
   /**
    * Find a user by ID
@@ -131,26 +151,39 @@ const User = {
     }
   },
 
+  SORT_FIELDS,
+
   /**
-   * Get a page of users, optionally filtered by a username/email substring.
+   * Get a page of users, optionally filtered by a username/email substring and ordered by a column.
    *
    * Paged and counted the same way as `World.getAll` so the admin table can share its client logic.
    *
-   * @param {Object} [options] - `{ page, limit, search }`
+   * Sorting is server-side because the table is paged: ordering only what a page happens to contain
+   * would sort ten rows rather than the userbase.
+   *
+   * @param {Object} [options] - `{ page, limit, search, sort, order }`; `sort` is a `SORT_FIELDS` key
    * @returns {Object} `{ users, count, pagination, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
-    const { page = 1, limit = 10, search = '' } = options;
+    const { page = 1, limit = 10, search = '', sort = null, order = 'asc' } = options;
     const offset = (page - 1) * limit;
 
-    let query = 'SELECT id, username, email, status, account_type, created_at, updated_at FROM users';
-    let countQuery = 'SELECT COUNT(*) as count FROM users';
+    // The terms column is not on `users`, so ordering by it needs the answer joined in. The join is
+    // always present rather than conditional: one shape is easier to reason about than two.
+    const from = `
+      FROM users u
+      LEFT JOIN policy_acceptances a ON a.user_id = u.id AND a.policy_id = 'upload_gate'
+      LEFT JOIN policies p ON p.id = a.policy_id
+    `;
+
+    let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.created_at, u.updated_at ${from}`;
+    let countQuery = `SELECT COUNT(*) as count ${from}`;
     const params = [];
 
     if (search) {
       // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
       const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
-      const clause = " WHERE (username LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\')";
+      const clause = " WHERE (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
       query += clause;
       countQuery += clause;
       params.push(term, term);
@@ -158,7 +191,12 @@ const User = {
 
     // `created_at` is CURRENT_TIMESTAMP, i.e. second-resolution, so same-second signups tie. `id` breaks
     // the tie: without it a tied row's page is a query-plan detail, and a page could repeat or skip a user.
-    query += ' ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?';
+    const direction = String(order).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    // Only a known key reaches the SQL — `sort` is a request parameter, and these are interpolated.
+    const column = SORT_FIELDS[sort];
+    query += column
+      ? ` ORDER BY ${column} ${direction}, u.id ASC LIMIT ? OFFSET ?`
+      : ' ORDER BY u.created_at DESC, u.id ASC LIMIT ? OFFSET ?';
 
     const users = db.prepare(query).all(...params, limit, offset);
     const countResult = db.prepare(countQuery).get(...params);

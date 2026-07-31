@@ -10,5 +10,5 @@ initStorage();
 
 afterEach(() => {
   // Order matters: message states reference messages, comments reference worlds, everything references users.
-  db.exec('DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
+  db.exec('DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
 });

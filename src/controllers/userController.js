@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const World = require('../models/World');
+const Policy = require('../models/Policy');
+const Message = require('../models/Message');
 const { kindFromQuery } = require('../utils/kindQuery');
 
 /**
@@ -13,8 +15,17 @@ exports.getUsers = async (req, res, next) => {
     // Clamped so a hand-rolled `limit=100000` can't turn the admin list into a full table dump.
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
     const search = req.query.search || '';
+    // An unknown sort field is ignored rather than rejected — it falls back to newest-first, which is
+    // what an unsorted table has always shown.
+    const sort = Object.prototype.hasOwnProperty.call(User.SORT_FIELDS, req.query.sort) ? req.query.sort : null;
+    const order = req.query.order === 'desc' ? 'desc' : 'asc';
 
-    const result = User.getAll({ page, limit, search });
+    const result = User.getAll({ page, limit, search, sort, order });
+
+    // One query each for the page rather than a per-row lookup.
+    const ids = result.users.map(user => user.id);
+    const responses = Policy.responsesBy(Policy.UPLOAD_GATE, ids);
+    const messageCounts = Message.countsByRecipient(ids);
 
     res.status(200).json({
       success: true,
@@ -30,7 +41,12 @@ exports.getUsers = async (req, res, next) => {
         status: user.status,
         accountType: user.account_type,
         createdAt: user.created_at,
-        updatedAt: user.updated_at
+        updatedAt: user.updated_at,
+        // How they last answered the upload gate: 'accepted', 'declined', or 'unanswered' — which
+        // covers never being asked and an answer a version bump has since invalidated.
+        termsResponse: responses.get(user.id) || 'unanswered',
+        // Direct messages sent to them, so the history button can say how much is behind it.
+        messageCount: messageCounts.get(user.id) || 0
       }))
     });
   } catch (error) {

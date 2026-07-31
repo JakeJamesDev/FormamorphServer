@@ -93,6 +93,40 @@ const createTables = () => {
     )
   `);
 
+  // Authored popups shown at publish time. Two fixed rows, created on demand by the admin editor:
+  // `upload_gate` (blocking, must be accepted once) and `tag_notice` (advisory, shown whenever one of
+  // its tags is present). Neither exists until an admin writes it, so an untouched server gates nothing.
+  //
+  // `acceptance_version` is what invalidates acceptances. Comparing an acceptance date against the
+  // policy's edit date would mean comparing timestamps written in two different formats — the exact
+  // trap the message visibility rule already had to work around. A counter has no such ambiguity:
+  // requiring re-acceptance bumps it, and an acceptance is current only if it matches.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS policies (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      acceptance_version INTEGER NOT NULL DEFAULT 1,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS policy_acceptances (
+      policy_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      accepted_version INTEGER NOT NULL,
+      accepted_at TEXT NOT NULL,
+      -- A decline is recorded too, so an admin can tell "hasn't been asked yet" from "was asked and said no".
+      response TEXT NOT NULL DEFAULT 'accepted' CHECK (response IN ('accepted', 'declined')),
+      PRIMARY KEY (policy_id, user_id),
+      FOREIGN KEY (policy_id) REFERENCES policies (id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   console.log('Database tables created successfully');
 };
 
@@ -153,6 +187,11 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_recalled ON messages(recalled_at);
     CREATE INDEX IF NOT EXISTS idx_message_states_user ON message_states(user_id);
+  `);
+
+  // Create indexes for policy acceptances
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_policy_acceptances_user ON policy_acceptances(user_id);
   `);
 
   console.log('Database indexes created successfully');

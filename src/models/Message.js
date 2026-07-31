@@ -311,6 +311,30 @@ const Message = {
    *   ignored when `recipientId` is given. Omit both to list everything.
    * @returns {Object} `{ messages, count, total }`
    */
+  /**
+   * How many direct messages each of the given users has been sent. One query for a whole page of the
+   * admin table rather than a count per row.
+   *
+   * Counts what the admin's own history list shows, so the number on the button matches what opening it
+   * produces — recalled messages included, since they stay on the sender's side.
+   *
+   * @param {Array<string>} userIds - Recipient IDs
+   * @returns {Map<string, number>} User ID → count; absent means none
+   */
+  countsByRecipient: (userIds) => {
+    if (!userIds || userIds.length === 0) return new Map();
+
+    const placeholders = userIds.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT recipient_id, COUNT(*) AS count
+      FROM messages
+      WHERE recipient_id IN (${placeholders})
+      GROUP BY recipient_id
+    `).all(...userIds);
+
+    return new Map(rows.map((row) => [row.recipient_id, row.count]));
+  },
+
   getSent: (options = {}) => {
     const { page = 1, limit = 20, recipientId = null, audience = null } = options;
     const offset = (page - 1) * limit;

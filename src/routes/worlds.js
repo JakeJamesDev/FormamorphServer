@@ -3,6 +3,7 @@ const { check } = require('express-validator');
 const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { protect } = require('../middleware/auth');
+const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 
 const router = express.Router();
@@ -45,6 +46,7 @@ router.post(
     })
   ],
   protect,
+  requireUploadTerms,
   createWorld
 );
 
@@ -56,6 +58,7 @@ router.put(
     check('name', 'Name cannot exceed 100 characters').optional().isLength({ max: 100 })
   ],
   protect,
+  requireUploadTerms,
   updateWorld
 );
 
