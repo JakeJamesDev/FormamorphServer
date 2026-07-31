@@ -127,6 +127,54 @@ const createTables = () => {
     )
   `);
 
+  // Bug reports and their threads. A report is user-authored, unlike everything else an admin surface
+  // lists — the reporter and the admins are the only readers, and the thread is what keeps a reply
+  // scoped to the bug rather than reopening the one-way message channel.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bug_reports (
+      id TEXT PRIMARY KEY,
+      reporter_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL CHECK (category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other')),
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')),
+      -- What the client reported about itself (version, platform), shown to the reporter before sending.
+      diagnostics TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bug_comments (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      -- Set the first time an author rewrites their own comment, so the thread can say "edited".
+      edited_at TEXT,
+      FOREIGN KEY (report_id) REFERENCES bug_reports (id) ON DELETE CASCADE,
+      FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // One row per reader per thread. The badge counts threads holding a comment newer than this, written
+  // by somebody else — the same shape as message read-state, kept separate because a thread is read as
+  // a whole rather than message by message.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bug_report_reads (
+      report_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      PRIMARY KEY (report_id, user_id),
+      FOREIGN KEY (report_id) REFERENCES bug_reports (id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   console.log('Database tables created successfully');
 };
 
@@ -192,6 +240,14 @@ const createIndexes = () => {
   // Create indexes for policy acceptances
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_policy_acceptances_user ON policy_acceptances(user_id);
+  `);
+
+  // Create indexes for bug reports
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bug_reports_reporter ON bug_reports(reporter_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_bug_reports_status ON bug_reports(status);
+    CREATE INDEX IF NOT EXISTS idx_bug_comments_report ON bug_comments(report_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_bug_report_reads_user ON bug_report_reads(user_id);
   `);
 
   console.log('Database indexes created successfully');
