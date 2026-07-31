@@ -9,6 +9,6 @@ createIndexes();
 initStorage();
 
 afterEach(() => {
-  // Order matters: comments reference worlds, worlds reference users.
-  db.exec('DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
+  // Order matters: message states reference messages, comments reference worlds, everything references users.
+  db.exec('DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds; DELETE FROM users;');
 });

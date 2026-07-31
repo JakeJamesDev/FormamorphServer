@@ -2,12 +2,13 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 
 /**
- * Middleware to protect routes that require authentication
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next function
+ * Build an authentication middleware.
+ *
+ * @param {Object} [options] - `{ allowSuspended }` — when true, a suspended account may also make
+ *   write requests. Only for routes that write nothing but the caller's own read/dismiss state.
+ * @returns {Function} Express middleware
  */
-exports.protect = async (req, res, next) => {
+const authenticate = ({ allowSuspended = false } = {}) => async (req, res, next) => {
   let token;
 
   // Check if token exists in Authorization header
@@ -32,7 +33,7 @@ exports.protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Get user from database
-    const user = db.prepare('SELECT id, username, email, status, account_type FROM users WHERE id = ?').get(decoded.id);
+    const user = db.prepare('SELECT id, username, email, status, account_type, created_at FROM users WHERE id = ?').get(decoded.id);
 
     // Check if user exists
     if (!user) {
@@ -43,7 +44,7 @@ exports.protect = async (req, res, next) => {
     }
 
     // Check if user is suspended
-    if (user.status === 'suspended' && req.method !== 'GET') {
+    if (!allowSuspended && user.status === 'suspended' && req.method !== 'GET') {
       return res.status(403).json({
         success: false,
         error: 'Your account has been suspended'
@@ -60,6 +61,20 @@ exports.protect = async (req, res, next) => {
     });
   }
 };
+
+/**
+ * Middleware to protect routes that require authentication
+ */
+exports.protect = authenticate();
+
+/**
+ * Authentication that still admits a suspended account on writes.
+ *
+ * A suspension notice is delivered as a message, so the suspended user must be able to mark it read and
+ * dismiss it — under `protect` those calls 403, leaving the badge stuck and the admin without a receipt.
+ * Restricted to routes touching only the caller's own `message_states` row.
+ */
+exports.protectAllowSuspended = authenticate({ allowSuspended: true });
 
 /**
  * Middleware to restrict routes to admin users

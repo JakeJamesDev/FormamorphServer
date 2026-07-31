@@ -20,7 +20,7 @@ describe('harness', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all()
       .map((r) => r.name);
-    expect(tables).toEqual(['comments', 'users', 'worlds']);
+    expect(tables).toEqual(['comments', 'message_states', 'messages', 'users', 'worlds']);
   });
 
   it('gives tests the same database the app writes to', () => {

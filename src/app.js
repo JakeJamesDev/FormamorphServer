@@ -12,6 +12,7 @@ const userRoutes = require('./routes/users');
 const worldRoutes = require('./routes/worlds');
 const commentRoutes = require('./routes/comments');
 const thumbnailRoutes = require('./routes/thumbnails');
+const messageRoutes = require('./routes/messages');
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use('/api/auth', smallJson, authRoutes);
 app.use('/api/users', smallJson, userRoutes);
 app.use('/api/worlds', worldRoutes);
 app.use('/api/comments', smallJson, commentRoutes);
+app.use('/api/messages', smallJson, messageRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
 
 // Base route

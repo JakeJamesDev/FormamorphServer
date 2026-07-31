@@ -11,11 +11,18 @@ const { v4: uuidv4 } = require('uuid');
  * limited to 20 attempts per window and supertest sends every request from one IP, so registering per
  * test would eventually 429 and make the suite flaky. Register/login are covered directly in auth.test.js.
  */
-export function createUser({ username = `user-${uuidv4().slice(0, 8)}`, password = 'password123', accountType = 'normal', email = null } = {}) {
+export function createUser({ username = `user-${uuidv4().slice(0, 8)}`, password = 'password123', accountType = 'normal', email = null, status = 'normal', createdAt = null } = {}) {
   const id = uuidv4();
-  db.prepare('INSERT INTO users (id, username, password, account_type, email) VALUES (?, ?, ?, ?, ?)')
-    .run(id, username, bcrypt.hashSync(password, 10), accountType, email);
-  return { id, username, password, accountType, email };
+  // `created_at` is left to CURRENT_TIMESTAMP unless a test needs to place the signup relative to
+  // something else — broadcast visibility turns on whether the account predates the message.
+  if (createdAt) {
+    db.prepare('INSERT INTO users (id, username, password, account_type, email, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, username, bcrypt.hashSync(password, 10), accountType, email, status, createdAt);
+  } else {
+    db.prepare('INSERT INTO users (id, username, password, account_type, email, status) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, username, bcrypt.hashSync(password, 10), accountType, email, status);
+  }
+  return { id, username, password, accountType, email, status };
 }
 
 /**

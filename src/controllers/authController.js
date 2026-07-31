@@ -82,15 +82,11 @@ exports.login = async (req, res, next) => {
       });
     }
 
-    // Check if user is suspended
-    if (user.status === 'suspended') {
-      return res.status(403).json({
-        success: false,
-        error: 'Your account has been suspended'
-      });
-    }
-
-    // Generate token
+    // A suspended account may sign in. Suspension is enforced per request by `protect`, which turns away
+    // every non-GET — so signing in grants reading only, the same as the public browse routes already
+    // allow when signed out. Refusing the login instead denied them nothing but the sight of their own
+    // account, including the message explaining the suspension. The response carries `status` so the
+    // client can show the account as suspended rather than as an ordinary session.
     const token = generateToken(user.id);
 
     res.status(200).json({
