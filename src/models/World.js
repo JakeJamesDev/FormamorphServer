@@ -13,6 +13,21 @@ const { isStaff, badgeRole } = require('../config/roles');
 const AUTHOR_LIST_LIMIT = 1000;
 
 /**
+ * Orders the catalog may be asked for. A whitelist: the value is interpolated into the ORDER BY.
+ *
+ * Maps to the expression rather than a bare name, because `likes` is computed on the select and carries
+ * no `w.` prefix. Null-prototyped like every other sort whitelist here — a plain object answers to
+ * `constructor` and `toString`, which would put a function's source into the query and 500 the request.
+ */
+const SORT_EXPRESSIONS = Object.assign(Object.create(null), {
+  created_at: 'w.created_at',
+  updated_at: 'w.updated_at',
+  downloads: 'w.downloads',
+  name: 'w.name',
+  likes: 'like_count'
+});
+
+/**
  * World model
  */
 const World = {
@@ -190,15 +205,7 @@ const World = {
         countQuery += ' WHERE ' + whereClause.join(' AND ');
       }
       
-      // Validate sort field to prevent SQL injection. A whitelist maps to the expression rather than to a
-      // bare name, because `likes` is a computed column on the select and carries no `w.` prefix.
-      const SORT_EXPRESSIONS = {
-        created_at: 'w.created_at',
-        updated_at: 'w.updated_at',
-        downloads: 'w.downloads',
-        name: 'w.name',
-        likes: 'like_count'
-      };
+      // An unknown sort falls back to newest-first, which is what an unsorted catalog has always shown.
       const sortExpression = SORT_EXPRESSIONS[sort] || SORT_EXPRESSIONS.created_at;
 
       // Validate order direction

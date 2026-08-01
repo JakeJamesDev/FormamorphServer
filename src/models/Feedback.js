@@ -42,6 +42,7 @@ const FEEDBACK_SELECT = `
   SELECT r.*,
          u.username AS reporter_username,
          u.avatar_file AS reporter_avatar_file,
+         u.account_type AS reporter_account_type,
          (SELECT COUNT(*) FROM feedback_votes v WHERE v.feedback_id = r.id) AS vote_count,
          (SELECT COUNT(*) FROM feedback_comments c WHERE c.feedback_id = r.id) AS comment_count
   FROM feedback r
@@ -102,15 +103,15 @@ const Feedback = {
    * @param {Object} data - `{ type, reporterId, title, category, body, diagnostics }`
    * @returns {Object} The stored thread
    */
-  create: ({ type = 'bug', reporterId, title, category, body, diagnostics }) => {
+  create: ({ type = 'bug', reporterId, reporterRole = null, title, category, body, diagnostics }) => {
     const id = uuidv4();
     const now = new Date().toISOString();
 
     db.transaction(() => {
       db.prepare(`
-        INSERT INTO feedback (id, type, reporter_id, title, category, body, status, diagnostics, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
-      `).run(id, type, reporterId, title, category, body, JSON.stringify(diagnostics || {}), now, now);
+        INSERT INTO feedback (id, type, reporter_id, reporter_role, title, category, body, status, diagnostics, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+      `).run(id, type, reporterId, reporterRole, title, category, body, JSON.stringify(diagnostics || {}), now, now);
 
       if (type === 'suggestion') {
         db.prepare('INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)')

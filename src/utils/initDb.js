@@ -159,6 +159,10 @@ const createTables = () => {
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL DEFAULT 'bug' CHECK (type IN ('bug', 'suggestion')),
       reporter_id TEXT,
+      -- What the reporter was when they filed it, so a later promotion or demotion never rewrites the
+      -- badge on a report they already sent. Null for rows written before the column, which fall back
+      -- to the live account type. Mirrors feedback_comments.author_role.
+      reporter_role TEXT,
       title TEXT NOT NULL,
       category TEXT NOT NULL,
       body TEXT NOT NULL,

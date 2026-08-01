@@ -20,7 +20,9 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   reporter: {
     id: row.reporter_id,
     username: row.reporter_username || null,
-    avatarUrl: avatarUrlFor(row.reporter_avatar_file)
+    avatarUrl: avatarUrlFor(row.reporter_avatar_file),
+    // What they were when they filed it — see `snapshotRoleOf`.
+    role: snapshotRoleOf(row.reporter_role, row.reporter_account_type)
   },
   // Stored as JSON text; a row written by hand could be malformed, and one bad row must not fail the list.
   // A suggestion's is empty because none was ever stored — masking it here as well would be a second
@@ -49,22 +51,26 @@ const toCommentDto = (row) => ({
     // What they were when they wrote it, which is what the badge says. Null for an ordinary reply, and
     // for one written before the snapshot existed — those fall back to the live account type, which is
     // the old behavior and the best that can be said about them.
-    role: authorRoleOf(row)
+    role: snapshotRoleOf(row.author_role, row.author_account_type)
   }
 });
 
 /**
- * What a reply's author was when they wrote it.
+ * What somebody was when they wrote the thing being read.
  *
  * The snapshot when there is one; otherwise the live account type, for rows written before the column
- * existed. `normal` becomes null either way — an ordinary reply wears no badge, and a caller checking
- * for one should not have to know the word.
+ * existed. `normal` becomes null either way — an ordinary post wears no badge, and a caller checking for
+ * one should not have to know the word.
  *
- * @param {Object} row - A `feedback_comments` row joined with its author
+ * Shared by a reply's author and a report's reporter: both are a record of who said something at a
+ * moment, so neither may be rewritten by a later promotion or demotion.
+ *
+ * @param {string|null} snapshot - The role recorded at write time
+ * @param {string|null} live - The account's current type, as the fallback
  * @returns {string|null} The role, or null
  */
-function authorRoleOf(row) {
-  const role = row.author_role || row.author_account_type || null;
+function snapshotRoleOf(snapshot, live) {
+  const role = snapshot || live || null;
 
   return role && role !== 'normal' ? role : null;
 }
@@ -124,6 +130,9 @@ exports.createThread = async (req, res, next) => {
     const thread = Feedback.create({
       type,
       reporterId: req.user.id,
+      // Recorded now rather than joined later, so being promoted or demoted afterwards never restyles
+      // a report somebody already filed.
+      reporterRole: roleOf(req.user),
       title,
       category,
       body,

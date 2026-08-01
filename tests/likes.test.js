@@ -213,6 +213,22 @@ describe('sorting by likes', () => {
     expect(names.indexOf('Quiet')).toBeLessThan(names.indexOf('Loved'));
   });
 
+  it('falls back rather than reaching a name every object answers to', async () => {
+    // Found in review: a plain-object whitelist answers to `constructor` and `toString`, so `?sort=`
+    // either of them put a function's source into the ORDER BY and 500'd the request. Null-prototyped
+    // now, like every other sort whitelist on this server.
+    const author = createUser({ username: `author-${Math.random().toString(36).slice(2, 8)}` });
+    await publish(author, { name: 'Older' });
+    await publish(author, { name: 'Newer' });
+
+    for (const sort of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      const res = await request(app).get(`/api/worlds?sort=${sort}&order=desc`);
+      expect(res.status).toBe(200);
+      const names = res.body.data.map((w) => w.name);
+      expect(names.indexOf('Newer')).toBeLessThan(names.indexOf('Older'));
+    }
+  });
+
   it('still falls back to newest for a sort nobody recognizes', async () => {
     const author = createUser({ username: `author-${Math.random().toString(36).slice(2, 8)}` });
     await publish(author, { name: 'Older' });
