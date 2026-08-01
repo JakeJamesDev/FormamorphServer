@@ -25,6 +25,9 @@ const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join(PROJECT_ROOT, 'src', 
 const WORLDS_DIR = path.join(STORAGE_ROOT, 'worlds');
 const THUMBNAILS_DIR = path.join(STORAGE_ROOT, 'thumbnails');
 
+/** Profile images. Separate from thumbnails so a listing's art and a person's face never collide. */
+const AVATARS_DIR = path.join(STORAGE_ROOT, 'avatars');
+
 module.exports = {
   PROJECT_ROOT,
   DATA_DIR,
@@ -32,4 +35,5 @@ module.exports = {
   STORAGE_ROOT,
   WORLDS_DIR,
   THUMBNAILS_DIR,
+  AVATARS_DIR,
 };

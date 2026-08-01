@@ -14,6 +14,10 @@ const createTables = () => {
       email TEXT,
       status TEXT DEFAULT 'normal',
       account_type TEXT DEFAULT 'normal',
+      -- The profile image: a filename under the avatars directory, and when it last changed. Null for
+      -- an account that has never set one, which is most of them.
+      avatar_file TEXT,
+      avatar_updated_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

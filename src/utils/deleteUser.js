@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const fs = require('fs').promises;
 const path = require('path');
-const { WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
+const { WORLDS_DIR, THUMBNAILS_DIR, AVATARS_DIR } = require('../config/paths');
 
 /**
  * Delete a user and all their associated data
@@ -87,6 +87,16 @@ async function deleteUser(username) {
         console.log(`  - Deleted comment: ${comment.id}`);
       }
       
+      // Their profile image, which nothing else points at once the row is gone
+      if (user.avatar_file) {
+        try {
+          await fs.unlink(path.join(AVATARS_DIR, path.basename(user.avatar_file)));
+          console.log(`  - Deleted avatar file: ${user.avatar_file}`);
+        } catch (err) {
+          console.log(`  - Avatar file not found or already deleted: ${user.avatar_file}`);
+        }
+      }
+
       // Finally, delete the user
       db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
       console.log(`Deleted user: ${user.username}`);

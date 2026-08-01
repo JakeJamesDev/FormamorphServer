@@ -36,6 +36,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('createIndexes()');
     expect(source).toContain('addKindColumn()');
     expect(source).toContain('addQuarantineColumns()');
+    expect(source).toContain('addAvatarColumns()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -50,6 +51,7 @@ describe('the boot-time schema step', () => {
     expect(indexes).toContain('quarantine_expires_at');
 
     expect(boot.indexOf('addQuarantineColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addAvatarColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
@@ -59,6 +61,9 @@ describe('the boot-time schema step', () => {
     const source = require('fs').readFileSync(require.resolve('../src/utils/addQuarantineColumns.js'), 'utf8');
 
     expect(source).toContain('ALTER TABLE worlds');
+
+    const avatars = require('fs').readFileSync(require.resolve('../src/utils/addAvatarColumns.js'), 'utf8');
+    expect(avatars).toContain('ALTER TABLE users');
   });
 
   it('creates every table it is responsible for', () => {

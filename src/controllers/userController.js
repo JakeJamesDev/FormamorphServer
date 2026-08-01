@@ -4,6 +4,8 @@ const Policy = require('../models/Policy');
 const Message = require('../models/Message');
 const AuditLog = require('../models/AuditLog');
 const { kindFromQuery } = require('../utils/kindQuery');
+const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 
 /**
  * @desc    Get all users
@@ -41,6 +43,7 @@ exports.getUsers = async (req, res, next) => {
         email: user.email,
         status: user.status,
         accountType: user.account_type,
+        avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at,
         updatedAt: user.updated_at,
         // How they last answered the upload gate: 'accepted', 'declined', or 'unanswered' — which
@@ -72,6 +75,7 @@ exports.getMe = async (req, res, next) => {
         email: user.email,
         status: user.status,
         accountType: user.account_type,
+        avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at
       }
     });
@@ -220,10 +224,100 @@ exports.updateUserStatus = async (req, res, next) => {
         email: updatedUser.email,
         status: updatedUser.status,
         accountType: updatedUser.account_type,
+        avatarUrl: avatarUrlFor(updatedUser.avatar_file),
         createdAt: updatedUser.created_at,
         updatedAt: updatedUser.updated_at
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Replace the caller's own profile image with a new one, deleting whatever it replaced.
+ *
+ * @desc    Set the signed-in account's profile image
+ * @route   PUT /api/users/me/avatar
+ * @access  Private
+ */
+exports.setMyAvatar = async (req, res, next) => {
+  try {
+    const { image } = req.body || {};
+
+    if (!image) {
+      return res.status(400).json({ success: false, error: 'An image is required' });
+    }
+
+    // Written before the row is pointed at it: a failed write must leave the old avatar in place rather
+    // than clearing the account's to a file that was never stored.
+    const filename = await saveAvatar(image);
+    const previous = User.setAvatar(req.user.id, filename);
+
+    // Best-effort, and after the row already points elsewhere — a file that outlives its row is litter,
+    // while a row pointing at a deleted file is a broken image on every comment the account has left.
+    await deleteAvatar(previous);
+
+    res.status(200).json({
+      success: true,
+      data: { avatarUrl: avatarUrlFor(filename) }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Remove the signed-in account's profile image
+ * @route   DELETE /api/users/me/avatar
+ * @access  Private
+ */
+exports.removeMyAvatar = async (req, res, next) => {
+  try {
+    const previous = User.setAvatar(req.user.id, null);
+    await deleteAvatar(previous);
+
+    res.status(200).json({ success: true, data: { avatarUrl: null } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Clear somebody else's profile image.
+ *
+ * The moderation lever for an avatar that shouldn't be on the site. Recorded in the audit log the same
+ * way a takedown is, since it is one — an image removed with no record is indistinguishable from an
+ * account that never set one.
+ *
+ * @desc    Remove a user's profile image
+ * @route   DELETE /api/users/:id/avatar
+ * @access  Private/Admin
+ */
+exports.removeUserAvatar = async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (!user.avatar_file) {
+      return res.status(400).json({ success: false, error: 'This account has no profile image' });
+    }
+
+    const previous = User.setAvatar(user.id, null);
+    await deleteAvatar(previous);
+
+    AuditLog.tryRecord({
+      action: 'avatar_removed',
+      actor: req.user,
+      // Their own is not somebody else's to be told about, and the actor already reads as the person.
+      targetUser: user.id === req.user.id ? null : user,
+      targetKind: 'account',
+      targetName: user.username
+    });
+
+    res.status(200).json({ success: true, data: { avatarUrl: null } });
   } catch (error) {
     next(error);
   }

@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
 const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
 const Comment = require('./Comment');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -36,7 +37,10 @@ const World = {
     }
     
     // Get author data
-    const author = db.prepare('SELECT id, username FROM users WHERE id = ?').get(world.author_id);
+    const authorRow = db.prepare('SELECT id, username, avatar_file FROM users WHERE id = ?').get(world.author_id);
+    const author = authorRow
+      ? { id: authorRow.id, username: authorRow.username, avatarUrl: avatarUrlFor(authorRow.avatar_file) }
+      : authorRow;
     
     // Parse tags
     world.tags = world.tags ? JSON.parse(world.tags) : [];
@@ -110,7 +114,7 @@ const World = {
       const offset = (page - 1) * limit;
       
       // Base query
-      let query = 'SELECT w.*, u.username as author_username FROM worlds w JOIN users u ON w.author_id = u.id';
+      let query = 'SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file FROM worlds w JOIN users u ON w.author_id = u.id';
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
@@ -197,12 +201,14 @@ const World = {
         // Format author
         world.author = {
           id: world.author_id,
-          username: world.author_username
+          username: world.author_username,
+          avatarUrl: avatarUrlFor(world.author_avatar_file)
         };
         
         // Remove redundant fields
         delete world.author_id;
         delete world.author_username;
+        delete world.author_avatar_file;
         delete world.content_file;
         delete world.preview_data; // Don't include preview_data as it contains megabytes due to thumbnail
         

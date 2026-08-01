@@ -35,7 +35,7 @@ const User = {
    * @returns {Object|null} User object or null if not found
    */
   findById: (id) => {
-    return db.prepare('SELECT id, username, email, status, account_type, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, email, status, account_type, avatar_file, avatar_updated_at, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
 
   /**
@@ -154,6 +154,26 @@ const User = {
     }
   },
 
+
+  /**
+   * Point a user at a new profile image, or at none.
+   *
+   * Returns the filename that was there before, so the caller can delete it — the row is the record of
+   * what is current, and an orphaned file on disk is the one thing this cannot clean up itself.
+   *
+   * @param {string} id - User ID
+   * @param {string|null} avatarFile - The stored filename, or null to clear it
+   * @returns {string|null} The filename this replaced, or null if there was none
+   */
+  setAvatar: (id, avatarFile) => {
+    const current = db.prepare('SELECT avatar_file FROM users WHERE id = ?').get(id);
+
+    db.prepare('UPDATE users SET avatar_file = ?, avatar_updated_at = ?, updated_at = ? WHERE id = ?')
+      .run(avatarFile, new Date().toISOString(), new Date().toISOString(), id);
+
+    return current ? current.avatar_file : null;
+  },
+
   SORT_FIELDS,
 
   /**
@@ -179,7 +199,7 @@ const User = {
       LEFT JOIN policies p ON p.id = a.policy_id
     `;
 
-    let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.created_at, u.updated_at ${from}`;
+    let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
     let countQuery = `SELECT COUNT(*) as count ${from}`;
     const params = [];
 

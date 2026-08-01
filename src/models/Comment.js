@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -27,7 +28,10 @@ const Comment = {
     }
     
     // Get author data
-    const author = db.prepare('SELECT id, username FROM users WHERE id = ?').get(comment.author_id);
+    const authorRow = db.prepare('SELECT id, username, avatar_file FROM users WHERE id = ?').get(comment.author_id);
+    const author = authorRow
+      ? { id: authorRow.id, username: authorRow.username, avatarUrl: avatarUrlFor(authorRow.avatar_file) }
+      : authorRow;
     
     // Return comment with author
     return {
@@ -54,7 +58,7 @@ const Comment = {
       
       // Base query
       let query = `
-        SELECT c.*, u.username as author_username 
+        SELECT c.*, u.username as author_username, u.avatar_file as author_avatar_file
         FROM comments c 
         JOIN users u ON c.author_id = u.id
         WHERE c.world_id = ?
@@ -76,12 +80,14 @@ const Comment = {
         // Format author
         comment.author = {
           id: comment.author_id,
-          username: comment.author_username
+          username: comment.author_username,
+          avatarUrl: avatarUrlFor(comment.author_avatar_file)
         };
         
         // Remove redundant fields
         delete comment.author_id;
         delete comment.author_username;
+        delete comment.author_avatar_file;
         
         return comment;
       });

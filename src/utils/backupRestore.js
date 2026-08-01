@@ -12,7 +12,7 @@ const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
 // Define paths (the shared, configurable ones come from config/paths)
-const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
+const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR, AVATARS_DIR } = require('../config/paths');
 const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
 // Utility function to ensure directory exists
@@ -136,6 +136,11 @@ const createBackupManifest = async (backupDir) => {
         directory: 'thumbnails/',
         fileCount: 0,
         totalSize: 0
+      },
+      avatars: {
+        directory: 'avatars/',
+        fileCount: 0,
+        totalSize: 0
       }
     }
   };
@@ -186,6 +191,25 @@ const createBackupManifest = async (backupDir) => {
     manifest.contents.thumbnails.totalSize = thumbnailsSize;
   } catch (error) {
     console.warn('Warning: Could not get thumbnails info:', error.message);
+  }
+
+  // Get avatars info
+  try {
+    const avatarsCount = await getFileCount(AVATARS_DIR);
+    manifest.contents.avatars.fileCount = avatarsCount;
+
+    const avatarEntries = await readdir(AVATARS_DIR);
+    let avatarsSize = 0;
+    for (const entry of avatarEntries) {
+      if (entry !== '.gitkeep') {
+        const filePath = path.join(AVATARS_DIR, entry);
+        const fileStats = await stat(filePath);
+        avatarsSize += fileStats.size;
+      }
+    }
+    manifest.contents.avatars.totalSize = avatarsSize;
+  } catch (error) {
+    console.warn('Warning: Could not get avatars info:', error.message);
   }
 
   // Write manifest
@@ -248,6 +272,23 @@ const backupThumbnails = async (backupDir) => {
   console.log(`✓ ${finalCount} thumbnail files backed up successfully`);
 };
 
+// Backup profile images
+const backupAvatars = async (backupDir) => {
+  console.log('Backing up profile images...');
+  const avatarsBackupDir = path.join(backupDir, 'avatars');
+
+  const totalFiles = await getFileCount(AVATARS_DIR);
+
+  const progressCallback = (fileName, count) => {
+    if (count % 10 === 0 || count === totalFiles) {
+      console.log(`  Progress: ${count}/${totalFiles} profile images copied`);
+    }
+  };
+
+  const finalCount = await copyDirectory(AVATARS_DIR, avatarsBackupDir, progressCallback);
+  console.log(`✓ ${finalCount} profile images backed up successfully`);
+};
+
 // Create complete backup
 const createBackup = async (customBackupName = null) => {
   try {
@@ -266,6 +307,7 @@ const createBackup = async (customBackupName = null) => {
     await backupDatabase(backupDir);
     await backupWorldFiles(backupDir);
     await backupThumbnails(backupDir);
+    await backupAvatars(backupDir);
     
     // Create manifest
     console.log('Creating backup manifest...');
@@ -277,6 +319,7 @@ const createBackup = async (customBackupName = null) => {
     console.log(`Database size: ${(manifest.contents.database.size / 1024 / 1024).toFixed(2)} MB`);
     console.log(`World files: ${manifest.contents.worlds.fileCount} files (${(manifest.contents.worlds.totalSize / 1024 / 1024).toFixed(2)} MB)`);
     console.log(`Thumbnails: ${manifest.contents.thumbnails.fileCount} files (${(manifest.contents.thumbnails.totalSize / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`Profile images: ${manifest.contents.avatars.fileCount} files (${(manifest.contents.avatars.totalSize / 1024 / 1024).toFixed(2)} MB)`);
     
     return { success: true, backupName, backupDir, manifest };
   } catch (error) {
@@ -405,6 +448,31 @@ const restoreThumbnails = async (backupDir) => {
   }
 };
 
+// Restore profile images
+const restoreAvatars = async (backupDir) => {
+  console.log('Restoring profile images...');
+  const avatarsBackupDir = path.join(backupDir, 'avatars');
+
+  // Deliberately not an error when absent: every backup taken before profile images existed has no
+  // avatars directory, and refusing those would make old backups unrestorable over one new folder.
+  if (!fs.existsSync(avatarsBackupDir)) {
+    console.warn('Warning: No profile images in this backup, skipping');
+    return;
+  }
+
+  await ensureDir(AVATARS_DIR);
+
+  const totalFiles = await getFileCount(avatarsBackupDir);
+  const progressCallback = (fileName, count) => {
+    if (count % 10 === 0 || count === totalFiles) {
+      console.log(`  Progress: ${count}/${totalFiles} profile images restored`);
+    }
+  };
+
+  const finalCount = await copyDirectory(avatarsBackupDir, AVATARS_DIR, progressCallback);
+  console.log(`✓ ${finalCount} profile images restored successfully`);
+};
+
 // Restore from backup
 const restoreFromBackup = async (backupName) => {
   try {
@@ -425,6 +493,7 @@ const restoreFromBackup = async (backupName) => {
     await restoreDatabase(backupPath);
     await restoreWorldFiles(backupPath);
     await restoreThumbnails(backupPath);
+    await restoreAvatars(backupPath);
     
     console.log('\n=== Restore Complete ===');
     console.log('All data has been restored from backup');
@@ -549,5 +618,7 @@ module.exports = {
   backupThumbnails,
   restoreDatabase,
   restoreWorldFiles,
-  restoreThumbnails
+  restoreThumbnails,
+  backupAvatars,
+  restoreAvatars
 };

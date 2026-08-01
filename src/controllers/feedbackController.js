@@ -1,4 +1,5 @@
 const Feedback = require('../models/Feedback');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 
@@ -15,7 +16,11 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   category: row.category,
   body: row.body,
   status: row.status,
-  reporter: { id: row.reporter_id, username: row.reporter_username || null },
+  reporter: {
+    id: row.reporter_id,
+    username: row.reporter_username || null,
+    avatarUrl: avatarUrlFor(row.reporter_avatar_file)
+  },
   // Stored as JSON text; a row written by hand could be malformed, and one bad row must not fail the list.
   // A suggestion's is empty because none was ever stored — masking it here as well would be a second
   // guard for the same thing, and the dead one always looks like it is doing the work.
@@ -36,6 +41,7 @@ const toCommentDto = (row) => ({
   author: {
     id: row.author_id,
     username: row.author_username || null,
+    avatarUrl: avatarUrlFor(row.author_avatar_file),
     // Drives how the thread styles it — a reply from the team reads differently from anyone else's.
     isAdmin: row.author_account_type === 'admin'
   }

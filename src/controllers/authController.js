@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { validationResult } = require('express-validator');
 
@@ -47,7 +48,8 @@ exports.register = async (req, res, next) => {
         username: user.username,
         email: user.email,
         status: user.status,
-        accountType: user.account_type
+        accountType: user.account_type,
+        avatarUrl: avatarUrlFor(user.avatar_file)
       }
     });
   } catch (error) {
@@ -97,7 +99,8 @@ exports.login = async (req, res, next) => {
         username: user.username,
         email: user.email,
         status: user.status,
-        accountType: user.account_type
+        accountType: user.account_type,
+        avatarUrl: avatarUrlFor(user.avatar_file)
       }
     });
   } catch (error) {
@@ -122,6 +125,7 @@ exports.getMe = async (req, res, next) => {
         email: user.email,
         status: user.status,
         accountType: user.account_type,
+        avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at
       }
     });

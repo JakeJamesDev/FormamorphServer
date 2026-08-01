@@ -12,6 +12,7 @@ const userRoutes = require('./routes/users');
 const worldRoutes = require('./routes/worlds');
 const commentRoutes = require('./routes/comments');
 const thumbnailRoutes = require('./routes/thumbnails');
+const avatarRoutes = require('./routes/avatars');
 const messageRoutes = require('./routes/messages');
 const policyRoutes = require('./routes/policies');
 const feedbackRoutes = require('./routes/feedback');
@@ -52,7 +53,9 @@ const smallJson = express.json({ limit: '100kb' });
 
 // Routes
 app.use('/api/auth', smallJson, authRoutes);
-app.use('/api/users', smallJson, userRoutes);
+// Users mounts its own parsers per route: an avatar is a base64 image, which is larger than the
+// 100kb everything else here is capped at (see routes/users.js).
+app.use('/api/users', userRoutes);
 app.use('/api/worlds', worldRoutes);
 app.use('/api/comments', smallJson, commentRoutes);
 app.use('/api/messages', smallJson, messageRoutes);
@@ -60,6 +63,7 @@ app.use('/api/policies', smallJson, policyRoutes);
 app.use('/api/feedback', smallJson, feedbackRoutes);
 app.use('/api/audit', smallJson, auditRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
+app.use('/api/avatars', avatarRoutes);
 
 // Base route
 app.get('/', (req, res) => {

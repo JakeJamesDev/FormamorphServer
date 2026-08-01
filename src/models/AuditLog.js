@@ -15,7 +15,8 @@ const ACTIONS = [
   'listing_quarantined',
   'quarantine_updated',
   'quarantine_released',
-  'quarantine_expired'
+  'quarantine_expired',
+  'avatar_removed'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

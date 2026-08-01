@@ -39,6 +39,7 @@ const DIAGNOSTICS_MAX = 2000;
 const FEEDBACK_SELECT = `
   SELECT r.*,
          u.username AS reporter_username,
+         u.avatar_file AS reporter_avatar_file,
          (SELECT COUNT(*) FROM feedback_votes v WHERE v.feedback_id = r.id) AS vote_count
   FROM feedback r
   LEFT JOIN users u ON u.id = r.reporter_id
@@ -250,7 +251,8 @@ const Feedback = {
    * @returns {Array<Object>} Comments with their author's name and account type
    */
   comments: (feedbackId) => db.prepare(`
-    SELECT c.*, u.username AS author_username, u.account_type AS author_account_type
+    SELECT c.*, u.username AS author_username, u.account_type AS author_account_type,
+             u.avatar_file AS author_avatar_file
     FROM feedback_comments c
     LEFT JOIN users u ON u.id = c.author_id
     WHERE c.feedback_id = ?
@@ -272,7 +274,8 @@ const Feedback = {
     db.prepare('UPDATE feedback SET updated_at = ? WHERE id = ?').run(now, feedbackId);
 
     return db.prepare(`
-      SELECT c.*, u.username AS author_username, u.account_type AS author_account_type
+      SELECT c.*, u.username AS author_username, u.account_type AS author_account_type,
+             u.avatar_file AS author_avatar_file
       FROM feedback_comments c
       LEFT JOIN users u ON u.id = c.author_id
       WHERE c.id = ?
@@ -298,7 +301,8 @@ const Feedback = {
       .run(body, new Date().toISOString(), id);
 
     return db.prepare(`
-      SELECT c.*, u.username AS author_username, u.account_type AS author_account_type
+      SELECT c.*, u.username AS author_username, u.account_type AS author_account_type,
+             u.avatar_file AS author_avatar_file
       FROM feedback_comments c
       LEFT JOIN users u ON u.id = c.author_id
       WHERE c.id = ?
