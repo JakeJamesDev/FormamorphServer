@@ -35,7 +35,9 @@ const User = {
    * @returns {Object|null} User object or null if not found
    */
   findById: (id) => {
-    return db.prepare('SELECT id, username, email, status, account_type, avatar_file, avatar_updated_at, created_at, updated_at FROM users WHERE id = ?').get(id);
+    // `token_version` is here so a caller minting a token signs the current generation; every response
+    // builds its own DTO field by field, so it never reaches a client.
+    return db.prepare('SELECT id, username, email, status, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
 
   /**
@@ -141,17 +143,38 @@ const User = {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(newPassword, salt);
       
-      // Update password in database
+      // The version bump goes in the same statement as the new hash: changing a password has to end the
+      // sessions it protected, or the thief who prompted the change keeps the one they already hold.
       db.prepare(`
         UPDATE users
-        SET password = ?, updated_at = ?
+        SET password = ?, token_version = token_version + 1, updated_at = ?
         WHERE id = ?
       `).run(hashedPassword, new Date().toISOString(), id);
-      
+
       return true;
     } catch (error) {
       throw error;
     }
+  },
+
+  /**
+   * Cut every signed-in session for an account loose.
+   *
+   * Suspending somebody who is already signed in otherwise changed nothing they could feel until their
+   * token expired, and a demoted moderator kept their powers for the same window. Bumping the generation
+   * is what makes both take effect on the next request instead.
+   *
+   * @param {string} id - User ID
+   * @returns {boolean} Whether a row was updated
+   */
+  revokeSessions: (id) => {
+    const info = db.prepare(`
+      UPDATE users
+      SET token_version = token_version + 1, updated_at = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), id);
+
+    return info.changes > 0;
   },
 
 

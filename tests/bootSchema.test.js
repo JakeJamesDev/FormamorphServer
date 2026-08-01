@@ -18,7 +18,7 @@ const TABLES = [
   'messages', 'message_states',
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
-  'audit_log'
+  'audit_log', 'follows'
 ];
 
 const tableNames = () => db
@@ -39,6 +39,8 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addAvatarColumns()');
     expect(source).toContain('addAuthorRoleColumn()');
     expect(source).toContain('addFeedbackEditedColumn()');
+    expect(source).toContain('addFeedSeenColumn()');
+    expect(source).toContain('addTokenVersionColumn()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -56,6 +58,7 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addAvatarColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addAuthorRoleColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addFeedbackEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addFeedSeenColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
@@ -74,6 +77,9 @@ describe('the boot-time schema step', () => {
 
     const edited = require('fs').readFileSync(require.resolve('../src/utils/addFeedbackEditedColumn.js'), 'utf8');
     expect(edited).toContain('ALTER TABLE feedback');
+
+    const seen = require('fs').readFileSync(require.resolve('../src/utils/addFeedSeenColumn.js'), 'utf8');
+    expect(seen).toContain('ALTER TABLE users');
   });
 
   it('creates every table it is responsible for', () => {

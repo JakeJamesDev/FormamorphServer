@@ -3,6 +3,18 @@ const db = require('../config/db');
 const { isAdmin, isStaff } = require('../config/roles');
 
 /**
+ * Whether a token was minted under the account's current session generation.
+ *
+ * A token predating the `tv` claim reads as generation 0, which every un-bumped row is — so adding this
+ * check signed nobody out. The first bump on an account is what retires those.
+ *
+ * @param {Object} decoded - The verified token payload
+ * @param {Object} user - The user row
+ * @returns {boolean} Whether the token is still current
+ */
+const sameGeneration = (decoded, user) => (decoded.tv || 0) === (user.token_version || 0);
+
+/**
  * Build an authentication middleware.
  *
  * @param {Object} [options] - `{ allowSuspended }` — when true, a suspended account may also make
@@ -34,10 +46,19 @@ const authenticate = ({ allowSuspended = false } = {}) => async (req, res, next)
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Get user from database
-    const user = db.prepare('SELECT id, username, email, status, account_type, created_at FROM users WHERE id = ?').get(decoded.id);
+    const user = db.prepare('SELECT id, username, email, status, account_type, token_version, created_at FROM users WHERE id = ?').get(decoded.id);
 
     // Check if user exists
     if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Not authorized to access this route'
+      });
+    }
+
+    // Refuse a token from a retired generation. Changing a password or suspending an account bumps the
+    // row, which is what makes those actions reach sessions already signed in somewhere else.
+    if (!sameGeneration(decoded, user)) {
       return res.status(401).json({
         success: false,
         error: 'Not authorized to access this route'
@@ -98,9 +119,11 @@ exports.optionalAuth = async (req, _res, next) => {
   try {
     const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
     const user = db
-      .prepare('SELECT id, username, email, status, account_type, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, username, email, status, account_type, token_version, created_at FROM users WHERE id = ?')
       .get(decoded.id);
-    if (user) req.user = user;
+    // A retired token is treated as no token, exactly as a bad one is: these routes serve signed-out
+    // visitors anyway, so the caller simply stops being recognized.
+    if (user && sameGeneration(decoded, user)) req.user = user;
   } catch {
     // Anonymous, exactly as if nothing had been sent.
   }

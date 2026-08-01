@@ -6,7 +6,8 @@ const AuditLog = require('../models/AuditLog');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
-const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
+const Follow = require('../models/Follow');
+const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
 
 /**
  * @desc    Get all users
@@ -142,7 +143,14 @@ exports.getUserProfile = async (req, res, next) => {
         id: user.id,
         username: user.username,
         avatarUrl: avatarUrlFor(user.avatar_file),
-        createdAt: user.created_at
+        createdAt: user.created_at,
+        // Public on purpose: being on the team is not a private fact, and a reader who can see the badge
+        // on a comment should see the same badge on the profile that comment links to.
+        role: badgeRole(roleOf(user)),
+        // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
+        // one rather than false — a signed-out visitor is not somebody who has decided not to.
+        followers: Follow.followerCount(user.id),
+        following: req.user ? Follow.isFollowing(req.user.id, user.id) : undefined
       }
     });
   } catch (error) {
@@ -259,6 +267,15 @@ exports.updateUserStatus = async (req, res, next) => {
 
     const previousRole = roleOf(user);
     const updatedUser = User.update(req.params.id, updateData);
+
+    // A moderation action has to reach the sessions the account already has open. Without this, a
+    // suspension only took hold once the offender's token expired, and a demoted moderator kept the
+    // powers they were demoted for — for up to a day, from a tab nobody can see.
+    const suspending = status === 'suspended' && user.status !== 'suspended';
+    const roleChanged = Boolean(accountType) && accountType !== previousRole;
+    if (suspending || roleChanged) {
+      User.revokeSessions(req.params.id);
+    }
 
     // Only a real change to the status is worth an entry — re-saving the same one is not an event, and
     // an account type change is left out until the log is meant to cover it.
@@ -399,6 +416,112 @@ exports.removeUserAvatar = async (req, res, next) => {
     });
 
     res.status(200).json({ success: true, data: { avatarUrl: null } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Follow an account, so their new and updated listings reach you
+ * @route   PUT /api/users/:id/follow
+ * @access  Private
+ */
+exports.followUser = async (req, res, next) => {
+  try {
+    const target = User.findById(req.params.id);
+    if (!target) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Following yourself would put your own work in your own news, which is not news.
+    if (target.id === req.user.id) {
+      return res.status(400).json({ success: false, error: 'You cannot follow yourself' });
+    }
+
+    Follow.follow(req.user.id, target.id);
+
+    res.status(200).json({
+      success: true,
+      data: { following: true, followers: Follow.followerCount(target.id) }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Stop following an account
+ * @route   DELETE /api/users/:id/follow
+ * @access  Private
+ */
+exports.unfollowUser = async (req, res, next) => {
+  try {
+    const target = User.findById(req.params.id);
+    if (!target) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    Follow.unfollow(req.user.id, target.id);
+
+    res.status(200).json({
+      success: true,
+      data: { following: false, followers: Follow.followerCount(target.id) }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Who the signed-in account follows
+ * @route   GET /api/users/me/following
+ * @access  Private
+ */
+exports.getFollowing = async (req, res, next) => {
+  try {
+    const following = Follow.following(req.user.id);
+
+    res.status(200).json({ success: true, count: following.length, data: following });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * The notification feed: what the accounts you follow have published or updated since you followed them.
+ *
+ * Reading it marks it read, the same way opening a feedback thread does — the feed is the notification,
+ * so there is nothing else that could clear it.
+ *
+ * @desc    The signed-in account's notification feed
+ * @route   GET /api/users/me/notifications
+ * @access  Private
+ */
+exports.getNotifications = async (req, res, next) => {
+  try {
+    const user = User.findById(req.user.id);
+    // Read before the stamp moves, or everything would arrive already read.
+    const unread = Follow.unreadCount(req.user.id, user.feed_seen_at);
+    const items = Follow.feed(req.user.id);
+
+    Follow.markSeen(req.user.id);
+
+    res.status(200).json({ success: true, count: items.length, unread, data: items });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    How much of the feed is new, for the badge
+ * @route   GET /api/users/me/notifications/unread-count
+ * @access  Private
+ */
+exports.getNotificationCount = async (req, res, next) => {
+  try {
+    const user = User.findById(req.user.id);
+
+    res.status(200).json({ success: true, unread: Follow.unreadCount(req.user.id, user.feed_seen_at) });
   } catch (error) {
     next(error);
   }

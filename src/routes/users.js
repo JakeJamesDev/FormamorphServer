@@ -1,9 +1,10 @@
 const express = require('express');
 const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
-  setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile
+  setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile,
+  followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount
 } = require('../controllers/userController');
-const { protect, admin, staff } = require('../middleware/auth');
+const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -21,13 +22,24 @@ router.get('/me', protect, getMe);
 // Get worlds created by current user
 router.get('/me/worlds', protect, getMyWorlds);
 
+// Who the signed-in account follows, and what they have been up to. Ahead of the `/:id` routes below,
+// or `me` is read as somebody's ID.
+router.get('/me/following', protect, getFollowing);
+router.get('/me/notifications', protect, getNotifications);
+router.get('/me/notifications/unread-count', protect, getNotificationCount);
+
 // Set or remove the current user's profile image. Ahead of the `/:id` routes below, or `me` is read as
 // somebody's ID.
 router.put('/me/avatar', avatarJson, protect, setMyAvatar);
 router.delete('/me/avatar', protect, removeMyAvatar);
 
-// A user's public face: what a stranger sees when they click a name in a thread or on a listing
-router.get('/:id/profile', getUserProfile);
+// A user's public face: what a stranger sees when they click a name in a thread or on a listing.
+// `optionalAuth` so a signed-in reader also learns whether they already follow them.
+router.get('/:id/profile', optionalAuth, getUserProfile);
+
+// Follow an account, or stop
+router.put('/:id/follow', protect, followUser);
+router.delete('/:id/follow', protect, unfollowUser);
 
 // Get worlds created by a specific user
 router.get('/:id/worlds', getUserWorlds);

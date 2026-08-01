@@ -32,16 +32,18 @@ const COMMENT_MAX = 4000;
 const DIAGNOSTICS_MAX = 2000;
 
 /**
- * The thread row, its author's name, and its vote count.
+ * The thread row, its author's name, and the two counts a list shows on it.
  *
  * Votes are joined rather than counted per row: the list is paged and sortable by them, so counting one
- * page's worth would rank ten rows against each other instead of the whole board.
+ * page's worth would rank ten rows against each other instead of the whole board. The reply count rides
+ * along for the same reason a list needs it at all — one subquery beats a query per row.
  */
 const FEEDBACK_SELECT = `
   SELECT r.*,
          u.username AS reporter_username,
          u.avatar_file AS reporter_avatar_file,
-         (SELECT COUNT(*) FROM feedback_votes v WHERE v.feedback_id = r.id) AS vote_count
+         (SELECT COUNT(*) FROM feedback_votes v WHERE v.feedback_id = r.id) AS vote_count,
+         (SELECT COUNT(*) FROM feedback_comments c WHERE c.feedback_id = r.id) AS comment_count
   FROM feedback r
   LEFT JOIN users u ON u.id = r.reporter_id
 `;

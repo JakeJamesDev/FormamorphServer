@@ -18,6 +18,13 @@ const createTables = () => {
       -- an account that has never set one, which is most of them.
       avatar_file TEXT,
       avatar_updated_at TEXT,
+      -- When they last opened their notification feed. The feed itself is computed from the follows and
+      -- worlds tables, so this one stamp is all the unread state there is.
+      feed_seen_at TEXT,
+      -- Bumped to cut every signed-in session loose at once. A token carries the value it was minted
+      -- under; the auth middleware refuses one that no longer matches. Without it a stolen token stays good for
+      -- its full life no matter what the owner or an admin does about the breach.
+      token_version INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -224,6 +231,22 @@ const createTables = () => {
     )
   `);
 
+  // Who follows whom. The pair is the key, so following twice is a no-op rather than a second row, and
+  // both sides cascade — a deleted account leaves neither dangling followers nor a feed of a ghost.
+  //
+  // The created_at is load-bearing rather than bookkeeping: the notification feed asks for listings newer
+  // than it, so following somebody shows what they do next instead of dumping their back catalogue.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id TEXT NOT NULL,
+      followed_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (follower_id, followed_id),
+      FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
+      FOREIGN KEY (followed_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   // Append-only record of what was done to accounts and to published work. Every name is a *snapshot*
   // rather than a join: the whole point is that an entry still reads after the world, the comment or the
   // account it describes is gone. Nothing here references another table, and nothing cascades.
@@ -254,21 +277,48 @@ const createTables = () => {
   console.log('Database tables created successfully');
 };
 
-// Create admin user
+/** The value this seeder once defaulted to, and that older setup docs prescribed. Refused on sight. */
+const FORBIDDEN_ADMIN_PASSWORD = 'admin123';
+
+/**
+ * Seed the first administrator from the environment.
+ *
+ * There is no default password. A missing or well-known `ADMIN_PASSWORD` aborts the seed rather than
+ * quietly creating the one account that can delete the site behind a credential anyone can guess —
+ * a silent fallback is indistinguishable from a correct setup until somebody logs in as you.
+ *
+ * @throws {Error} When `ADMIN_PASSWORD` is unset, too short, or the known-bad value
+ */
 const createAdminUser = async () => {
   try {
-    // Check if admin user already exists
+    // Existence first, validation second: on a database that already has its administrator the password
+    // is never used, and a deploy that reruns this routinely must not start failing over an env var
+    // nothing reads. The rules below guard creation only.
     const existingAdmin = db.prepare('SELECT * FROM users WHERE username = ?').get(process.env.ADMIN_USERNAME || 'admin');
-    
+
     if (existingAdmin) {
       console.log('Admin user already exists');
       return;
     }
 
+    const password = process.env.ADMIN_PASSWORD;
+
+    if (!password) {
+      throw new Error('ADMIN_PASSWORD is not set — refusing to seed an admin account with a default password');
+    }
+
+    if (password === FORBIDDEN_ADMIN_PASSWORD) {
+      throw new Error('ADMIN_PASSWORD is the well-known setup default — choose a real password');
+    }
+
+    if (password.length < 12) {
+      throw new Error('ADMIN_PASSWORD must be at least 12 characters');
+    }
+
     // Hash password
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'admin123', salt);
-    
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     // Generate UUID for user ID
     const userId = uuidv4();
 
@@ -286,7 +336,10 @@ const createAdminUser = async () => {
 
     console.log('Admin user created successfully');
   } catch (error) {
-    console.error('Error creating admin user:', error);
+    // Rethrown, not logged and shrugged off: a swallowed failure here leaves a database that looks
+    // seeded and has no owner, or worse, hides the refusal above.
+    console.error('Error creating admin user:', error.message);
+    throw error;
   }
 };
 
@@ -299,6 +352,12 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_worlds_tags ON worlds(tags);
     CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
     CREATE INDEX IF NOT EXISTS idx_worlds_quarantine ON worlds(quarantine_expires_at);
+  `);
+
+  // Both directions are asked for: the count on a profile reads one, the notification feed the other.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_follows_followed ON follows(followed_id);
+    CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id);
   `);
 
   // Create indexes for comments table
@@ -346,7 +405,9 @@ const initDb = async () => {
 
     console.log('Database initialized successfully');
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('Error initializing database:', error.message);
+    // Nonzero, so a failed seed stops a deploy script instead of reading as success.
+    process.exitCode = 1;
   } finally {
     // Close the database connection
     db.close();

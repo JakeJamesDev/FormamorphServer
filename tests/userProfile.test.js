@@ -36,12 +36,55 @@ describe('reading somebody’s profile', () => {
   });
 
   it('says nothing an account has not chosen to show', async () => {
-    // The email, the status and the account type are the admin table's, not a stranger's.
+    // The email and the status are the admin table's, not a stranger's. The role is not private — it is
+    // the badge — but it is normalized, so nothing here leaks whether an ordinary account exists.
     const user = createUser({ username: 'osk_tinder', email: 'osk@example.test', accountType: 'mod', status: 'suspended' });
 
     const { data } = (await profile(user.id)).body;
 
-    expect(Object.keys(data).sort()).toEqual(['avatarUrl', 'createdAt', 'id', 'username']);
+    expect(Object.keys(data).sort()).toEqual(['avatarUrl', 'createdAt', 'followers', 'id', 'role', 'username']);
+  });
+
+  it('carries the badge, so it matches the one beside their name', async () => {
+    const user = createUser({ accountType: 'mod' });
+
+    expect((await profile(user.id)).body.data.role).toBe('mod');
+  });
+
+  it('has no badge for an ordinary account', async () => {
+    // Null rather than 'normal': a reader should not have to know the word to decide there is no badge.
+    const user = createUser({ accountType: 'normal' });
+
+    expect((await profile(user.id)).body.data.role).toBeNull();
+  });
+
+  it('says how many follow them, but never who', async () => {
+    const author = createUser();
+    const reader = createUser();
+    await request(app).put(`/api/users/${author.id}/follow`).set(authHeader(reader));
+
+    const { data } = (await profile(author.id)).body;
+
+    expect(data.followers).toBe(1);
+    expect(JSON.stringify(data)).not.toContain(reader.username);
+  });
+
+  it('tells a signed-in reader whether they follow them', async () => {
+    const author = createUser();
+    const reader = createUser();
+
+    expect((await profile(author.id, reader)).body.data.following).toBe(false);
+
+    await request(app).put(`/api/users/${author.id}/follow`).set(authHeader(reader));
+
+    expect((await profile(author.id, reader)).body.data.following).toBe(true);
+  });
+
+  it('leaves that unanswered for a signed-out visitor', async () => {
+    // Absent rather than false: somebody with no account has not decided not to follow anybody.
+    const author = createUser();
+
+    expect((await profile(author.id)).body.data.following).toBeUndefined();
   });
 
   it('is null for a picture nobody has set', async () => {

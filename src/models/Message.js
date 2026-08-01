@@ -175,19 +175,37 @@ const Message = {
   },
 
   /**
-   * Count a user's unread messages. Backs the main-menu badge, so it stays a single count query.
+   * Count a user's unread messages, and say how loud the loudest one is.
+   *
+   * The severity comes back with the count because the badge is colored by it: asking separately would
+   * mean two round trips to draw one circle, and a window where the number and the color disagree.
+   * Ranked in SQL rather than by reading the rows — the whole point of this query is not to.
+   *
    * @param {string} userId - Reader's user ID
-   * @returns {number} Unread count
+   * @returns {{unread: number, topSeverity: string|null}} The count, and the highest severity among
+   *   them — null when nothing is unread
    */
-  getUnreadCount: (userId) => {
+  getUnreadSummary: (userId) => {
     const row = db.prepare(`
-      SELECT COUNT(*) AS unread
+      SELECT COUNT(*) AS unread,
+             MAX(CASE m.severity WHEN 'urgent' THEN 3 WHEN 'warning' THEN 2 ELSE 1 END) AS rank
       ${VISIBLE_FROM}
       WHERE ${VISIBLE_WHERE} AND s.read_at IS NULL
     `).get({ userId });
 
-    return row ? row.unread : 0;
+    const unread = row ? row.unread : 0;
+    // MAX over no rows is null, which is the honest answer: no unread mail has no severity.
+    const topSeverity = unread ? ({ 3: 'urgent', 2: 'warning', 1: 'info' })[row.rank] || 'info' : null;
+
+    return { unread, topSeverity };
   },
+
+  /**
+   * Count a user's unread messages. Backs the main-menu badge, so it stays a single count query.
+   * @param {string} userId - Reader's user ID
+   * @returns {number} Unread count
+   */
+  getUnreadCount: (userId) => Message.getUnreadSummary(userId).unread,
 
   /**
    * Whether a message is currently in a user's inbox.

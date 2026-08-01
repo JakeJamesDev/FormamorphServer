@@ -31,6 +31,7 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   editedAt: row.edited_at || null,
   votes: row.vote_count || 0,
   voted,
+  commentCount: row.comment_count || 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   unread

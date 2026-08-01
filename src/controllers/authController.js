@@ -38,7 +38,7 @@ exports.register = async (req, res, next) => {
     });
 
     // Generate token
-    const token = generateToken(user.id);
+    const token = generateToken(user);
 
     res.status(201).json({
       success: true,
@@ -89,7 +89,7 @@ exports.login = async (req, res, next) => {
     // allow when signed out. Refusing the login instead denied them nothing but the sight of their own
     // account, including the message explaining the suspension. The response carries `status` so the
     // client can show the account as suspended rather than as an ordinary session.
-    const token = generateToken(user.id);
+    const token = generateToken(user);
 
     res.status(200).json({
       success: true,
@@ -168,8 +168,14 @@ exports.changePassword = async (req, res, next) => {
       });
     }
 
+    // Changing the password retires every token issued under the old one — including the one that made
+    // this very request. A fresh token comes back so the caller stays signed in here while every other
+    // session ends, which is the point of changing it.
+    const user = User.findById(req.user.id);
+
     res.status(200).json({
       success: true,
+      token: generateToken(user),
       message: 'Password updated successfully'
     });
   } catch (error) {

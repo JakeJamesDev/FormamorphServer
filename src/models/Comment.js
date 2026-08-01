@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { badgeRole } = require('../config/roles');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -28,9 +29,16 @@ const Comment = {
     }
     
     // Get author data
-    const authorRow = db.prepare('SELECT id, username, avatar_file FROM users WHERE id = ?').get(comment.author_id);
+    const authorRow = db.prepare('SELECT id, username, avatar_file, account_type FROM users WHERE id = ?').get(comment.author_id);
+    // Live, not snapshotted: a catalog comment is a conversation, and the badge beside a name says who
+    // that person is now. The feedback queue snapshots instead, because a reply there is a record.
     const author = authorRow
-      ? { id: authorRow.id, username: authorRow.username, avatarUrl: avatarUrlFor(authorRow.avatar_file) }
+      ? {
+        id: authorRow.id,
+        username: authorRow.username,
+        avatarUrl: avatarUrlFor(authorRow.avatar_file),
+        role: badgeRole(authorRow.account_type)
+      }
       : authorRow;
     
     // Return comment with author
@@ -58,8 +66,9 @@ const Comment = {
       
       // Base query
       let query = `
-        SELECT c.*, u.username as author_username, u.avatar_file as author_avatar_file
-        FROM comments c 
+        SELECT c.*, u.username as author_username, u.avatar_file as author_avatar_file,
+               u.account_type as author_account_type
+        FROM comments c
         JOIN users u ON c.author_id = u.id
         WHERE c.world_id = ?
       `;
@@ -81,13 +90,15 @@ const Comment = {
         comment.author = {
           id: comment.author_id,
           username: comment.author_username,
-          avatarUrl: avatarUrlFor(comment.author_avatar_file)
+          avatarUrl: avatarUrlFor(comment.author_avatar_file),
+          role: badgeRole(comment.author_account_type)
         };
-        
+
         // Remove redundant fields
         delete comment.author_id;
         delete comment.author_username;
         delete comment.author_avatar_file;
+        delete comment.author_account_type;
         
         return comment;
       });

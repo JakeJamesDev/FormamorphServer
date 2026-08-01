@@ -104,16 +104,20 @@ exports.getInbox = async (req, res, next) => {
 };
 
 /**
+ * The main-menu badge: how much is waiting, and how loud the loudest of it is.
+ *
+ * `topSeverity` rides along because the badge is colored by it. Null when nothing is unread rather
+ * than a default severity — a caller should not have to know that 'info' meant "nothing".
+ *
  * @desc    Get the current user's unread message count
  * @route   GET /api/messages/unread-count
  * @access  Private
  */
 exports.getUnreadCount = async (req, res, next) => {
   try {
-    res.status(200).json({
-      success: true,
-      unread: Message.getUnreadCount(req.user.id)
-    });
+    const { unread, topSeverity } = Message.getUnreadSummary(req.user.id);
+
+    res.status(200).json({ success: true, unread, topSeverity });
   } catch (error) {
     next(error);
   }

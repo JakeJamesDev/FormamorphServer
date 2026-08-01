@@ -4,7 +4,7 @@ const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage')
 const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
 const Comment = require('./Comment');
 const { avatarUrlFor } = require('../utils/avatarUrl');
-const { isStaff } = require('../config/roles');
+const { isStaff, badgeRole } = require('../config/roles');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -38,9 +38,16 @@ const World = {
     }
     
     // Get author data
-    const authorRow = db.prepare('SELECT id, username, avatar_file FROM users WHERE id = ?').get(world.author_id);
+    const authorRow = db.prepare('SELECT id, username, avatar_file, account_type FROM users WHERE id = ?').get(world.author_id);
+    // Live rather than snapshotted, unlike a feedback reply: a reply is a record of who said something
+    // at a moment, but a listing's author badge says who they are now.
     const author = authorRow
-      ? { id: authorRow.id, username: authorRow.username, avatarUrl: avatarUrlFor(authorRow.avatar_file) }
+      ? {
+        id: authorRow.id,
+        username: authorRow.username,
+        avatarUrl: avatarUrlFor(authorRow.avatar_file),
+        role: badgeRole(authorRow.account_type)
+      }
       : authorRow;
     
     // Parse tags
@@ -115,7 +122,7 @@ const World = {
       const offset = (page - 1) * limit;
       
       // Base query
-      let query = 'SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file FROM worlds w JOIN users u ON w.author_id = u.id';
+      let query = 'SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type FROM worlds w JOIN users u ON w.author_id = u.id';
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
@@ -203,13 +210,15 @@ const World = {
         world.author = {
           id: world.author_id,
           username: world.author_username,
-          avatarUrl: avatarUrlFor(world.author_avatar_file)
+          avatarUrl: avatarUrlFor(world.author_avatar_file),
+          role: badgeRole(world.author_account_type)
         };
-        
+
         // Remove redundant fields
         delete world.author_id;
         delete world.author_username;
         delete world.author_avatar_file;
+        delete world.author_account_type;
         delete world.content_file;
         delete world.preview_data; // Don't include preview_data as it contains megabytes due to thumbnail
         
@@ -290,13 +299,20 @@ const World = {
         ? worldData.preview_data
         : JSON.stringify(worldData.preview_data || {});
       
+      // The two timestamps are written rather than left to the column default. `CURRENT_TIMESTAMP` is
+      // whole seconds in SQLite's own format, while every update writes ISO with milliseconds — one
+      // column in two formats, which orders by where a space sorts against a `T` rather than by time.
+      // A listing published in the same second a follower read their feed was invisible to them.
+      const now = new Date().toISOString();
+
       // Insert world into database
       db.prepare(`
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
-          preview_data, content_file, tags, comment_count, spoiler, kind
+          preview_data, content_file, tags, comment_count, spoiler, kind,
+          created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -308,7 +324,9 @@ const World = {
         tagsString,
         0, // Initialize comment_count to 0
         worldData.spoiler ? 1 : 0, // Convert boolean to INTEGER (0 or 1)
-        worldData.kind || DEFAULT_KIND
+        worldData.kind || DEFAULT_KIND,
+        now,
+        now
       );
       
       // Return created world

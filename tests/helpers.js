@@ -49,9 +49,19 @@ export function seedUsers(count, prefix = 'seeded') {
   return rows;
 }
 
-/** A bearer header for a seeded user, signed with the same secret `protect` verifies against. */
+/**
+ * A bearer header for a seeded user, signed with the same secret `protect` verifies against.
+ *
+ * The session generation is read at call time rather than captured, because suspending or demoting an
+ * account bumps it — a header minted before the act is meant to stop working, and a test that carries on
+ * afterwards wants the session the user would have from signing in again. For a deliberately stale one,
+ * sign `{ id, tv }` directly.
+ */
 export function authHeader(user) {
-  return { Authorization: `Bearer ${jwt.sign({ id: user.id }, process.env.JWT_SECRET)}` };
+  const row = db.prepare('SELECT token_version FROM users WHERE id = ?').get(user.id);
+  const tv = row ? row.token_version || 0 : 0;
+
+  return { Authorization: `Bearer ${jwt.sign({ id: user.id, tv }, process.env.JWT_SECRET)}` };
 }
 
 /** Smallest valid PNG data-URI: `saveThumbnail` requires a real base64 image of an allowed type. */

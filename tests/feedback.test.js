@@ -1093,3 +1093,74 @@ describe('triage on a suggestion', () => {
     expect((await comment(reporter('other'), id, 'Thanks for doing this.')).status).toBe(201);
   });
 });
+
+describe('the reply count on a thread', () => {
+  it('starts at zero on something just filed', async () => {
+    const boss = admin();
+    const created = await file(reporter(), REPORT);
+
+    const listed = await list(boss, '?scope=all');
+    expect(listed.body.data.find((row) => row.id === created.body.data.id).commentCount).toBe(0);
+  });
+
+  it('counts every reply, whoever wrote it', async () => {
+    const boss = admin();
+    const finder = reporter();
+    const created = await file(finder, REPORT);
+
+    await comment(boss, created.body.data.id);
+    await comment(finder, created.body.data.id, 'Version 2.0.3.');
+    await comment(boss, created.body.data.id, 'Reproduced.');
+
+    const listed = await list(finder);
+    expect(listed.body.data[0].commentCount).toBe(3);
+  });
+
+  it('drops back when a reply is deleted', async () => {
+    // It is a count of what is there to read, not of what was ever written.
+    const boss = admin();
+    const created = await file(reporter(), REPORT);
+    const posted = await comment(boss, created.body.data.id);
+
+    await removeComment(boss, created.body.data.id, posted.body.data.id);
+
+    const listed = await list(boss, '?scope=all');
+    expect(listed.body.data[0].commentCount).toBe(0);
+  });
+
+  it('counts each thread separately across a page', async () => {
+    // One subquery per row: a mistake here would give every row the same number.
+    const boss = admin();
+    const finder = reporter();
+    const quiet = await file(finder, REPORT);
+    const busy = await file(finder, { ...REPORT, title: 'Editor loses focus' });
+
+    await comment(boss, busy.body.data.id);
+    await comment(boss, busy.body.data.id, 'Second.');
+
+    const listed = await list(finder);
+    const byId = Object.fromEntries(listed.body.data.map((row) => [row.id, row.commentCount]));
+    expect(byId[busy.body.data.id]).toBe(2);
+    expect(byId[quiet.body.data.id]).toBe(0);
+  });
+
+  it('is on a suggestion as well as a bug', async () => {
+    const author = reporter('dreamer');
+    const created = await fileSuggestion(author);
+
+    await comment(reporter('passerby'), created.body.data.id, 'Yes please.');
+
+    const listed = await list(author, '?type=suggestion&scope=all');
+    expect(listed.body.data[0].commentCount).toBe(1);
+  });
+
+  it('is on the single-thread read, not only the list', async () => {
+    const boss = admin();
+    const created = await file(reporter(), REPORT);
+    await comment(boss, created.body.data.id);
+
+    const one = await read(boss, created.body.data.id);
+    expect(one.body.data.commentCount).toBe(1);
+    expect(one.body.comments).toHaveLength(1);
+  });
+});

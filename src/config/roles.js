@@ -51,6 +51,17 @@ const canModerate = (actor, target = null) => {
   return isAdmin(actor) && !isAdmin(target);
 };
 
+/**
+ * The role to badge somebody with, or null for an ordinary account.
+ *
+ * `normal` becomes null so a caller checking for a badge does not have to know the word, and so an
+ * absent role and an ordinary one are indistinguishable to a client — which is what they should be.
+ *
+ * @param {string|null|undefined} role - An account type
+ * @returns {string|null} The staff role, or null
+ */
+const badgeRole = (role) => (role && role !== 'normal' ? role : null);
+
 /** What a refusal by `canModerate` says. One wording, so a probe cannot tell the cases apart. */
 const STAFF_PROTECTED = 'You cannot moderate another staff account';
 
@@ -60,6 +71,7 @@ module.exports = {
   ASSIGNABLE_ROLES,
   STAFF_PROTECTED,
   roleOf,
+  badgeRole,
   isStaff,
   isAdmin,
   canModerate,
