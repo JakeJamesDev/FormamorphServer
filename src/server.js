@@ -1,7 +1,9 @@
 require('dotenv').config();
 const { initStorage } = require('./utils/fileStorage');
 const { addKindColumn } = require('./utils/addKindColumn');
+const { addQuarantineColumns } = require('./utils/addQuarantineColumns');
 const { createTables, createIndexes } = require('./utils/initDb');
+const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const app = require('./app');
 
 // Bring the schema up to date before serving, so a deploy that adds a table needs nothing run by hand.
@@ -18,16 +20,26 @@ const app = require('./app');
 // Never fatal: a schema step that throws must not take the process down, or a bad database turns into a
 // boot loop under any restart policy. Booting with a loud error leaves the operator a running server to
 // diagnose from, which is what this server did before any of this existed.
+//
+// Order matters: the column migrations run before the indexes, because an index may name a column a
+// migration is what adds. Indexing first would throw on exactly the databases the migration exists for,
+// and take the migration down with it.
 try {
   createTables();
-  createIndexes();
   addKindColumn();
+  addQuarantineColumns();
+  createIndexes();
 } catch (error) {
   console.error('Schema setup failed — starting anyway; some endpoints may fail until resolved:', error);
 }
 
 // Initialize storage directories
 initStorage();
+
+// Clear anything whose quarantine ran out while the server was down, then keep checking on a timer. The
+// catalog routes sweep too, so a missed tick can never serve a listing past its deadline.
+void sweepQuarantine();
+startQuarantineSweeper();
 
 // Set port
 const PORT = process.env.PORT || 8797;

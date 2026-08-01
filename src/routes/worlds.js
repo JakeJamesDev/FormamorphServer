@@ -1,8 +1,8 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, quarantineWorld, releaseWorld } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
-const { protect } = require('../middleware/auth');
+const { protect, admin, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 
@@ -13,13 +13,13 @@ const largeJson = express.json({ limit: '200mb' });
 const smallJson = express.json({ limit: '100kb' });
 
 // Get all worlds
-router.get('/', getWorlds);
+router.get('/', optionalAuth, getWorlds);
 
 // Get single world
-router.get('/:id', getWorld);
+router.get('/:id', optionalAuth, getWorld);
 
 // Get world content
-router.get('/:id/content', getWorldContent);
+router.get('/:id/content', optionalAuth, getWorldContent);
 
 // Create new world
 router.post(
@@ -74,11 +74,16 @@ router.put(
 );
 
 // Delete world
+// Quarantine a listing, or lift one (admin only). Out of the catalog for everyone but its author, and
+// deleted when the deadline passes unless somebody releases it first.
+router.put('/:id/quarantine', smallJson, protect, admin, quarantineWorld);
+router.delete('/:id/quarantine', protect, admin, releaseWorld);
+
 router.delete('/:id', protect, deleteWorld);
 
 // Comment routes
 // Get all comments for a world
-router.get('/:worldId/comments', getComments);
+router.get('/:worldId/comments', optionalAuth, getComments);
 
 // Create new comment for a world
 router.post(

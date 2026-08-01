@@ -11,7 +11,11 @@ const ACTIONS = [
   'terms_reset_all',
   'listing_deleted',
   'comment_deleted',
-  'feedback_deleted'
+  'feedback_deleted',
+  'listing_quarantined',
+  'quarantine_updated',
+  'quarantine_released',
+  'quarantine_expired'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

@@ -13,7 +13,9 @@ exports.getComments = async (req, res, next) => {
   try {
     // Check if world exists
     const world = World.findById(req.params.worldId);
-    if (!world) {
+    // Comments follow the listing: hidden while it is quarantined, back when it is released. Same 404,
+    // so the thread is not a side door onto something out of circulation.
+    if (!world || !World.isVisibleTo(world, req.user)) {
       return res.status(404).json({
         success: false,
         error: 'World not found'
@@ -97,6 +99,15 @@ exports.createComment = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         error: 'Suspended users cannot post comments'
+      });
+    }
+
+    // Nobody comments on something in quarantine, admins and the author included: it is out of
+    // circulation while it is fixed, and a thread growing underneath it would outlive the listing.
+    if (world.quarantined_at) {
+      return res.status(403).json({
+        success: false,
+        error: 'This is quarantined and cannot be commented on'
       });
     }
 

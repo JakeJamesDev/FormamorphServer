@@ -101,7 +101,9 @@ const World = {
         authorId = null,
         sort = 'created_at',
         order = 'desc',
-        kind = DEFAULT_KIND
+        kind = DEFAULT_KIND,
+        viewer = null,
+        quarantinedOnly = false
       } = options;
       
       // Calculate offset
@@ -119,6 +121,21 @@ const World = {
       if (kind !== ALL_KINDS) {
         whereClause.push('w.kind = ?');
         params.push(kind);
+      }
+
+      // Quarantine visibility. A quarantined listing is hidden from the room but stays visible to the
+      // person who published it and to the admins — so what the catalog contains depends on who is
+      // asking, and an anonymous visitor is asking as nobody.
+      const isAdmin = Boolean(viewer && viewer.account_type === 'admin');
+      if (quarantinedOnly) {
+        whereClause.push('w.quarantined_at IS NOT NULL');
+      } else if (!isAdmin) {
+        if (viewer) {
+          whereClause.push('(w.quarantined_at IS NULL OR w.author_id = ?)');
+          params.push(viewer.id);
+        } else {
+          whereClause.push('w.quarantined_at IS NULL');
+        }
       }
 
       // Filter by author ID
@@ -358,6 +375,103 @@ const World = {
       throw error;
     }
   },
+
+  /**
+   * Whether this viewer may see a quarantined listing at all.
+   *
+   * The room sees nothing: to everyone else a quarantined listing is as absent as a deleted one, which is
+   * the point — it is out of circulation while its author fixes it, not merely flagged.
+   *
+   * @param {Object} world - The world row
+   * @param {Object} [viewer] - The signed-in user, or null for an anonymous visitor
+   * @returns {boolean} True when it may be shown
+   */
+  isVisibleTo: (world, viewer = null) => {
+    if (!world) return false;
+    if (!world.quarantined_at) return true;
+    if (!viewer) return false;
+
+    return viewer.account_type === 'admin' || world.author_id === viewer.id;
+  },
+
+  /**
+   * Put a listing into quarantine, or move its deadline.
+   *
+   * Starting a quarantine clears the extension flag: each episode carries its own one-time grace, so a
+   * listing quarantined again months later is not punished for an unrelated incident.
+   *
+   * @param {string} id - World ID
+   * @param {number} days - How long the author has before it is deleted
+   * @returns {Object|undefined} The updated row
+   */
+  quarantine: (id, days) => {
+    const now = new Date();
+    const expires = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    db.prepare(`
+      UPDATE worlds
+      SET quarantined_at = ?, quarantine_expires_at = ?, quarantine_extended = 0
+      WHERE id = ?
+    `).run(now.toISOString(), expires.toISOString(), id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Lift a quarantine, returning the listing to the catalog exactly as it was.
+   * @param {string} id - World ID
+   * @returns {Object|undefined} The updated row
+   */
+  release: (id) => {
+    db.prepare(`
+      UPDATE worlds
+      SET quarantined_at = NULL, quarantine_expires_at = NULL, quarantine_extended = 0
+      WHERE id = ?
+    `).run(id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Give a quarantined listing its one-time extension, counted from the deadline it already had.
+   *
+   * Once per episode, on the first update the author makes: the point is that somebody who fixes their
+   * world on day six is not deleted on day seven, not that editing repeatedly buys forever.
+   *
+   * @param {string} id - World ID
+   * @param {number} days - How much longer to allow
+   * @returns {Object|undefined} The updated row, unchanged when the grace was already used
+   */
+  extendQuarantine: (id, days) => {
+    const world = World.findById(id);
+    if (!world || !world.quarantined_at || world.quarantine_extended) return world;
+
+    const from = new Date(world.quarantine_expires_at);
+    const extended = new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+
+    db.prepare('UPDATE worlds SET quarantine_expires_at = ?, quarantine_extended = 1 WHERE id = ?')
+      .run(extended.toISOString(), id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Every quarantined listing whose deadline has passed, with its author's name for the log entry.
+   *
+   * Compared as raw ISO strings rather than through `datetime()`, which truncates to whole seconds — the
+   * same trap the unread badge had to work around.
+   *
+   * @param {string} [now] - The instant to compare against, for tests
+   * @returns {Array<Object>} The rows due for deletion
+   */
+  expiredQuarantines: (now = new Date().toISOString()) => db.prepare(`
+    SELECT w.*, u.username AS author_username
+    FROM worlds w
+    LEFT JOIN users u ON u.id = w.author_id
+    WHERE w.quarantined_at IS NOT NULL
+      AND w.quarantine_expires_at IS NOT NULL
+      AND w.quarantine_expires_at <= ?
+  `).all(now),
 
   /**
    * Delete a world

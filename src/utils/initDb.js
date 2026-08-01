@@ -34,6 +34,12 @@ const createTables = () => {
       tags TEXT,
       spoiler INTEGER DEFAULT 0,
       kind TEXT NOT NULL DEFAULT 'world',
+      -- Quarantine: hidden from everyone but its author and the admins, and deleted when the deadline
+      -- passes unless an admin releases it first. The extension flag is per-episode, cleared on
+      -- release, so a listing quarantined again later gets its one grace extension afresh.
+      quarantined_at TEXT,
+      quarantine_expires_at TEXT,
+      quarantine_extended INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id)
@@ -281,6 +287,7 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_worlds_author ON worlds(author_id);
     CREATE INDEX IF NOT EXISTS idx_worlds_tags ON worlds(tags);
     CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
+    CREATE INDEX IF NOT EXISTS idx_worlds_quarantine ON worlds(quarantine_expires_at);
   `);
 
   // Create indexes for comments table

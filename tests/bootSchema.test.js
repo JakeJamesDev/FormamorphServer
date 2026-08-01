@@ -35,6 +35,30 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('createTables()');
     expect(source).toContain('createIndexes()');
     expect(source).toContain('addKindColumn()');
+    expect(source).toContain('addQuarantineColumns()');
+  });
+
+  it('migrates the columns before it indexes them', () => {
+    // Found live: an index naming `quarantine_expires_at` ran before the migration that adds it, so on
+    // every database the migration existed for, indexing threw and took the migration down with it —
+    // leaving the server answering `no such column` for the whole feature. The two facts are asserted
+    // together because the order only matters while an index names a migrated column.
+    const boot = require('fs').readFileSync(require.resolve('../src/server.js'), 'utf8');
+    const schema = require('fs').readFileSync(require.resolve('../src/utils/initDb.js'), 'utf8');
+
+    const indexes = schema.slice(schema.indexOf('const createIndexes'));
+    expect(indexes).toContain('quarantine_expires_at');
+
+    expect(boot.indexOf('addQuarantineColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
+  });
+
+  it('brings an existing table up to date, which creating cannot', () => {
+    // The split worth remembering: `createTables` adds *tables*, never *columns*. Quarantine was the
+    // first change to a table already in production, so it needs its own migration in the same path.
+    const source = require('fs').readFileSync(require.resolve('../src/utils/addQuarantineColumns.js'), 'utf8');
+
+    expect(source).toContain('ALTER TABLE worlds');
   });
 
   it('creates every table it is responsible for', () => {

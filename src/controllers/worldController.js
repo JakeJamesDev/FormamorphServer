@@ -7,6 +7,15 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
+const { sweepQuarantine } = require('../utils/sweepQuarantine');
+
+/** How long a quarantine runs by default, and the bounds an admin may set instead. */
+const DEFAULT_QUARANTINE_DAYS = 7;
+const MIN_QUARANTINE_DAYS = 1;
+const MAX_QUARANTINE_DAYS = 90;
+
+/** How much the author's first update buys them. Deliberately the same as the default quarantine. */
+const EXTENSION_DAYS = 7;
 
 /**
  * The kind's content ceiling as an error string, or null when it fits.
@@ -42,6 +51,13 @@ exports.getWorlds = async (req, res, next) => {
       return res.status(400).json({ success: false, error });
     }
 
+    // Anything whose deadline passed is deleted before the catalog is read, so a missed timer tick can
+    // never show a listing that should be gone. Cheap when there is nothing due.
+    await sweepQuarantine();
+
+    // Admins may ask for the quarantine queue specifically; for anyone else the flag means nothing.
+    const quarantinedOnly = req.query.quarantined === 'true' && req.user && req.user.account_type === 'admin';
+
     // Get worlds
     const result = World.getAll({
       page,
@@ -51,7 +67,9 @@ exports.getWorlds = async (req, res, next) => {
       searchByAuthor,
       sort,
       order,
-      kind
+      kind,
+      viewer: req.user || null,
+      quarantinedOnly
     });
 
     res.status(200).json({
@@ -83,7 +101,9 @@ exports.getWorld = async (req, res, next) => {
       ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit })
       : World.findByIdWithAuthor(req.params.id);
 
-    if (!world) {
+    // A quarantined listing is as absent as a deleted one to everyone but its author and the admins —
+    // same 404, so its existence is not something the room can probe for.
+    if (!world || !World.isVisibleTo(world, req.user)) {
       return res.status(404).json({
         success: false,
         error: 'World not found'
@@ -110,6 +130,16 @@ exports.getWorld = async (req, res, next) => {
  */
 exports.getWorldContent = async (req, res, next) => {
   try {
+    // Checked before the download is counted: a quarantined listing is out of circulation, and a refused
+    // download that still bumped the counter would be a lie in the other direction.
+    const row = World.findById(req.params.id);
+    if (row && !World.isVisibleTo(row, req.user)) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
     // Increment download count
     World.incrementDownloads(req.params.id);
 
@@ -276,6 +306,10 @@ exports.updateWorld = async (req, res, next) => {
       });
     }
 
+    // Held from before the write: `World.update` returns the new row, and the extension has to know
+    // whether this episode had already used its grace.
+    const quarantinedBefore = world.quarantined_at ? world : null;
+
     // Extract data from request body
     const { name, description, thumbnail, previewData, contentData } = req.body;
 
@@ -336,6 +370,26 @@ exports.updateWorld = async (req, res, next) => {
       // Update world in database
       if (Object.keys(updateData).length > 0) {
         world = World.update(req.params.id, updateData);
+      }
+
+      // An update to a quarantined listing is the author answering the notice, so it goes in the log —
+      // and the first one buys them more time, counted from the deadline they already had. Only the
+      // first: the point is that somebody who fixes it on day six is not deleted on day seven, not that
+      // editing repeatedly buys forever. An admin's own edit is not the author answering, so it neither
+      // logs nor extends.
+      if (quarantinedBefore && req.user.id === quarantinedBefore.author_id) {
+        const extended = World.extendQuarantine(req.params.id, EXTENSION_DAYS);
+        const grantedNow = Boolean(extended && extended.quarantine_extended && !quarantinedBefore.quarantine_extended);
+
+        AuditLog.tryRecord({
+          action: 'quarantine_updated',
+          actor: req.user,
+          targetKind: quarantinedBefore.kind || 'world',
+          targetName: quarantinedBefore.name,
+          snippet: grantedNow
+            ? `Deadline extended by ${EXTENSION_DAYS} days to ${extended.quarantine_expires_at}`
+            : 'Updated again; the deadline had already been extended'
+        });
       }
 
       // Get full world data for response
@@ -419,6 +473,84 @@ exports.setSpoilerStatus = async (req, res, next) => {
         spoiler: world.spoiler
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Put a listing into quarantine: out of the catalog, and deleted when the deadline passes
+ * @route   PUT /api/worlds/:id/quarantine
+ * @access  Private/Admin
+ */
+exports.quarantineWorld = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    const requested = req.body.days === undefined ? DEFAULT_QUARANTINE_DAYS : Number(req.body.days);
+    if (!Number.isInteger(requested) || requested < MIN_QUARANTINE_DAYS || requested > MAX_QUARANTINE_DAYS) {
+      return res.status(400).json({
+        success: false,
+        error: `Quarantine must be between ${MIN_QUARANTINE_DAYS} and ${MAX_QUARANTINE_DAYS} whole days`
+      });
+    }
+
+    const quarantined = World.quarantine(world.id, requested);
+    const author = world.author_id === req.user.id ? null : User.findById(world.author_id);
+
+    AuditLog.tryRecord({
+      action: 'listing_quarantined',
+      actor: req.user,
+      targetUser: author,
+      targetKind: world.kind || 'world',
+      targetName: world.name,
+      snippet: `Deleted on ${quarantined.quarantine_expires_at} unless released`
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: quarantined.id,
+        quarantinedAt: quarantined.quarantined_at,
+        quarantineExpiresAt: quarantined.quarantine_expires_at,
+        quarantineExtended: Boolean(quarantined.quarantine_extended)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Lift a quarantine, returning the listing to the catalog
+ * @route   DELETE /api/worlds/:id/quarantine
+ * @access  Private/Admin
+ */
+exports.releaseWorld = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+    if (!world.quarantined_at) {
+      return res.status(400).json({ success: false, error: 'This is not quarantined' });
+    }
+
+    World.release(world.id);
+    const author = world.author_id === req.user.id ? null : User.findById(world.author_id);
+
+    AuditLog.tryRecord({
+      action: 'quarantine_released',
+      actor: req.user,
+      targetUser: author,
+      targetKind: world.kind || 'world',
+      targetName: world.name
+    });
+
+    res.status(200).json({ success: true, data: {} });
   } catch (error) {
     next(error);
   }

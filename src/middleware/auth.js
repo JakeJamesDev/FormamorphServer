@@ -77,6 +77,37 @@ exports.protect = authenticate();
 exports.protectAllowSuspended = authenticate({ allowSuspended: true });
 
 /**
+ * Authentication for a route that is open to everyone but behaves differently for a signed-in caller.
+ *
+ * Sets `req.user` when a valid token is present and leaves it undefined otherwise — never refusing the
+ * request. The public catalog routes need this: a quarantined listing is hidden from the room but stays
+ * visible to its author and to admins, which cannot be decided without knowing who is asking.
+ *
+ * A bad or expired token is treated as no token rather than as an error. These routes serve signed-out
+ * visitors anyway, so failing them would turn a stale token into an outage for browsing.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} _res - Express response object
+ * @param {Function} next - Express next function
+ */
+exports.optionalAuth = async (req, _res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return next();
+
+  try {
+    const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
+    const user = db
+      .prepare('SELECT id, username, email, status, account_type, created_at FROM users WHERE id = ?')
+      .get(decoded.id);
+    if (user) req.user = user;
+  } catch {
+    // Anonymous, exactly as if nothing had been sent.
+  }
+
+  return next();
+};
+
+/**
  * Middleware to restrict routes to admin users
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
