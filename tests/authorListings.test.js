@@ -150,3 +150,58 @@ describe('GET /api/users/:id/worlds', () => {
     expect(res.status).toBe(400);
   });
 });
+
+/**
+ * A profile lists what somebody has published, and quarantine decides how much of that each reader sees.
+ *
+ * The endpoint is public but reads its caller when there is one: without that, a listing taken out of
+ * circulation vanished from its own author's profile with nothing to say why.
+ */
+describe('quarantine on a public author listing', () => {
+  const admin = () => createUser({ username: `root-${Math.random().toString(36).slice(2, 8)}`, accountType: 'admin' });
+
+  /** Publish one world and take it out of circulation. */
+  async function seedQuarantined() {
+    const root = admin();
+    const author = createUser({ username: `author-${Math.random().toString(36).slice(2, 8)}` });
+    const id = (await create(author, { name: 'Sedge Landing' })).body.data.id;
+    await request(app).put(`/api/worlds/${id}/quarantine`).set(authHeader(root)).send({});
+
+    return { root, author, id };
+  }
+
+  it('hides it from the room', async () => {
+    const { author } = await seedQuarantined();
+
+    const res = await request(app).get(`/api/users/${author.id}/worlds`);
+
+    expect(res.body.data).toEqual([]);
+  });
+
+  it('hides it from another signed-in reader', async () => {
+    const { author } = await seedQuarantined();
+    const stranger = createUser({ username: `stranger-${Math.random().toString(36).slice(2, 8)}` });
+
+    const res = await request(app).get(`/api/users/${author.id}/worlds`).set(authHeader(stranger));
+
+    expect(res.body.data).toEqual([]);
+  });
+
+  it('still shows it to its own author', async () => {
+    const { author } = await seedQuarantined();
+
+    const res = await request(app).get(`/api/users/${author.id}/worlds`).set(authHeader(author));
+
+    expect(res.body.data.map((w) => w.name)).toEqual(['Sedge Landing']);
+    // The marker the profile badges it with; without it the row reads as ordinary and published.
+    expect(res.body.data[0].quarantined_at).toBeTruthy();
+  });
+
+  it('shows it to the staff on anybody’s profile', async () => {
+    const { root, author } = await seedQuarantined();
+
+    const res = await request(app).get(`/api/users/${author.id}/worlds`).set(authHeader(root));
+
+    expect(res.body.data.map((w) => w.name)).toEqual(['Sedge Landing']);
+  });
+});

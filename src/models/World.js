@@ -30,13 +30,18 @@ const World = {
    * @param {string} id - World ID
    * @returns {Object|null} World object with author data or null if not found
    */
-  findByIdWithAuthor: (id) => {
+  findByIdWithAuthor: (id, viewer = null) => {
     const world = World.findById(id);
-    
+
     if (!world) {
       return null;
     }
-    
+
+    // The same pair the catalog rows carry, so a listing read on its own says the same thing as the card
+    // it was opened from. `liked` is absent rather than false without a reader — see `getAll`.
+    world.likes = World.likeCount(id);
+    if (viewer) world.liked = World.hasLiked(id, viewer.id);
+
     // Get author data
     const authorRow = db.prepare('SELECT id, username, avatar_file, account_type FROM users WHERE id = ?').get(world.author_id);
     // Live rather than snapshotted, unlike a feedback reply: a reply is a record of who said something
@@ -79,8 +84,8 @@ const World = {
    * @param {Object} options - Query options for comments
    * @returns {Object|null} World object with author data and comments or null if not found
    */
-  findByIdWithAuthorAndComments: (id, options = {}) => {
-    const world = World.findByIdWithAuthor(id);
+  findByIdWithAuthorAndComments: (id, options = {}, viewer = null) => {
+    const world = World.findByIdWithAuthor(id, viewer);
     
     if (!world) {
       return null;
@@ -114,15 +119,20 @@ const World = {
         sort = 'created_at',
         order = 'desc',
         kind = DEFAULT_KIND,
-        viewer = null,
-        quarantinedOnly = false
+        viewer = null
       } = options;
       
       // Calculate offset
       const offset = (page - 1) * limit;
       
       // Base query
-      let query = 'SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type FROM worlds w JOIN users u ON w.author_id = u.id';
+      // `like_count` is counted per row rather than kept as a column beside `downloads`: the catalog is
+      // sortable by it, and a denormalized counter that drifts would rank the whole catalog wrongly rather
+      // than merely display one bad number. Takes no parameter, so it can sit ahead of the WHERE clause
+      // without disturbing the positional params below.
+      let query = `SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type,
+        (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id) AS like_count
+        FROM worlds w JOIN users u ON w.author_id = u.id`;
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
@@ -139,9 +149,7 @@ const World = {
       // person who published it and to the staff — so what the catalog contains depends on who is
       // asking, and an anonymous visitor is asking as nobody.
       const isStaffViewer = Boolean(viewer && isStaff(viewer));
-      if (quarantinedOnly) {
-        whereClause.push('w.quarantined_at IS NOT NULL');
-      } else if (!isStaffViewer) {
+      if (!isStaffViewer) {
         if (viewer) {
           whereClause.push('(w.quarantined_at IS NULL OR w.author_id = ?)');
           params.push(viewer.id);
@@ -182,22 +190,33 @@ const World = {
         countQuery += ' WHERE ' + whereClause.join(' AND ');
       }
       
-      // Validate sort field to prevent SQL injection
-      const validSortFields = ['created_at', 'updated_at', 'downloads', 'name'];
-      const sortField = validSortFields.includes(sort) ? sort : 'created_at';
-      
+      // Validate sort field to prevent SQL injection. A whitelist maps to the expression rather than to a
+      // bare name, because `likes` is a computed column on the select and carries no `w.` prefix.
+      const SORT_EXPRESSIONS = {
+        created_at: 'w.created_at',
+        updated_at: 'w.updated_at',
+        downloads: 'w.downloads',
+        name: 'w.name',
+        likes: 'like_count'
+      };
+      const sortExpression = SORT_EXPRESSIONS[sort] || SORT_EXPRESSIONS.created_at;
+
       // Validate order direction
       const orderDirection = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-      
+
       // Add order by and limit to main query
-      query += ` ORDER BY w.${sortField} ${orderDirection} LIMIT ? OFFSET ?`;
+      query += ` ORDER BY ${sortExpression} ${orderDirection} LIMIT ? OFFSET ?`;
       params.push(limit, offset);
       
       // Execute queries
       const worlds = db.prepare(query).all(...params);
       const countResult = db.prepare(countQuery).get(...params.slice(0, params.length - 2));
       const total = countResult ? countResult.count : 0;
-      
+
+      // One query for the whole page rather than a correlated subquery carrying a parameter into the
+      // select list, which would have to sit ahead of every positional param the WHERE clause appends.
+      const likedIds = viewer ? World.likedAmong(worlds.map(w => w.id), viewer.id) : new Set();
+
       // Process worlds
       const processedWorlds = worlds.map(world => {
         // Parse tags
@@ -205,7 +224,14 @@ const World = {
         
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
-        
+
+        // How many liked it, and whether this reader is one of them. `liked` is absent rather than false
+        // for a signed-out visitor: somebody with no account has not decided against liking anything, and
+        // the heart should be a number rather than a control they cannot press.
+        world.likes = world.like_count || 0;
+        delete world.like_count;
+        if (viewer) world.liked = likedIds.has(world.id);
+
         // Format author
         world.author = {
           id: world.author_id,
@@ -560,6 +586,87 @@ const World = {
   },
 
   /**
+   * What an author's published work adds up to, across every kind.
+   *
+   * Deliberately public-only, with no viewer: this is what the room sees an account as having earned, and
+   * a total that moved depending on who was reading would make an author's own profile disagree with the
+   * one they hand somebody else. Their hidden work still appears in their own listing, with its own
+   * numbers — it just doesn't count here until it's back in the catalog.
+   *
+   * @param {string} authorId - Author ID
+   * @returns {Object} `{ likes, downloads }`, both zero for an account that has published nothing
+   */
+  authorTotals: (authorId) => {
+    const row = db.prepare(`
+      SELECT
+        COALESCE(SUM(w.downloads), 0) AS downloads,
+        (SELECT COUNT(*) FROM world_likes l
+          JOIN worlds lw ON lw.id = l.world_id
+          WHERE lw.author_id = ? AND lw.quarantined_at IS NULL) AS likes
+      FROM worlds w
+      WHERE w.author_id = ? AND w.quarantined_at IS NULL
+    `).get(authorId, authorId);
+
+    return { likes: row.likes || 0, downloads: row.downloads || 0 };
+  },
+
+  /**
+   * Add or remove this user's like. Idempotent in both directions.
+   *
+   * @param {string} worldId - World ID
+   * @param {string} userId - User ID
+   * @param {boolean} liked - Whether they want their like on it
+   */
+  setLike: (worldId, userId, liked) => {
+    if (liked) {
+      db.prepare(`
+        INSERT INTO world_likes (world_id, user_id, created_at) VALUES (?, ?, ?)
+        ON CONFLICT(world_id, user_id) DO NOTHING
+      `).run(worldId, userId, new Date().toISOString());
+      return;
+    }
+
+    db.prepare('DELETE FROM world_likes WHERE world_id = ? AND user_id = ?').run(worldId, userId);
+  },
+
+  /**
+   * How many accounts have liked a listing.
+   * @param {string} worldId - World ID
+   * @returns {number} The count
+   */
+  likeCount: (worldId) =>
+    db.prepare('SELECT COUNT(*) AS count FROM world_likes WHERE world_id = ?').get(worldId).count,
+
+  /**
+   * Whether this user has liked a listing.
+   * @param {string} worldId - World ID
+   * @param {string} userId - User ID
+   * @returns {boolean} True when their like is on it
+   */
+  hasLiked: (worldId, userId) => Boolean(
+    db.prepare('SELECT 1 AS found FROM world_likes WHERE world_id = ? AND user_id = ?').get(worldId, userId)
+  ),
+
+  /**
+   * Which of the given listings this user has liked, so a page of cards can fill every heart in without a
+   * query per row.
+   *
+   * @param {Array<string>} ids - World IDs
+   * @param {string} userId - User ID
+   * @returns {Set<string>} The IDs they have liked
+   */
+  likedAmong: (ids, userId) => {
+    if (!ids || ids.length === 0) return new Set();
+
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT world_id FROM world_likes WHERE user_id = ? AND world_id IN (${placeholders})
+    `).all(userId, ...ids);
+
+    return new Set(rows.map((row) => row.world_id));
+  },
+
+  /**
    * Get an author's rows of one kind (or every kind, with `ALL_KINDS`).
    *
    * An author listing answers "what have I published" — it wants everything, not a first page, since
@@ -570,11 +677,13 @@ const World = {
    * @param {string} authorId - Author ID
    * @param {string} kind - Kind to list; defaults to worlds, as the list endpoints do
    * @param {number} limit - Row ceiling
+   * @param {Object} viewer - Who is asking, for quarantine visibility. Nobody sees a quarantined row
+   *   except its own author and the staff, so an omitted viewer lists only what is public.
    * @returns {Object} `{ worlds, total, pagination }` from getAll
    */
-  getByAuthor: (authorId, kind = DEFAULT_KIND, limit = AUTHOR_LIST_LIMIT) => {
+  getByAuthor: (authorId, kind = DEFAULT_KIND, limit = AUTHOR_LIST_LIMIT, viewer = null) => {
     try {
-      return World.getAll({ authorId, kind, limit });
+      return World.getAll({ authorId, kind, limit, viewer });
     } catch (error) {
       throw error;
     }

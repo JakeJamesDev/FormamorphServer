@@ -41,8 +41,9 @@ router.get('/:id/profile', optionalAuth, getUserProfile);
 router.put('/:id/follow', protect, followUser);
 router.delete('/:id/follow', protect, unfollowUser);
 
-// Get worlds created by a specific user
-router.get('/:id/worlds', getUserWorlds);
+// What a specific user has published. `optionalAuth` so a quarantined listing still reaches its own
+// author and the staff — the room never sees it either way.
+router.get('/:id/worlds', optionalAuth, getUserWorlds);
 
 // Remove a user's profile image (staff only)
 router.delete('/:id/avatar', protect, staff, removeUserAvatar);

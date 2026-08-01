@@ -183,19 +183,22 @@ describe('who can see something in quarantine', () => {
     expect((await download(id, owner)).status).toBe(200);
   });
 
-  it('shows an admin the queue when they ask for it', async () => {
+  it('gives staff the whole catalog, quarantined listings included', async () => {
+    // There is no queue-only parameter: the client narrows this list itself, so what staff ask for is
+    // everything, with the hidden ones in it.
     const { root, id } = await seed();
     const other = (await publish(createUser({ username: 'other' }), { name: 'The Long Tally' })).body.data.id;
     await quarantine(root, id);
 
-    const res = await list(root, '?quarantined=true');
+    const ids = (await list(root)).body.data.map((w) => w.id);
 
-    expect(res.body.data.map((w) => w.id)).toEqual([id]);
-    expect(res.body.data.map((w) => w.id)).not.toContain(other);
+    expect(ids).toContain(id);
+    expect(ids).toContain(other);
   });
 
-  it('ignores the queue flag for anyone who is not an admin', async () => {
-    // Otherwise it would be a way to enumerate exactly what is hidden.
+  it('cannot be talked into listing the queue by a query parameter', async () => {
+    // The old `?quarantined=true` is gone. An unknown parameter must be ignored rather than honored —
+    // otherwise it is a way to enumerate exactly what is hidden.
     const { root, id } = await seed();
     await quarantine(root, id);
     const stranger = createUser({ username: 'stranger' });

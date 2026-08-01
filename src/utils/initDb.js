@@ -231,6 +231,21 @@ const createTables = () => {
     )
   `);
 
+  // One like per account per listing. Separate from the `downloads` counter on the row rather than a
+  // second column beside it, because the two answer different questions: downloads count how many people
+  // tried something, likes how many were glad they did — and only the second needs to know who, so it can
+  // be taken back. Cascades on both sides: a deleted account or listing takes its likes with it.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS world_likes (
+      world_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (world_id, user_id),
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   // Who follows whom. The pair is the key, so following twice is a no-op rather than a second row, and
   // both sides cascade — a deleted account leaves neither dangling followers nor a feed of a ghost.
   //
@@ -261,7 +276,10 @@ const createTables = () => {
       -- Who did it, as they were at the time. The id is kept for filtering; the name is what shows.
       actor_id TEXT,
       actor_username TEXT,
+      -- What they were at the time. actor_was_admin predates the mod team and cannot tell a mod from an
+      -- ordinary account; it is kept so old rows still read, and derived from the role for new ones.
       actor_was_admin INTEGER NOT NULL DEFAULT 0,
+      actor_role TEXT,
       -- Who it was done to, when that is somebody other than the actor.
       target_user_id TEXT,
       target_username TEXT,
@@ -352,6 +370,13 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_worlds_tags ON worlds(tags);
     CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
     CREATE INDEX IF NOT EXISTS idx_worlds_quarantine ON worlds(quarantine_expires_at);
+  `);
+
+  // Both directions are asked for: the catalog counts a listing's likes, and a reader's own are looked up
+  // in a batch to fill in every heart on a page at once.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_world_likes_world ON world_likes(world_id);
+    CREATE INDEX IF NOT EXISTS idx_world_likes_user ON world_likes(user_id);
   `);
 
   // Both directions are asked for: the count on a profile reads one, the notification feed the other.

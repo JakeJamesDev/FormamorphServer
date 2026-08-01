@@ -150,7 +150,10 @@ exports.getUserProfile = async (req, res, next) => {
         // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
         // one rather than false — a signed-out visitor is not somebody who has decided not to.
         followers: Follow.followerCount(user.id),
-        following: req.user ? Follow.isFollowing(req.user.id, user.id) : undefined
+        following: req.user ? Follow.isFollowing(req.user.id, user.id) : undefined,
+        // What their published work has earned, counted over the catalog rather than over what this
+        // reader may see — see `World.authorTotals`.
+        ...World.authorTotals(user.id)
       }
     });
   } catch (error) {
@@ -159,6 +162,12 @@ exports.getUserProfile = async (req, res, next) => {
 };
 
 /**
+ * What somebody has published, as whoever is asking may see it.
+ *
+ * Read with `optionalAuth` rather than left anonymous: a quarantined listing is hidden from the room, but
+ * hiding it from its own author on their own profile told them their work had vanished, with nothing to
+ * say why. The viewer goes through so the author and the staff still see it, badged.
+ *
  * @desc    Get worlds created by a specific user
  * @route   GET /api/users/:id/worlds
  * @access  Public
@@ -179,7 +188,7 @@ exports.getUserWorlds = async (req, res, next) => {
       return res.status(400).json({ success: false, error });
     }
 
-    const result = World.getByAuthor(req.params.id, kind);
+    const result = World.getByAuthor(req.params.id, kind, undefined, req.user);
 
     res.status(200).json({
       success: true,

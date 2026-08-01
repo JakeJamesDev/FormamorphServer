@@ -4,6 +4,7 @@ const { addKindColumn } = require('./utils/addKindColumn');
 const { addQuarantineColumns } = require('./utils/addQuarantineColumns');
 const { addAvatarColumns } = require('./utils/addAvatarColumns');
 const { addAuthorRoleColumn } = require('./utils/addAuthorRoleColumn');
+const { addActorRoleColumn } = require('./utils/addActorRoleColumn');
 const { addFeedbackEditedColumn } = require('./utils/addFeedbackEditedColumn');
 const { addFeedSeenColumn } = require('./utils/addFeedSeenColumn');
 const { addTokenVersionColumn } = require('./utils/addTokenVersionColumn');
@@ -35,6 +36,7 @@ try {
   addQuarantineColumns();
   addAvatarColumns();
   addAuthorRoleColumn();
+  addActorRoleColumn();
   addFeedbackEditedColumn();
   addFeedSeenColumn();
   addTokenVersionColumn();

@@ -1,6 +1,6 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, quarantineWorld, releaseWorld } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, quarantineWorld, releaseWorld } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
@@ -72,6 +72,10 @@ router.put(
   protect,
   setSpoilerStatus
 );
+
+// Like a listing, or take it back. Signed in only — a like is one account's, which is what makes it
+// revocable and countable, unlike the anonymous download tally.
+router.put('/:id/like', smallJson, protect, setLikeStatus);
 
 // Delete world
 // Quarantine a listing, or lift one (staff only). Out of the catalog for everyone but its author, and

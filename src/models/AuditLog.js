@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { badgeRole, isAdmin, roleOf } = require('../config/roles');
 
 /**
  * What happened. One value per kind of event the log records, so the admin filter is a fixed list rather
@@ -54,17 +55,20 @@ const AuditLog = {
   record: ({ action, actor = null, targetUser = null, targetKind = null, targetName = null, snippet = null }) => {
     const info = db.prepare(`
       INSERT INTO audit_log (
-        action, actor_id, actor_username, actor_was_admin,
+        action, actor_id, actor_username, actor_was_admin, actor_role,
         target_user_id, target_username, target_kind, target_name, snippet, created_at
       )
-      VALUES (@action, @actorId, @actorUsername, @actorWasAdmin,
+      VALUES (@action, @actorId, @actorUsername, @actorWasAdmin, @actorRole,
               @targetUserId, @targetUsername, @targetKind, @targetName, @snippet, @createdAt)
     `).run({
       action,
       actorId: actor ? actor.id : null,
       actorUsername: actor ? actor.username : null,
       // Recorded as it was at the time: an account demoted later did not act as an ordinary user then.
-      actorWasAdmin: actor && actor.account_type === 'admin' ? 1 : 0,
+      // The role is the real answer; `actor_was_admin` is derived from it so rows written before the mod
+      // team existed and rows written after can be read the same way.
+      actorRole: actor ? badgeRole(roleOf(actor)) : null,
+      actorWasAdmin: actor && isAdmin(actor) ? 1 : 0,
       targetUserId: targetUser ? targetUser.id : null,
       targetUsername: targetUser ? targetUser.username : null,
       targetKind,

@@ -11,7 +11,10 @@ const toEntryDto = (row) => ({
     id: row.actor_id,
     username: row.actor_username,
     // Whether they were an admin *then* — an account demoted since did not act as an ordinary user.
-    wasAdmin: Boolean(row.actor_was_admin)
+    wasAdmin: Boolean(row.actor_was_admin),
+    // What they were, which `wasAdmin` cannot say for a mod or a dev. Null on a row written before the
+    // column existed, and on an ordinary account: an unknown role and no role read the same to a client.
+    role: row.actor_role || null
   },
   targetUser: row.target_user_id || row.target_username
     ? { id: row.target_user_id, username: row.target_username }

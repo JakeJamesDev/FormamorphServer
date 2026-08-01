@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app } from './context.js';
-import { createUser, authHeader, TINY_PNG } from './helpers.js';
+import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 
 /**
  * The public face of an account — what a stranger sees when they click a name in a thread or on a
@@ -42,7 +42,9 @@ describe('reading somebody’s profile', () => {
 
     const { data } = (await profile(user.id)).body;
 
-    expect(Object.keys(data).sort()).toEqual(['avatarUrl', 'createdAt', 'followers', 'id', 'role', 'username']);
+    expect(Object.keys(data).sort()).toEqual([
+      'avatarUrl', 'createdAt', 'downloads', 'followers', 'id', 'likes', 'role', 'username'
+    ]);
   });
 
   it('carries the badge, so it matches the one beside their name', async () => {
@@ -95,5 +97,95 @@ describe('reading somebody’s profile', () => {
 
   it('404s an account that is not there', async () => {
     expect((await profile('no-such-user')).status).toBe(404);
+  });
+});
+
+/**
+ * What an author's published work adds up to.
+ *
+ * Counted over the catalog rather than over what the reader may see: a total that moved with who was
+ * asking would make an author's own profile disagree with the one they hand somebody else.
+ */
+describe('the totals on a profile', () => {
+  const publish = (user, over = {}) =>
+    request(app).post('/api/worlds').set(authHeader(user)).send(worldPayload(over));
+
+  const like = (user, id) =>
+    request(app).put(`/api/worlds/${id}/like`).set(authHeader(user)).send({ liked: true });
+
+  const download = (id) => request(app).get(`/api/worlds/${id}/content`);
+
+  const author = () => createUser({ username: `author-${Math.random().toString(36).slice(2, 8)}` });
+  const reader = () => createUser({ username: `reader-${Math.random().toString(36).slice(2, 8)}` });
+
+  it('is zeros for somebody who has published nothing', async () => {
+    // The row always renders, so the popup keeps its shape whoever is in it.
+    const res = await profile(author().id);
+
+    expect(res.body.data).toMatchObject({ likes: 0, downloads: 0 });
+  });
+
+  it('adds up the likes across everything they published', async () => {
+    const them = author();
+    const a = reader();
+    const b = reader();
+    const one = (await publish(them, { name: 'One' })).body.data.id;
+    const two = (await publish(them, { name: 'Two', kind: 'entity' })).body.data.id;
+    await like(a, one);
+    await like(b, one);
+    await like(a, two);
+
+    expect((await profile(them.id)).body.data.likes).toBe(3);
+  });
+
+  it('adds up the downloads the same way', async () => {
+    const them = author();
+    const one = (await publish(them, { name: 'One' })).body.data.id;
+    const two = (await publish(them, { name: 'Two' })).body.data.id;
+    await download(one);
+    await download(one);
+    await download(two);
+
+    expect((await profile(them.id)).body.data.downloads).toBe(3);
+  });
+
+  it('counts nobody else’s work toward them', async () => {
+    const them = author();
+    const other = author();
+    const fan = reader();
+    await publish(them, { name: 'Mine' });
+    const theirs = (await publish(other, { name: 'Theirs' })).body.data.id;
+    await like(fan, theirs);
+    await download(theirs);
+
+    expect((await profile(them.id)).body.data).toMatchObject({ likes: 0, downloads: 0 });
+  });
+
+  it('leaves quarantined work out', async () => {
+    const root = createUser({ username: `root-${Math.random().toString(36).slice(2, 8)}`, accountType: 'admin' });
+    const them = author();
+    const fan = reader();
+    const hidden = (await publish(them, { name: 'Hidden' })).body.data.id;
+    await like(fan, hidden);
+    await download(hidden);
+    await request(app).put(`/api/worlds/${hidden}/quarantine`).set(authHeader(root)).send({});
+
+    expect((await profile(them.id)).body.data).toMatchObject({ likes: 0, downloads: 0 });
+  });
+
+  it('says the same thing to the author as to a stranger', async () => {
+    // The point of counting over the catalog: their own hidden work still shows in the list below with
+    // its own numbers, but it must not make their totals read higher to themselves than to anyone else.
+    const root = createUser({ username: `root2-${Math.random().toString(36).slice(2, 8)}`, accountType: 'admin' });
+    const them = author();
+    const fan = reader();
+    const shown = (await publish(them, { name: 'Shown' })).body.data.id;
+    const hidden = (await publish(them, { name: 'Hidden' })).body.data.id;
+    await like(fan, shown);
+    await like(fan, hidden);
+    await request(app).put(`/api/worlds/${hidden}/quarantine`).set(authHeader(root)).send({});
+
+    expect((await profile(them.id, them)).body.data.likes).toBe(1);
+    expect((await profile(them.id)).body.data.likes).toBe(1);
   });
 });

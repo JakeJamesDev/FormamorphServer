@@ -389,3 +389,64 @@ describe('the log as a record', () => {
     }
   });
 });
+
+describe('what the actor was at the time', () => {
+  it('records a mod as a mod, not as "not an admin"', async () => {
+    // `actor_was_admin` predates the mod team, so every moderation by a mod recorded the same zero an
+    // ordinary account would get — the log answering its own question wrong for most of the staff.
+    const mod = createUser({ username: 'wren', accountType: 'mod' });
+    await setStatus(mod, createUser({ username: 'noisy' }), 'suspended');
+
+    const [entry] = await entries(admin());
+    expect(entry.actor.role).toBe('mod');
+  });
+
+  it('records a dev as a dev', async () => {
+    const dev = createUser({ username: 'osk', accountType: 'dev' });
+    await setStatus(dev, createUser({ username: 'loud' }), 'suspended');
+
+    const [entry] = await entries(admin());
+    expect(entry.actor.role).toBe('dev');
+  });
+
+  it('still records an admin as an admin, both ways', async () => {
+    // `wasAdmin` is what old rows and old readers have; it must keep agreeing with the role.
+    const root = admin();
+    await setStatus(root, createUser({ username: 'quiet' }), 'suspended');
+
+    const [entry] = await entries(root);
+    expect(entry.actor.role).toBe('admin');
+    expect(entry.actor.wasAdmin).toBe(true);
+  });
+
+  it('does not claim a mod was an admin', async () => {
+    // The widening must not go the other way: `wasAdmin` is about the top of the tree specifically.
+    const mod = createUser({ username: 'bel', accountType: 'mod' });
+    await setStatus(mod, createUser({ username: 'brash' }), 'suspended');
+
+    const [entry] = await entries(admin());
+    expect(entry.actor.wasAdmin).toBe(false);
+  });
+
+  it('keeps the role it recorded after the account changes', async () => {
+    // The whole point of a snapshot: demoting somebody must not rewrite what they did as staff.
+    const root = admin();
+    const mod = createUser({ username: 'juniper', accountType: 'mod' });
+    await setStatus(mod, createUser({ username: 'rowdy' }), 'suspended');
+
+    await request(app).put(`/api/users/${mod.id}/status`).set(authHeader(root)).send({ accountType: 'normal' });
+
+    const entry = (await entries(root)).find((row) => row.actor.username === 'juniper');
+    expect(entry.actor.role).toBe('mod');
+  });
+
+  it('leaves an ordinary actor unbadged rather than calling them normal', async () => {
+    // A client checking for a badge should not have to know the word for having none.
+    const author = createUser({ username: 'mira' });
+    const world = await publish(author);
+    await request(app).delete(`/api/worlds/${world.body.data.id}`).set(authHeader(author));
+
+    const [entry] = await entries(admin());
+    expect(entry.actor.role).toBeNull();
+  });
+});

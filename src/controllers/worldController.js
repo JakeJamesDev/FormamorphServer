@@ -1,6 +1,6 @@
 const World = require('../models/World');
 const User = require('../models/User');
-const { STAFF_PROTECTED, canModerate, isAdmin, isStaff } = require('../config/roles');
+const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
 const { validationResult } = require('express-validator');
 const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, getThumbnailBase64 } = require('../utils/fileStorage');
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
@@ -56,9 +56,6 @@ exports.getWorlds = async (req, res, next) => {
     // never show a listing that should be gone. Cheap when there is nothing due.
     await sweepQuarantine();
 
-    // Admins may ask for the quarantine queue specifically; for anyone else the flag means nothing.
-    const quarantinedOnly = req.query.quarantined === 'true' && isStaff(req.user);
-
     // Get worlds
     const result = World.getAll({
       page,
@@ -69,8 +66,7 @@ exports.getWorlds = async (req, res, next) => {
       sort,
       order,
       kind,
-      viewer: req.user || null,
-      quarantinedOnly
+      viewer: req.user || null
     });
 
     res.status(200).json({
@@ -99,8 +95,8 @@ exports.getWorld = async (req, res, next) => {
     
     // Get world with or without comments based on query parameter
     const world = includeComments 
-      ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit })
-      : World.findByIdWithAuthor(req.params.id);
+      ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit }, req.user)
+      : World.findByIdWithAuthor(req.params.id, req.user);
 
     // A quarantined listing is as absent as a deleted one to everyone but its author and the admins —
     // same 404, so its existence is not something the room can probe for.
@@ -420,6 +416,52 @@ exports.updateWorld = async (req, res, next) => {
  * @route   PUT /api/worlds/:id/spoiler
  * @access  Private (world owner or admin only)
  */
+/**
+ * Like a listing, or take the like back.
+ *
+ * A like says somebody was glad they downloaded something, which is the thing the download counter cannot
+ * tell you — plenty of people try a world and never finish it. So it is per account and revocable, where
+ * a download is an anonymous tally that only ever goes up.
+ *
+ * Answers with the state and the new count together, the way following does, so the heart and the number
+ * beside it can never disagree about what just happened.
+ *
+ * @desc    Set whether the signed-in account likes a listing
+ * @route   PUT /api/worlds/:id/like
+ * @access  Private
+ */
+exports.setLikeStatus = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+
+    // A quarantined listing is as absent as a deleted one to everyone but its author and the staff — and
+    // nobody can like what they cannot see.
+    if (!world || !World.isVisibleTo(world, req.user)) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    // Liking your own work would make the count say something about how many listings somebody has rather
+    // than how many people liked them, the same reason following yourself is refused.
+    if (world.author_id === req.user.id) {
+      return res.status(400).json({ success: false, error: 'You cannot like your own listing' });
+    }
+
+    const { liked } = req.body;
+    if (typeof liked !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Liked must be a boolean value' });
+    }
+
+    World.setLike(world.id, req.user.id, liked);
+
+    res.status(200).json({
+      success: true,
+      data: { liked, likes: World.likeCount(world.id) }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.setSpoilerStatus = async (req, res, next) => {
   try {
     // Check for validation errors
