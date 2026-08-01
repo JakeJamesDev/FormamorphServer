@@ -1,4 +1,5 @@
 const Comment = require('../models/Comment');
+const { canModerate, isAdmin } = require('../config/roles');
 const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
@@ -157,7 +158,7 @@ exports.updateComment = async (req, res, next) => {
     }
 
     // Check if user is suspended and not an admin
-    if (req.user.status === 'suspended' && req.user.account_type !== 'admin') {
+    if (req.user.status === 'suspended' && !isAdmin(req.user)) {
       return res.status(403).json({
         success: false,
         error: 'Suspended users cannot update comments'
@@ -165,7 +166,7 @@ exports.updateComment = async (req, res, next) => {
     }
 
     // Check if user is comment author or admin
-    if (comment.author_id !== req.user.id && req.user.account_type !== 'admin') {
+    if (comment.author_id !== req.user.id && !canModerate(req.user, User.findById(comment.author_id))) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to update this comment'
@@ -209,11 +210,11 @@ exports.deleteComment = async (req, res, next) => {
     // Get world to check if user is world owner
     const world = World.findById(comment.world_id);
     
-    // Check if user is comment author, world owner, or admin
+    // Its author, the owner of what it was left on, or a moderator who may reach its author.
     if (
-      comment.author_id !== req.user.id && 
-      world.author_id !== req.user.id && 
-      req.user.account_type !== 'admin'
+      comment.author_id !== req.user.id &&
+      world.author_id !== req.user.id &&
+      !canModerate(req.user, User.findById(comment.author_id))
     ) {
       return res.status(403).json({
         success: false,

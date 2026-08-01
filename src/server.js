@@ -3,6 +3,8 @@ const { initStorage } = require('./utils/fileStorage');
 const { addKindColumn } = require('./utils/addKindColumn');
 const { addQuarantineColumns } = require('./utils/addQuarantineColumns');
 const { addAvatarColumns } = require('./utils/addAvatarColumns');
+const { addAuthorRoleColumn } = require('./utils/addAuthorRoleColumn');
+const { addFeedbackEditedColumn } = require('./utils/addFeedbackEditedColumn');
 const { createTables, createIndexes } = require('./utils/initDb');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const app = require('./app');
@@ -30,6 +32,8 @@ try {
   addKindColumn();
   addQuarantineColumns();
   addAvatarColumns();
+  addAuthorRoleColumn();
+  addFeedbackEditedColumn();
   createIndexes();
 } catch (error) {
   console.error('Schema setup failed — starting anyway; some endpoints may fail until resolved:', error);

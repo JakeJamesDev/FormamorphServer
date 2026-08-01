@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { isStaff } = require('../config/roles');
 const { v4: uuidv4 } = require('uuid');
 
 /** The two branches of the tree. They share a thread, a status and a read-marker; little else. */
@@ -180,6 +181,41 @@ const Feedback = {
     return { threads, count: threads.length, total: countRow ? countRow.count : 0 };
   },
 
+
+  /**
+   * Rewrite a report.
+   *
+   * Every field is optional; only what is passed is written. A type move is the one change that pulls
+   * others with it, so it is handled in one statement rather than as a sequence somebody could interrupt:
+   * the category must come from the new type's list, the status returns to `open` — the only value both
+   * branches share — and a bug's diagnostics are deleted rather than hidden, since a suggestion is a
+   * public board post and the version/platform line was collected under bug rules.
+   *
+   * @param {string} id - Feedback ID
+   * @param {Object} fields - `{ title, body, category, type }`, any subset
+   * @returns {Object|undefined} The updated thread
+   */
+  update: (id, { title, body, category, type } = {}) => {
+    const sets = [];
+    const params = [];
+
+    if (title !== undefined) { sets.push('title = ?'); params.push(title); }
+    if (body !== undefined) { sets.push('body = ?'); params.push(body); }
+    if (category !== undefined) { sets.push('category = ?'); params.push(category); }
+    if (type !== undefined) {
+      sets.push('type = ?', "status = 'open'", "diagnostics = '{}'");
+      params.push(type);
+    }
+
+    if (sets.length === 0) return Feedback.findById(id);
+
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE feedback SET ${sets.join(', ')}, edited_at = ?, updated_at = ? WHERE id = ?`)
+      .run(...params, now, now, id);
+
+    return Feedback.findById(id);
+  },
+
   /**
    * Move a thread through triage.
    * @param {string} id - Feedback ID
@@ -239,7 +275,7 @@ const Feedback = {
   canWrite: (thread, user) => {
     if (!thread || !user) return false;
     // Locking is a moderation tool, so it never locks out the moderators.
-    if (user.account_type === 'admin') return true;
+    if (isStaff(user)) return true;
     if (thread.locked_at) return false;
 
     return thread.type === 'suggestion' || thread.reporter_id === user.id;
@@ -265,12 +301,16 @@ const Feedback = {
    * @param {Object} data - `{ feedbackId, authorId, body }`
    * @returns {Object} The stored comment
    */
-  addComment: ({ feedbackId, authorId, body }) => {
+  addComment: ({ feedbackId, authorId, body, authorRole = null }) => {
     const id = uuidv4();
     const now = new Date().toISOString();
 
-    db.prepare('INSERT INTO feedback_comments (id, feedback_id, author_id, body, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, feedbackId, authorId, body, now);
+    // `authorRole` is a snapshot, not a join: a reply signed by the team has to keep saying so after the
+    // person who wrote it stops being staff, and must not start saying so when somebody is promoted.
+    db.prepare(`
+      INSERT INTO feedback_comments (id, feedback_id, author_id, body, created_at, author_role)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, feedbackId, authorId, body, now, authorRole);
     db.prepare('UPDATE feedback SET updated_at = ? WHERE id = ?').run(now, feedbackId);
 
     return db.prepare(`
@@ -370,7 +410,7 @@ const Feedback = {
       JOIN feedback r ON r.id = c.feedback_id
       LEFT JOIN feedback_reads s ON s.feedback_id = c.feedback_id AND s.user_id = @userId
       WHERE (c.author_id IS NULL OR c.author_id <> @userId)
-        AND ${participationClause(user.account_type === 'admin')}
+        AND ${participationClause(isStaff(user))}
         AND (s.last_seen_at IS NULL OR c.created_at > s.last_seen_at)
     `).get({ userId: user.id });
 
@@ -399,7 +439,7 @@ const Feedback = {
       LEFT JOIN feedback_reads s ON s.feedback_id = c.feedback_id AND s.user_id = @userId
       WHERE c.feedback_id IN (${placeholders})
         AND (c.author_id IS NULL OR c.author_id <> @userId)
-        AND ${participationClause(user.account_type === 'admin')}
+        AND ${participationClause(isStaff(user))}
         AND (s.last_seen_at IS NULL OR c.created_at > s.last_seen_at)
     `).all({ userId: user.id, ...idParams });
 

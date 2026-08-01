@@ -14,8 +14,10 @@ backups/
 # Storage
 src/storage/worlds/*
 src/storage/thumbnails/*
+src/storage/avatars/*
 !src/storage/worlds/.gitkeep
 !src/storage/thumbnails/.gitkeep
+!src/storage/avatars/.gitkeep
 
 # Logs
 logs/

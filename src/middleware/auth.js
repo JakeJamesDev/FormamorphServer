@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { isAdmin, isStaff } = require('../config/roles');
 
 /**
  * Build an authentication middleware.
@@ -114,7 +115,29 @@ exports.optionalAuth = async (req, _res, next) => {
  * @param {Function} next - Express next function
  */
 exports.admin = (req, res, next) => {
-  if (req.user && req.user.account_type === 'admin') {
+  if (req.user && isAdmin(req.user)) {
+    next();
+  } else {
+    return res.status(403).json({
+      success: false,
+      error: 'Not authorized to access this route'
+    });
+  }
+};
+
+/**
+ * Middleware to restrict routes to accounts carrying moderation powers.
+ *
+ * The everyday moderation gate: dev, mod and admin alike. `admin` stays for the few things that are
+ * genuinely the owner's — changing what somebody is, writing the site's policies, and speaking to
+ * everyone at once. Refuses with the same wording, so a probe learns nothing about which gate it hit.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next function
+ */
+exports.staff = (req, res, next) => {
+  if (req.user && isStaff(req.user)) {
     next();
   } else {
     return res.status(403).json({

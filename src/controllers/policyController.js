@@ -1,6 +1,7 @@
 const Policy = require('../models/Policy');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
 
 /** Mirrors the message composer's caps so both authored surfaces accept the same size of text. */
 const TITLE_MAX = 120;
@@ -173,11 +174,17 @@ exports.resetUploadGate = async (req, res, next) => {
     const { userId } = req.body;
 
     if (userId) {
-      if (!User.findById(userId)) {
+      const target = User.findById(userId);
+      if (!target) {
         return res.status(404).json({ success: false, error: 'User not found' });
       }
 
-      const target = User.findById(userId);
+      // Resetting one person's answer is moderation, done from the user table; staff may do it, subject
+      // to the same rule as every other moderation action.
+      if (!canModerate(req.user, target)) {
+        return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+      }
+
       Policy.resetForUser(Policy.UPLOAD_GATE, userId);
       AuditLog.tryRecord({
         action: 'terms_reset_user',
@@ -188,6 +195,15 @@ exports.resetUploadGate = async (req, res, next) => {
       });
 
       return res.status(200).json({ success: true, scope: 'user' });
+    }
+
+    // Asking the entire userbase to agree again is a change to what the site requires, not a moderation
+    // action against anybody, so it stays with the administrators.
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only an administrator can reset the terms for everyone'
+      });
     }
 
     // No user named means everyone: one version bump invalidates every acceptance at once. One entry

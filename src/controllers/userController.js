@@ -6,6 +6,7 @@ const AuditLog = require('../models/AuditLog');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
 
 /**
  * @desc    Get all users
@@ -113,6 +114,42 @@ exports.getMyWorlds = async (req, res, next) => {
   }
 };
 
+
+/**
+ * The public face of an account.
+ *
+ * Deliberately a separate route rather than a wider author DTO: every listing, comment and reply already
+ * carries a name and a picture, and hanging a signup date off each of them would send the same few fields
+ * a hundred times over to fill one popup nobody may open.
+ *
+ * Public, because the catalog and its comments are. Never carries the email, the status or the account
+ * type — those are the admin table's, and this is what a stranger may see.
+ *
+ * @desc    A user's public profile
+ * @route   GET /api/users/:id/profile
+ * @access  Public
+ */
+exports.getUserProfile = async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        avatarUrl: avatarUrlFor(user.avatar_file),
+        createdAt: user.created_at
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * @desc    Get worlds created by a specific user
  * @route   GET /api/users/:id/worlds
@@ -175,12 +212,36 @@ exports.updateUserStatus = async (req, res, next) => {
       });
     }
 
-    // Validate account type
-    if (accountType && !['normal', 'admin'].includes(accountType)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid account type value'
-      });
+    // Staff moderate the room, not each other: a dev or a mod reaches ordinary accounts only, an admin
+    // also reaches dev and mod, and nobody reaches an admin.
+    if (!canModerate(req.user, user)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
+    // Changing what somebody *is* belongs to an administrator, whatever else the same body carries.
+    if (accountType) {
+      if (!isAdmin(req.user)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only an administrator can change what an account is'
+        });
+      }
+
+      // `admin` is absent from the assignable list on purpose: administrators are made by hand on the
+      // server and nowhere else, so a compromised account cannot promote its way to the top.
+      if (!ASSIGNABLE_ROLES.includes(accountType)) {
+        return res.status(400).json({
+          success: false,
+          error: `Account type must be one of: ${ASSIGNABLE_ROLES.join(', ')}`
+        });
+      }
+
+      if (isAdmin(user)) {
+        return res.status(403).json({
+          success: false,
+          error: 'An administrator can only be changed on the server'
+        });
+      }
     }
 
     // Update user
@@ -196,6 +257,7 @@ exports.updateUserStatus = async (req, res, next) => {
       });
     }
 
+    const previousRole = roleOf(user);
     const updatedUser = User.update(req.params.id, updateData);
 
     // Only a real change to the status is worth an entry — re-saving the same one is not an event, and
@@ -214,6 +276,19 @@ exports.updateUserStatus = async (req, res, next) => {
           targetName: updatedUser.username
         });
       }
+    }
+
+    // Only a real change is an event; re-saving the role somebody already has is not.
+    if (accountType && accountType !== previousRole) {
+      AuditLog.tryRecord({
+        action: 'role_changed',
+        actor: req.user,
+        targetUser: updatedUser,
+        targetKind: 'account',
+        targetName: updatedUser.username,
+        // Both ends, because "made a mod" reads differently depending on what they were before.
+        snippet: `${previousRole} to ${accountType}`
+      });
     }
 
     res.status(200).json({
@@ -299,6 +374,12 @@ exports.removeUserAvatar = async (req, res, next) => {
     const user = User.findById(req.params.id);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Checked before the "nothing to remove" answer: whether a staff account has a picture is not
+    // something a moderator who may not touch them gets to learn.
+    if (!canModerate(req.user, user)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
     }
 
     if (!user.avatar_file) {

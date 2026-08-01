@@ -37,6 +37,8 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addKindColumn()');
     expect(source).toContain('addQuarantineColumns()');
     expect(source).toContain('addAvatarColumns()');
+    expect(source).toContain('addAuthorRoleColumn()');
+    expect(source).toContain('addFeedbackEditedColumn()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -52,6 +54,8 @@ describe('the boot-time schema step', () => {
 
     expect(boot.indexOf('addQuarantineColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addAvatarColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addAuthorRoleColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addFeedbackEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
@@ -64,6 +68,12 @@ describe('the boot-time schema step', () => {
 
     const avatars = require('fs').readFileSync(require.resolve('../src/utils/addAvatarColumns.js'), 'utf8');
     expect(avatars).toContain('ALTER TABLE users');
+
+    const roles = require('fs').readFileSync(require.resolve('../src/utils/addAuthorRoleColumn.js'), 'utf8');
+    expect(roles).toContain('ALTER TABLE feedback_comments');
+
+    const edited = require('fs').readFileSync(require.resolve('../src/utils/addFeedbackEditedColumn.js'), 'utf8');
+    expect(edited).toContain('ALTER TABLE feedback');
   });
 
   it('creates every table it is responsible for', () => {

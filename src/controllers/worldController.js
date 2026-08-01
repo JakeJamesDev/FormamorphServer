@@ -1,5 +1,6 @@
 const World = require('../models/World');
 const User = require('../models/User');
+const { STAFF_PROTECTED, canModerate, isAdmin, isStaff } = require('../config/roles');
 const { validationResult } = require('express-validator');
 const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, getThumbnailBase64 } = require('../utils/fileStorage');
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
@@ -56,7 +57,7 @@ exports.getWorlds = async (req, res, next) => {
     await sweepQuarantine();
 
     // Admins may ask for the quarantine queue specifically; for anyone else the flag means nothing.
-    const quarantinedOnly = req.query.quarantined === 'true' && req.user && req.user.account_type === 'admin';
+    const quarantinedOnly = req.query.quarantined === 'true' && isStaff(req.user);
 
     // Get worlds
     const result = World.getAll({
@@ -291,7 +292,7 @@ exports.updateWorld = async (req, res, next) => {
     }
 
     // Check if user is suspended and not an admin
-    if (req.user.status === 'suspended' && req.user.account_type !== 'admin') {
+    if (req.user.status === 'suspended' && !isAdmin(req.user)) {
       return res.status(403).json({
         success: false,
         error: 'Suspended users cannot update worlds'
@@ -299,7 +300,7 @@ exports.updateWorld = async (req, res, next) => {
     }
 
     // Check if user is world owner or admin
-    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+    if (world.author_id !== req.user.id && !canModerate(req.user, User.findById(world.author_id))) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to update this world'
@@ -441,7 +442,7 @@ exports.setSpoilerStatus = async (req, res, next) => {
     }
 
     // Check if user is world owner or admin
-    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+    if (world.author_id !== req.user.id && !canModerate(req.user, User.findById(world.author_id))) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to update this world'
@@ -490,6 +491,13 @@ exports.quarantineWorld = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'World not found' });
     }
 
+    // Staff moderate the room, not each other. Checked here rather than left to the route's `staff` gate:
+    // a quarantine deletes the listing when its deadline passes, so without this a moderator could
+    // destroy another moderator's — or an administrator's — work on a timer.
+    if (!canModerate(req.user, User.findById(world.author_id))) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
     const requested = req.body.days === undefined ? DEFAULT_QUARANTINE_DAYS : Number(req.body.days);
     if (!Number.isInteger(requested) || requested < MIN_QUARANTINE_DAYS || requested > MAX_QUARANTINE_DAYS) {
       return res.status(400).json({
@@ -535,6 +543,10 @@ exports.releaseWorld = async (req, res, next) => {
     if (!world) {
       return res.status(404).json({ success: false, error: 'World not found' });
     }
+    if (!canModerate(req.user, User.findById(world.author_id))) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
     if (!world.quarantined_at) {
       return res.status(400).json({ success: false, error: 'This is not quarantined' });
     }
@@ -574,7 +586,7 @@ exports.deleteWorld = async (req, res, next) => {
     }
 
     // Check if user is world owner or admin
-    if (world.author_id !== req.user.id && req.user.account_type !== 'admin') {
+    if (world.author_id !== req.user.id && !canModerate(req.user, User.findById(world.author_id))) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to delete this world'

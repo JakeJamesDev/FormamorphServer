@@ -2,7 +2,7 @@ const express = require('express');
 const { check } = require('express-validator');
 const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, quarantineWorld, releaseWorld } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
-const { protect, admin, optionalAuth } = require('../middleware/auth');
+const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 
@@ -74,10 +74,10 @@ router.put(
 );
 
 // Delete world
-// Quarantine a listing, or lift one (admin only). Out of the catalog for everyone but its author, and
+// Quarantine a listing, or lift one (staff only). Out of the catalog for everyone but its author, and
 // deleted when the deadline passes unless somebody releases it first.
-router.put('/:id/quarantine', smallJson, protect, admin, quarantineWorld);
-router.delete('/:id/quarantine', protect, admin, releaseWorld);
+router.put('/:id/quarantine', smallJson, protect, staff, quarantineWorld);
+router.delete('/:id/quarantine', protect, staff, releaseWorld);
 
 router.delete('/:id', protect, deleteWorld);
 

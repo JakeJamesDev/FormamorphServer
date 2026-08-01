@@ -160,6 +160,9 @@ const createTables = () => {
       -- Bugs only: a suggestion is about the game, not about the machine it was written on.
       diagnostics TEXT NOT NULL DEFAULT '{}',
       locked_at TEXT,
+      -- Set the first time the report is rewritten, so the thread can say "edited". The other reader may
+      -- already have read the earlier wording.
+      edited_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (
@@ -184,6 +187,10 @@ const createTables = () => {
       created_at TEXT NOT NULL,
       -- Set the first time an author rewrites their own comment, so the thread can say "edited".
       edited_at TEXT,
+      -- What the author was when they wrote it. Snapshotted rather than joined, so a later promotion or
+      -- demotion cannot rewrite the signature on replies somebody has already read. Null on rows written
+      -- before this existed, which fall back to the live account type.
+      author_role TEXT,
       FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
       FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE SET NULL
     )

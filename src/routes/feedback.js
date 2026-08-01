@@ -5,6 +5,7 @@ const {
   getThreads,
   getThread,
   addComment,
+  updateThread,
   updateComment,
   deleteComment,
   setStatus,
@@ -14,7 +15,7 @@ const {
   getUnreadCount,
   getMeta
 } = require('../controllers/feedbackController');
-const { protect, admin } = require('../middleware/auth');
+const { protect, staff } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
@@ -65,13 +66,17 @@ router.delete('/:id/comments/:commentId', protect, deleteComment);
 // Vote for a suggestion, or take the vote back
 router.put('/:id/vote', protect, setVote);
 
-// Move a thread through triage (admin only)
-router.put('/:id/status', protect, admin, setStatus);
+// Rewrite a report. Who may change what is decided per field: a bug's words are the team's to make
+// useful, a suggestion's stay its author's, and the filing (category, type) is triage either way.
+router.put('/:id', protect, updateThread);
 
-// Close a thread to further replies, or reopen it (admin only)
-router.put('/:id/lock', protect, admin, setLocked);
+// Move a thread through triage (staff only)
+router.put('/:id/status', protect, staff, setStatus);
 
-// Delete a thread and everything on it (admin only)
-router.delete('/:id', protect, admin, deleteThread);
+// Close a thread to further replies, or reopen it (staff only)
+router.put('/:id/lock', protect, staff, setLocked);
+
+// Delete a thread and everything on it (staff only)
+router.delete('/:id', protect, staff, deleteThread);
 
 module.exports = router;

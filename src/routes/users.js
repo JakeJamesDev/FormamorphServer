@@ -1,9 +1,9 @@
 const express = require('express');
 const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
-  setMyAvatar, removeMyAvatar, removeUserAvatar
+  setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile
 } = require('../controllers/userController');
-const { protect, admin } = require('../middleware/auth');
+const { protect, admin, staff } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -12,8 +12,8 @@ const router = express.Router();
 const smallJson = express.json({ limit: '100kb' });
 const avatarJson = express.json({ limit: '2mb' });
 
-// Get all users (admin only)
-router.get('/', protect, admin, getUsers);
+// Get all users (staff only)
+router.get('/', protect, staff, getUsers);
 
 // Get current user profile
 router.get('/me', protect, getMe);
@@ -26,13 +26,17 @@ router.get('/me/worlds', protect, getMyWorlds);
 router.put('/me/avatar', avatarJson, protect, setMyAvatar);
 router.delete('/me/avatar', protect, removeMyAvatar);
 
+// A user's public face: what a stranger sees when they click a name in a thread or on a listing
+router.get('/:id/profile', getUserProfile);
+
 // Get worlds created by a specific user
 router.get('/:id/worlds', getUserWorlds);
 
-// Remove a user's profile image (admin only)
-router.delete('/:id/avatar', protect, admin, removeUserAvatar);
+// Remove a user's profile image (staff only)
+router.delete('/:id/avatar', protect, staff, removeUserAvatar);
 
-// Update user status and account type (admin only)
-router.put('/:id/status', smallJson, protect, admin, updateUserStatus);
+// Suspend or reinstate an account (staff only). The same route also changes what somebody *is*, which
+// is an administrator's alone — enforced in the controller, since one body can carry both.
+router.put('/:id/status', smallJson, protect, staff, updateUserStatus);
 
 module.exports = router;

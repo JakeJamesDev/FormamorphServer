@@ -8,7 +8,7 @@ const {
   resetUploadGate,
   matchTags
 } = require('../controllers/policyController');
-const { protect, admin } = require('../middleware/auth');
+const { protect, admin, staff } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -23,8 +23,9 @@ router.post('/upload-gate/accept', protect, acceptUploadGate);
 // Record a decline; enforces nothing, but tells an admin they were asked and said no
 router.post('/upload-gate/decline', protect, declineUploadGate);
 
-// Require the gate to be accepted again — one user with `{ userId }`, everyone without (admin only)
-router.post('/upload-gate/reset', protect, admin, resetUploadGate);
+// Require the gate to be accepted again — one user with `{ userId }` (staff), everyone without (admin).
+// One route, two audiences: the controller separates them, since only the body says which this is.
+router.post('/upload-gate/reset', protect, staff, resetUploadGate);
 
 // Which of a publish's tags the tag notice covers
 router.post('/tag-notice/match', protect, matchTags);

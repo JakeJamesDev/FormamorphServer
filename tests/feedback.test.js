@@ -290,14 +290,16 @@ describe('reading a report', () => {
     expect(res.status).toBe(404);
   });
 
-  it('marks who wrote each comment as team or reporter', async () => {
+  it('records what each author was when they wrote it', async () => {
+    // A snapshot, not a live join: a reply signed by the team has to keep saying so after the person
+    // stops being staff, and must not start saying so when somebody is promoted later.
     const { root, user, id } = await seedReport();
     await comment(root, id, 'From the team.');
     await comment(user, id, 'From me.');
 
     const res = await read(user, id);
 
-    expect(res.body.comments.map((c) => c.author.isAdmin)).toEqual([true, false]);
+    expect(res.body.comments.map((c) => c.author.role)).toEqual(['admin', null]);
   });
 });
 

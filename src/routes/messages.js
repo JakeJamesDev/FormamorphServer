@@ -9,7 +9,7 @@ const {
   editMessage,
   recallMessage
 } = require('../controllers/messageController');
-const { protect, protectAllowSuspended, admin } = require('../middleware/auth');
+const { protect, protectAllowSuspended, staff } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -18,20 +18,20 @@ const router = express.Router();
 // Get the current user's unread count (badge)
 router.get('/unread-count', protect, getUnreadCount);
 
-// List sent messages (admin only)
-router.get('/sent', protect, admin, getSent);
+// List sent messages (staff only) — also what the user table's History button reads
+router.get('/sent', protect, staff, getSent);
 
-// Edit a sent message (admin only)
-router.put('/sent/:id', protect, admin, editMessage);
+// Edit a sent message (its sender, or any administrator)
+router.put('/sent/:id', protect, staff, editMessage);
 
-// Recall a sent message (admin only)
-router.delete('/sent/:id', protect, admin, recallMessage);
+// Recall a sent message (its sender, or any administrator)
+router.delete('/sent/:id', protect, staff, recallMessage);
 
 // Get the current user's inbox
 router.get('/', protect, getInbox);
 
-// Send a message (admin only)
-router.post('/', protect, admin, sendMessage);
+// Send a message (staff for a direct notice; a broadcast is an administrator's, checked in the controller)
+router.post('/', protect, staff, sendMessage);
 
 // Mark a message read. A suspension notice is delivered this way, so its recipient must be able to
 // clear it even while suspended; this writes nothing but their own state row.

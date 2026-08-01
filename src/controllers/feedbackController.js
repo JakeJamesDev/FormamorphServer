@@ -1,5 +1,6 @@
 const Feedback = require('../models/Feedback');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { isStaff, roleOf } = require('../config/roles');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 
@@ -26,6 +27,8 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   // guard for the same thing, and the dead one always looks like it is doing the work.
   diagnostics: safeParse(row.diagnostics),
   locked: Boolean(row.locked_at),
+  /** Set once it has been rewritten, so the thread can say "edited" beside the date. */
+  editedAt: row.edited_at || null,
   votes: row.vote_count || 0,
   voted,
   createdAt: row.created_at,
@@ -42,10 +45,28 @@ const toCommentDto = (row) => ({
     id: row.author_id,
     username: row.author_username || null,
     avatarUrl: avatarUrlFor(row.author_avatar_file),
-    // Drives how the thread styles it — a reply from the team reads differently from anyone else's.
-    isAdmin: row.author_account_type === 'admin'
+    // What they were when they wrote it, which is what the badge says. Null for an ordinary reply, and
+    // for one written before the snapshot existed — those fall back to the live account type, which is
+    // the old behavior and the best that can be said about them.
+    role: authorRoleOf(row)
   }
 });
+
+/**
+ * What a reply's author was when they wrote it.
+ *
+ * The snapshot when there is one; otherwise the live account type, for rows written before the column
+ * existed. `normal` becomes null either way — an ordinary reply wears no badge, and a caller checking
+ * for one should not have to know the word.
+ *
+ * @param {Object} row - A `feedback_comments` row joined with its author
+ * @returns {string|null} The role, or null
+ */
+function authorRoleOf(row) {
+  const role = row.author_role || row.author_account_type || null;
+
+  return role && role !== 'normal' ? role : null;
+}
 
 function safeParse(text) {
   try {
@@ -177,7 +198,7 @@ exports.getThread = async (req, res, next) => {
     // Only for someone the thread badges. A passing reader has no unread state to clear, and writing a
     // marker anyway would leave a row per thread per curious account. Admins are a party to every bug,
     // and anyone who has written in a suggestion is a party to that.
-    const badged = req.user.account_type === 'admin'
+    const badged = isStaff(req.user)
       ? thread.type === 'bug' || Feedback.hasParticipated(thread, req.user.id)
       : Feedback.hasParticipated(thread, req.user.id);
     if (badged) Feedback.markSeen(thread.id, req.user.id);
@@ -221,7 +242,7 @@ exports.addComment = async (req, res, next) => {
       return res.status(400).json({ success: false, error: `A comment is limited to ${Feedback.COMMENT_MAX} characters` });
     }
 
-    const comment = Feedback.addComment({ feedbackId: thread.id, authorId: req.user.id, body });
+    const comment = Feedback.addComment({ feedbackId: thread.id, authorId: req.user.id, body, authorRole: roleOf(req.user) });
     // Writing in a thread means having read it; leaving it unread would badge the author's own reply.
     // It is also what makes them a party to a suggestion from here on.
     Feedback.markSeen(thread.id, req.user.id);
@@ -235,12 +256,12 @@ exports.addComment = async (req, res, next) => {
 /**
  * Locate a comment for an edit or a delete, and say who may do what to it.
  *
- * Editing is the author's alone — an admin's moderation powers do not extend to rewriting what somebody
- * said. Deleting is the author's or an admin's, which is the only lever there is when an open thread
- * goes bad. A lock stops the author but never the admins.
+ * Editing is the author's alone — moderation powers do not extend to rewriting what somebody said.
+ * Deleting is the author's or a moderator's, which is the only lever there is when an open thread goes
+ * bad. A lock stops the author but never the moderators.
  *
  * @param {Object} req - The request, with `params.id` / `params.commentId` and `user`
- * @param {boolean} adminMayAct - Whether an admin can act on somebody else's comment (delete, not edit)
+ * @param {boolean} adminMayAct - Whether a moderator can act on somebody else's comment (delete, not edit)
  * @returns {Object} `{ error }` with a status and message, or `{ comment }` when it may be changed
  */
 const commentFor = (req, adminMayAct) => {
@@ -254,14 +275,14 @@ const commentFor = (req, adminMayAct) => {
     return { error: { status: 404, message: 'Comment not found' } };
   }
 
-  const isAdmin = req.user.account_type === 'admin';
+  const isModerator = isStaff(req.user);
   const isAuthor = comment.author_id === req.user.id;
 
-  if (!isAuthor && !(adminMayAct && isAdmin)) {
+  if (!isAuthor && !(adminMayAct && isModerator)) {
     return { error: { status: 403, message: 'You can only change your own comments' } };
   }
   // A locked thread is closed to its participants, moderators excepted.
-  if (thread.locked_at && !isAdmin) {
+  if (thread.locked_at && !isModerator) {
     return { error: { status: 403, message: 'This thread has been locked' } };
   }
 
@@ -309,6 +330,137 @@ exports.deleteComment = async (req, res, next) => {
     Feedback.deleteComment(comment.id);
 
     res.status(200).json({ success: true, data: {} });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+/**
+ * Whether this caller may rewrite this thread's prose.
+ *
+ * A bug is a work item for the team, so a poorly written one can be made useful. A suggestion is
+ * somebody's idea on a public board and stays in their words — the same rule every comment follows.
+ * A lock closes the reporter's own editing, moderators excepted.
+ *
+ * @param {Object} thread - The thread row
+ * @param {Object} user - The signed-in user
+ * @returns {boolean} Whether the title and body may be changed
+ */
+const mayEditProse = (thread, user) => {
+  if (isStaff(user)) return thread.type === 'bug';
+
+  return thread.reporter_id === user.id && !thread.locked_at;
+};
+
+/**
+ * @desc    Rewrite a report: its prose by whoever owns the words, its filing by the team
+ * @route   PUT /api/feedback/:id
+ * @access  Private (the reporter, or staff)
+ */
+exports.updateThread = async (req, res, next) => {
+  try {
+    const thread = Feedback.findById(req.params.id);
+    if (!thread) {
+      return res.status(404).json({ success: false, error: 'Not found' });
+    }
+
+    const moderator = isStaff(req.user);
+    const fields = {};
+
+    // --- The words. Whose they are depends on the branch.
+    const wantsProse = req.body.title !== undefined || req.body.body !== undefined;
+    if (wantsProse) {
+      if (!mayEditProse(thread, req.user)) {
+        return res.status(403).json({
+          success: false,
+          error: thread.locked_at && thread.reporter_id === req.user.id
+            ? 'This thread has been locked'
+            : 'You cannot rewrite this'
+        });
+      }
+
+      if (req.body.title !== undefined) {
+        const title = asText(req.body.title);
+        if (!title) {
+          return res.status(400).json({ success: false, error: 'A title is required' });
+        }
+        if (title.length > Feedback.TITLE_MAX) {
+          return res.status(400).json({ success: false, error: `A title is limited to ${Feedback.TITLE_MAX} characters` });
+        }
+        fields.title = title;
+      }
+
+      if (req.body.body !== undefined) {
+        const body = asText(req.body.body);
+        if (!body) {
+          return res.status(400).json({ success: false, error: 'A description is required' });
+        }
+        if (body.length > Feedback.BODY_MAX) {
+          return res.status(400).json({ success: false, error: `A description is limited to ${Feedback.BODY_MAX} characters` });
+        }
+        fields.body = body;
+      }
+    }
+
+    // --- The filing. Triage, so the team's alone.
+    const wantsFiling = req.body.category !== undefined || req.body.type !== undefined;
+    if (wantsFiling && !moderator) {
+      return res.status(403).json({ success: false, error: 'Only the team can re-file a report' });
+    }
+
+    // A type move takes the category with it: the two lists share only three values, so `crash` has no
+    // honest answer on the other side. The caller names the new one rather than having one guessed.
+    const nextType = req.body.type === undefined ? thread.type : req.body.type;
+    if (!Feedback.TYPES.includes(nextType)) {
+      return res.status(400).json({ success: false, error: 'Unknown type' });
+    }
+
+    if (nextType !== thread.type) {
+      if (req.body.category === undefined) {
+        return res.status(400).json({
+          success: false,
+          error: `Moving this to a ${nextType} needs a ${nextType} category`
+        });
+      }
+      fields.type = nextType;
+    }
+
+    if (req.body.category !== undefined) {
+      if (!Feedback.CATEGORIES[nextType].includes(req.body.category)) {
+        return res.status(400).json({ success: false, error: 'Unknown category' });
+      }
+      fields.category = req.body.category;
+    }
+
+    if (Object.keys(fields).length === 0) {
+      return res.status(400).json({ success: false, error: 'Nothing to change' });
+    }
+
+    const updated = Feedback.update(thread.id, fields);
+
+    // Only when somebody other than the reporter changed it: a person fixing their own typo is not
+    // moderation, and a log full of those buries the entries that matter.
+    if (thread.reporter_id !== req.user.id) {
+      const changed = [];
+      if (fields.type) changed.push(`${thread.type} to ${fields.type}`);
+      if (fields.category) changed.push(`category: ${thread.category} to ${fields.category}`);
+      if (fields.title || fields.body) changed.push('rewrote the report');
+
+      AuditLog.tryRecord({
+        action: 'feedback_edited',
+        actor: req.user,
+        targetUser: thread.reporter_id ? User.findById(thread.reporter_id) : null,
+        targetKind: updated.type,
+        targetName: updated.title,
+        snippet: changed.join('; ')
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: toThreadDto(updated, { voted: Feedback.hasVoted(updated.id, req.user.id) })
+    });
   } catch (error) {
     next(error);
   }

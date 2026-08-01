@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const User = require('../models/User');
+const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
 
 /** Composer limits, enforced here as well as in the client so a hand-rolled request can't exceed them. */
 const SUBJECT_MAX = 120;
@@ -190,6 +191,15 @@ exports.sendMessage = async (req, res, next) => {
 
     const broadcast = req.body.broadcast === true;
     const recipientIds = Array.isArray(req.body.recipientIds) ? [...new Set(req.body.recipientIds)] : [];
+    // Writing to one person is a moderation tool — a suspension notice, a takedown explanation — so any
+    // staff account may. Speaking to the whole userbase at once is not, and stays with the administrators.
+    if (broadcast && !isAdmin(req.user)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only an administrator can message everyone'
+      });
+    }
+
     if (broadcast && recipientIds.length > 0) {
       return res.status(400).json({
         success: false,
@@ -212,6 +222,14 @@ exports.sendMessage = async (req, res, next) => {
         success: false,
         error: 'Reaching new accounts applies to broadcasts only'
       });
+    }
+
+    // Staff moderate the room, not each other: a notice is an action taken against somebody.
+    const protectedRecipient = recipientIds
+      .map((id) => User.findById(id))
+      .find((recipient) => recipient && !canModerate(req.user, recipient));
+    if (protectedRecipient) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
     }
 
     if (recipientIds.length > MAX_RECIPIENTS) {
@@ -299,6 +317,15 @@ exports.editMessage = async (req, res, next) => {
       });
     }
 
+    // A moderator may take back or correct what they sent; anything else — including a broadcast, which
+    // only an administrator could have sent — stays with the administrators.
+    if (!isAdmin(req.user) && message.sender_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only change messages you sent'
+      });
+    }
+
     // Recall is final: a recalled message is a closed record, and editing it back into inboxes would
     // make the audit trail mean two different things. Send a new message instead.
     if (message.recalled_at) {
@@ -350,6 +377,15 @@ exports.recallMessage = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         error: 'Message not found'
+      });
+    }
+
+    // A moderator may take back or correct what they sent; anything else — including a broadcast, which
+    // only an administrator could have sent — stays with the administrators.
+    if (!isAdmin(req.user) && message.sender_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'You can only change messages you sent'
       });
     }
 

@@ -4,6 +4,7 @@ const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage')
 const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
 const Comment = require('./Comment');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { isStaff } = require('../config/roles');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -128,12 +129,12 @@ const World = {
       }
 
       // Quarantine visibility. A quarantined listing is hidden from the room but stays visible to the
-      // person who published it and to the admins — so what the catalog contains depends on who is
+      // person who published it and to the staff — so what the catalog contains depends on who is
       // asking, and an anonymous visitor is asking as nobody.
-      const isAdmin = Boolean(viewer && viewer.account_type === 'admin');
+      const isStaffViewer = Boolean(viewer && isStaff(viewer));
       if (quarantinedOnly) {
         whereClause.push('w.quarantined_at IS NOT NULL');
-      } else if (!isAdmin) {
+      } else if (!isStaffViewer) {
         if (viewer) {
           whereClause.push('(w.quarantined_at IS NULL OR w.author_id = ?)');
           params.push(viewer.id);
@@ -397,7 +398,7 @@ const World = {
     if (!world.quarantined_at) return true;
     if (!viewer) return false;
 
-    return viewer.account_type === 'admin' || world.author_id === viewer.id;
+    return isStaff(viewer) || world.author_id === viewer.id;
   },
 
   /**
