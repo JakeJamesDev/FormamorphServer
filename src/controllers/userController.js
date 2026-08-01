@@ -2,6 +2,7 @@ const User = require('../models/User');
 const World = require('../models/World');
 const Policy = require('../models/Policy');
 const Message = require('../models/Message');
+const AuditLog = require('../models/AuditLog');
 const { kindFromQuery } = require('../utils/kindQuery');
 
 /**
@@ -192,6 +193,24 @@ exports.updateUserStatus = async (req, res, next) => {
     }
 
     const updatedUser = User.update(req.params.id, updateData);
+
+    // Only a real change to the status is worth an entry — re-saving the same one is not an event, and
+    // an account type change is left out until the log is meant to cover it.
+    if (status && status !== user.status) {
+      const action = status === 'suspended'
+        ? 'user_suspended'
+        : (user.status === 'suspended' ? 'user_unsuspended' : null);
+
+      if (action) {
+        AuditLog.tryRecord({
+          action,
+          actor: req.user,
+          targetUser: updatedUser,
+          targetKind: 'account',
+          targetName: updatedUser.username
+        });
+      }
+    }
 
     res.status(200).json({
       success: true,

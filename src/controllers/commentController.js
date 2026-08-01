@@ -1,5 +1,7 @@
 const Comment = require('../models/Comment');
 const World = require('../models/World');
+const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { validationResult } = require('express-validator');
 
 /**
@@ -210,6 +212,17 @@ exports.deleteComment = async (req, res, next) => {
 
     // Delete comment
     Comment.delete(req.params.id);
+
+    // The text goes into the entry: once the row is gone, "a comment was deleted" answers nothing, and
+    // knowing what was removed is the reason to keep a log at all.
+    AuditLog.tryRecord({
+      action: 'comment_deleted',
+      actor: req.user,
+      targetUser: comment.author_id === req.user.id ? null : User.findById(comment.author_id),
+      targetKind: 'comment',
+      targetName: world ? world.name : null,
+      snippet: comment.content
+    });
 
     res.status(200).json({
       success: true,

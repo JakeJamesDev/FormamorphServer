@@ -6,6 +6,7 @@ const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
+const AuditLog = require('../models/AuditLog');
 
 /**
  * The kind's content ceiling as an error string, or null when it fits.
@@ -460,6 +461,17 @@ exports.deleteWorld = async (req, res, next) => {
 
     // Delete world from database
     World.delete(req.params.id);
+
+    // Logged whoever did it: an author tidying up and an admin taking something down are the same
+    // disappearance to anyone asking where it went, and the entry says which it was.
+    AuditLog.tryRecord({
+      action: 'listing_deleted',
+      actor: req.user,
+      targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
+      targetKind: world.kind || 'world',
+      targetName: world.name,
+      snippet: world.description
+    });
 
     res.status(200).json({
       success: true,

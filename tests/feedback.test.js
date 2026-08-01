@@ -187,6 +187,49 @@ describe('listing reports', () => {
     expect(res.body.data.map((r) => r.title)).toEqual(['Fixed']);
   });
 
+  it('narrows to one category', async () => {
+    const root = admin();
+    await file(reporter('a'), { title: 'A crash', category: 'crash' });
+    await file(reporter('b'), { title: 'Bad prose', category: 'ai' });
+
+    const res = await list(root, '?scope=all&category=ai');
+
+    expect(res.body.data.map((r) => r.title)).toEqual(['Bad prose']);
+  });
+
+  it('narrows a suggestion board by its own categories', async () => {
+    const user = reporter();
+    await fileSuggestion(user, { title: 'Rename saves', category: 'interface' });
+    await fileSuggestion(user, { title: 'Weather', category: 'gameplay' });
+
+    const res = await list(user, '?type=suggestion&scope=all&category=interface');
+
+    expect(res.body.data.map((r) => r.title)).toEqual(['Rename saves']);
+  });
+
+  it('ignores a category the branch does not have', async () => {
+    // Asking a bug queue for 'interface' falls back to every category rather than an empty list.
+    const root = admin();
+    await file(reporter('a'));
+
+    const res = await list(root, '?scope=all&category=interface');
+
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+  });
+
+  it('combines a category with a status', async () => {
+    const root = admin();
+    const first = (await file(reporter('a'), { title: 'Fixed crash', category: 'crash' })).body.data.id;
+    await file(reporter('b'), { title: 'Open crash', category: 'crash' });
+    await file(reporter('c'), { title: 'Open AI bug', category: 'ai' });
+    await request(app).put(`/api/feedback/${first}/status`).set(authHeader(root)).send({ status: 'resolved' });
+
+    const res = await list(root, '?scope=all&category=crash&status=open');
+
+    expect(res.body.data.map((r) => r.title)).toEqual(['Open crash']);
+  });
+
   it('ignores a status filter it does not know', async () => {
     const root = admin();
     await file(reporter('a'));

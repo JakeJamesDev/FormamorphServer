@@ -1,20 +1,29 @@
 require('dotenv').config();
 const { initStorage } = require('./utils/fileStorage');
 const { addKindColumn } = require('./utils/addKindColumn');
+const { createTables, createIndexes } = require('./utils/initDb');
 const app = require('./app');
 
-// Bring the schema up to date before serving. Every list query filters on `worlds.kind`, so booting
-// against a database that predates it would 500 the entire catalog until someone ran the migration by
-// hand — the deploy order must not be able to cause an outage. The migration is additive and idempotent,
-// so this is a no-op on every boot after the first. `npm run migrate-kind` still runs it ahead of a deploy.
+// Bring the schema up to date before serving, so a deploy that adds a table needs nothing run by hand.
+// Without this, forgetting `npm run init-db` leaves the new endpoints answering `no such table` — an
+// outage caused by a step nobody sees until it is missed.
 //
-// Never fatal: a migration that throws must not take the process down, or a bad database turns into a
+// Both halves are safe to repeat. `createTables`/`createIndexes` are `IF NOT EXISTS` throughout, and the
+// kind migration is additive and idempotent, so every boot after the first is a no-op. Note the split in
+// what they can do: creating a *table* is covered here, but neither adds a *column* to a table that
+// already exists — that still needs its own migration, which is exactly what `addKindColumn` is.
+//
+// `npm run init-db` still exists to run ahead of a deploy, and additionally seeds the admin account.
+//
+// Never fatal: a schema step that throws must not take the process down, or a bad database turns into a
 // boot loop under any restart policy. Booting with a loud error leaves the operator a running server to
-// diagnose from, which is what this server did before the migration existed.
+// diagnose from, which is what this server did before any of this existed.
 try {
+  createTables();
+  createIndexes();
   addKindColumn();
 } catch (error) {
-  console.error('Schema migration failed — starting anyway; list endpoints may fail until resolved:', error);
+  console.error('Schema setup failed — starting anyway; some endpoints may fail until resolved:', error);
 }
 
 // Initialize storage directories

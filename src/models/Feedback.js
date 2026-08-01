@@ -127,16 +127,18 @@ const Feedback = {
   /**
    * A page of threads.
    *
-   * `type` picks the branch; `reporterId` narrows to one person's own; `status` to one triage state.
-   * All are optional and combine, so the same query backs the reporter's list, the public board and the
-   * admin's filtered queue.
+   * `type` picks the branch; `reporterId` narrows to one person's own; `status` to one triage state;
+   * `category` to one area of the app. All are optional and combine, so the same query backs the
+   * reporter's list, the public board and the admin's filtered queue.
    *
-   * @param {Object} [options] - `{ page, limit, type, reporterId, status, sort }`; `sort` is a
+   * @param {Object} [options] - `{ page, limit, type, reporterId, status, category, sort }`; `sort` is a
    *   `SORT_FIELDS` key, defaulting to newest
    * @returns {Object} `{ threads, count, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
-    const { page = 1, limit = 20, type = null, reporterId = null, status = null, sort = 'newest' } = options;
+    const {
+      page = 1, limit = 20, type = null, reporterId = null, status = null, category = null, sort = 'newest'
+    } = options;
     const offset = (page - 1) * limit;
 
     const where = [];
@@ -152,6 +154,10 @@ const Feedback = {
     if (status) {
       where.push('r.status = @status');
       params.status = status;
+    }
+    if (category) {
+      where.push('r.category = @category');
+      params.category = category;
     }
     const filter = where.length ? `WHERE ${where.join(' AND ')}` : '';
 

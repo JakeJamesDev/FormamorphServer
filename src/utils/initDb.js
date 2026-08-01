@@ -207,6 +207,33 @@ const createTables = () => {
     )
   `);
 
+  // Append-only record of what was done to accounts and to published work. Every name is a *snapshot*
+  // rather than a join: the whole point is that an entry still reads after the world, the comment or the
+  // account it describes is gone. Nothing here references another table, and nothing cascades.
+  //
+  // No delete route exists for this — an audit trail somebody can edit is not one.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      -- Plain rowid alias rather than AUTOINCREMENT: nothing is ever deleted here, so ids only ever
+      -- climb, and AUTOINCREMENT would add SQLite's own bookkeeping table for a guarantee already held.
+      id INTEGER PRIMARY KEY,
+      action TEXT NOT NULL,
+      -- Who did it, as they were at the time. The id is kept for filtering; the name is what shows.
+      actor_id TEXT,
+      actor_username TEXT,
+      actor_was_admin INTEGER NOT NULL DEFAULT 0,
+      -- Who it was done to, when that is somebody other than the actor.
+      target_user_id TEXT,
+      target_username TEXT,
+      -- What it was done to: a kind (world, entity, dictionary, comment, account) and its name.
+      target_kind TEXT,
+      target_name TEXT,
+      -- Enough of what was removed to know what it was, never the whole of it.
+      snippet TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+
   console.log('Database tables created successfully');
 };
 
@@ -281,6 +308,7 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_feedback_comments_thread ON feedback_comments(feedback_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_feedback_reads_user ON feedback_reads(user_id);
     CREATE INDEX IF NOT EXISTS idx_feedback_votes_thread ON feedback_votes(feedback_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, id);
   `);
 
   console.log('Database indexes created successfully');

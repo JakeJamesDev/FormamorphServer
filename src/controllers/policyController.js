@@ -1,5 +1,6 @@
 const Policy = require('../models/Policy');
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 
 /** Mirrors the message composer's caps so both authored surfaces accept the same size of text. */
 const TITLE_MAX = 120;
@@ -176,12 +177,23 @@ exports.resetUploadGate = async (req, res, next) => {
         return res.status(404).json({ success: false, error: 'User not found' });
       }
 
+      const target = User.findById(userId);
       Policy.resetForUser(Policy.UPLOAD_GATE, userId);
+      AuditLog.tryRecord({
+        action: 'terms_reset_user',
+        actor: req.user,
+        targetUser: target,
+        targetKind: 'account',
+        targetName: target ? target.username : null
+      });
+
       return res.status(200).json({ success: true, scope: 'user' });
     }
 
-    // No user named means everyone: one version bump invalidates every acceptance at once.
+    // No user named means everyone: one version bump invalidates every acceptance at once. One entry
+    // covers it rather than one per account — it was one action, however many people it reached.
     Policy.resetForEveryone(Policy.UPLOAD_GATE);
+    AuditLog.tryRecord({ action: 'terms_reset_all', actor: req.user });
     res.status(200).json({ success: true, scope: 'all' });
   } catch (error) {
     next(error);

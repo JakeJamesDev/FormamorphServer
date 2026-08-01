@@ -1,4 +1,6 @@
 const Feedback = require('../models/Feedback');
+const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 
 /**
  * A thread as any reader of it sees it. `unread` and `voted` are per-reader, so the caller supplies them.
@@ -121,6 +123,9 @@ exports.getThreads = async (req, res, next) => {
     // An unknown status is ignored rather than rejected — it falls back to every thread, which is what
     // an unfiltered list already shows.
     const status = Feedback.STATUSES[type].includes(req.query.status) ? req.query.status : null;
+    // Same for a category the branch does not have — asking a bug queue for 'interface' falls back to
+    // every category rather than an empty list nobody asked for.
+    const category = Feedback.CATEGORIES[type].includes(req.query.category) ? req.query.category : null;
     // Likewise an unknown sort: `getAll` falls back to newest.
     const sort = req.query.sort;
 
@@ -128,7 +133,7 @@ exports.getThreads = async (req, res, next) => {
     // beats filing it twice. Without it the list is the caller's own, which is what the profile opens on.
     const reporterId = req.query.scope === 'all' ? null : req.user.id;
 
-    const result = Feedback.getAll({ page, limit, type, reporterId, status, sort });
+    const result = Feedback.getAll({ page, limit, type, reporterId, status, category, sort });
     const ids = result.threads.map((row) => row.id);
     const unread = Feedback.unreadAmong(ids, req.user);
     const voted = Feedback.votedAmong(ids, req.user.id);
@@ -386,6 +391,17 @@ exports.deleteThread = async (req, res, next) => {
     }
 
     Feedback.delete(thread.id);
+
+    // Admin-only, so this is always a takedown of somebody's report or idea — and it takes the whole
+    // conversation with it, which is exactly the kind of disappearance the log exists to explain.
+    AuditLog.tryRecord({
+      action: 'feedback_deleted',
+      actor: req.user,
+      targetUser: thread.reporter_id && thread.reporter_id !== req.user.id ? User.findById(thread.reporter_id) : null,
+      targetKind: thread.type,
+      targetName: thread.title,
+      snippet: thread.body
+    });
 
     res.status(200).json({ success: true, data: {} });
   } catch (error) {
