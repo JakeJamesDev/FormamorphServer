@@ -167,6 +167,84 @@ const Event = {
   `).all({ now: nowOr(now) }),
 
   /**
+   * Change an event's authored fields.
+   *
+   * Only the keys handed in are written, so a caller editing the banner cannot blank the rules by
+   * omission. The message ids, the cancellation stamp and the winner are deliberately not reachable
+   * here — those are stamped by the transitions that earn them, not typed in.
+   *
+   * @param {string} id - Event ID
+   * @param {Object} fields - Any of `{ title, bannerText, body, rulesText, startsAt, endsAt }`
+   * @returns {Object|undefined} The updated row, with its derived state
+   */
+  update: (id, fields) => {
+    const columns = {
+      title: 'title',
+      bannerText: 'banner_text',
+      body: 'body',
+      rulesText: 'rules_text',
+      startsAt: 'starts_at',
+      endsAt: 'ends_at'
+    };
+
+    const keys = Object.keys(columns).filter((key) => fields[key] !== undefined);
+
+    if (keys.length) {
+      const assignments = keys.map((key) => `${columns[key]} = @${key}`).join(', ');
+      const params = keys.reduce((acc, key) => ({ ...acc, [key]: fields[key] }), {});
+
+      db.prepare(`UPDATE events SET ${assignments}, updated_at = @updatedAt WHERE id = @id`)
+        .run({ ...params, id, updatedAt: new Date().toISOString() });
+    }
+
+    return Event.findById(id);
+  },
+
+  /**
+   * The contest, if any, whose window a proposed one would overlap.
+   *
+   * This is the whole of the one-active-contest rule: refuse the write and the invariant holds by
+   * construction, so nothing downstream ever has to ask which of two running contests it meant. Windows
+   * are compared half-open, matching the state rule — a contest ending at noon and one starting at noon
+   * are back to back, not overlapping.
+   *
+   * Cancelled contests are ignored: calling one off is precisely what frees its window.
+   *
+   * @param {Object} window - `{ startsAt, endsAt, excludeId }`; `excludeId` is the event being edited,
+   *   which must not conflict with itself
+   * @returns {Object|undefined} The conflicting row, or undefined when the window is free
+   */
+  conflictingContest: ({ startsAt, endsAt, excludeId = null }) => db.prepare(`
+    ${SELECT_WITH_STATE}
+    FROM events e
+    WHERE e.type = 'contest'
+      AND e.cancelled_at IS NULL
+      AND (@excludeId IS NULL OR e.id <> @excludeId)
+      AND datetime(e.starts_at) < datetime(@endsAt)
+      AND datetime(@startsAt) < datetime(e.ends_at)
+    ${LIST_ORDER}
+    LIMIT 1
+  `).get({ startsAt, endsAt, excludeId, now: nowOr(undefined) }),
+
+  /**
+   * Release every world entered into an event.
+   *
+   * Guarded on the column rather than assuming it: entries arrive in their own ticket, and a cancel that
+   * threw on a database without them would make an event impossible to call off.
+   *
+   * @param {string} id - Event ID
+   * @returns {number} How many entries were released
+   */
+  clearEntries: (id) => {
+    const hasColumn = db.prepare('PRAGMA table_info(worlds)').all()
+      .some((column) => column.name === 'contest_event_id');
+
+    if (!hasColumn) return 0;
+
+    return db.prepare('UPDATE worlds SET contest_event_id = NULL WHERE contest_event_id = ?').run(id).changes;
+  },
+
+  /**
    * Record the message a transition posted.
    *
    * @param {string} id - Event ID

@@ -1,6 +1,8 @@
 const Event = require('../models/Event');
+const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
-const { sweepEvents } = require('../utils/sweepEvents');
+const { sweepEvents, cancelEvent } = require('../utils/sweepEvents');
+const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
 
 /**
  * An event as anyone may see it.
@@ -65,6 +67,262 @@ exports.getEvents = async (req, res, next) => {
       .map(toDto);
 
     res.status(200).json({ success: true, count: events.length, data: events });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Caps on the authored fields. The title and the body become a broadcast's subject and body, so they
+ * borrow the composer's limits; a banner line is one row of a card and is held far shorter than either.
+ */
+const TITLE_MAX = SUBJECT_MAX;
+const BANNER_MAX = 280;
+
+/** Whether an event's window has opened, cancelled rows included — a cancelled event still started. */
+const hasStarted = (row, now = new Date()) => new Date(row.starts_at) <= now;
+
+/**
+ * Read a timestamp the way the table stores them.
+ *
+ * Everything written here is normalized to ISO, because every comparison in the model goes through
+ * `datetime()` and a value in some other format would compare against the rest of the table by luck.
+ *
+ * @param {*} value - Whatever the caller sent
+ * @returns {string|null} The instant as ISO, or null when it is not one
+ */
+const isoOrNull = (value) => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const trimmed = (value) => (typeof value === 'string' ? value.trim() : '');
+
+/**
+ * Validate and normalize an event payload.
+ *
+ * On an edit only the keys actually sent are read, so an admin fixing a typo in the banner cannot blank
+ * the body by not mentioning it — and `rulesText: ''` still means "clear the rules", which is why the
+ * absent case and the empty case are told apart here rather than in the model.
+ *
+ * @param {Object} body - Request body
+ * @param {Object} [options] - `{ partial }` — true for an edit, where every field is optional
+ * @returns {Object} `{ error }` on rejection, otherwise the normalized fields
+ */
+const parseEventBody = (body, { partial = false } = {}) => {
+  const fields = {};
+  const has = (key) => body[key] !== undefined;
+
+  if (!partial || has('type')) {
+    const type = body.type || 'announcement';
+    if (!Event.TYPES.includes(type)) return { error: 'Invalid event type' };
+    fields.type = type;
+  }
+
+  for (const [key, max, label] of [
+    ['title', TITLE_MAX, 'Title'],
+    ['bannerText', BANNER_MAX, 'Banner text'],
+    ['body', BODY_MAX, 'Body']
+  ]) {
+    if (partial && !has(key)) continue;
+
+    const value = trimmed(body[key]);
+    if (!value) return { error: `${label} is required` };
+    if (value.length > max) return { error: `${label} must be ${max} characters or fewer` };
+    fields[key] = value;
+  }
+
+  if (has('rulesText')) {
+    const rules = trimmed(body.rulesText);
+    if (rules.length > BODY_MAX) return { error: `Rules must be ${BODY_MAX} characters or fewer` };
+    fields.rulesText = rules || null;
+  } else if (!partial) {
+    fields.rulesText = null;
+  }
+
+  for (const [key, label] of [['startsAt', 'Start'], ['endsAt', 'End']]) {
+    if (partial && !has(key)) continue;
+
+    const value = isoOrNull(body[key]);
+    if (!value) return { error: `${label} must be a valid timestamp` };
+    fields[key] = value;
+  }
+
+  return fields;
+};
+
+/**
+ * The window an event would have once a patch is applied, for the checks that are about the whole
+ * window rather than the field that changed.
+ *
+ * @param {Object} row - The existing event row
+ * @param {Object} fields - The normalized patch
+ * @returns {Object} `{ startsAt, endsAt }`
+ */
+const resultingWindow = (row, fields) => ({
+  startsAt: fields.startsAt || row.starts_at,
+  endsAt: fields.endsAt || row.ends_at
+});
+
+/**
+ * Refuse a window that is not one, or one already spoken for.
+ *
+ * The overlap rule is checked on the resulting window rather than on what was sent, so extending a
+ * contest into next month's is caught even though `starts_at` never moved.
+ *
+ * @param {Object} window - `{ startsAt, endsAt }`
+ * @param {string} type - The event type the window belongs to
+ * @param {string|null} [excludeId] - The event being edited
+ * @returns {Object|null} `{ status, error }` on refusal, otherwise null
+ */
+const windowConflict = ({ startsAt, endsAt }, type, excludeId = null) => {
+  if (new Date(endsAt) <= new Date(startsAt)) {
+    return { status: 400, error: 'End must be after start' };
+  }
+
+  if (type !== 'contest') return null;
+
+  const clash = Event.conflictingContest({ startsAt, endsAt, excludeId });
+  if (!clash) return null;
+
+  return { status: 409, error: `That window overlaps the contest "${clash.title}"` };
+};
+
+/**
+ * Note an event in the audit trail. The title is the snapshot, since an event may be deleted outright.
+ *
+ * @param {string} action - One of the event actions
+ * @param {Object} actor - The acting user
+ * @param {Object} row - The event row
+ */
+const auditEvent = (action, actor, row) => {
+  AuditLog.tryRecord({ action, actor, targetKind: 'event', targetName: row.title, snippet: row.id });
+};
+
+/**
+ * @desc    Schedule an event
+ * @route   POST /api/events
+ * @access  Admin
+ */
+exports.createEvent = async (req, res, next) => {
+  try {
+    const fields = parseEventBody(req.body);
+    if (fields.error) return res.status(400).json({ success: false, error: fields.error });
+
+    const conflict = windowConflict(fields, fields.type);
+    if (conflict) return res.status(conflict.status).json({ success: false, error: conflict.error });
+
+    const event = Event.create({ ...fields, createdBy: req.user.id });
+
+    auditEvent('event_created', req.user, event);
+
+    // A window that has already opened is swept here rather than at the next tick: an admin scheduling
+    // something for right now expects the notice to go out, not to appear within the hour.
+    await sweepEvents();
+
+    res.status(201).json({ success: true, data: toDto(Event.findById(event.id)) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Edit an event
+ * @route   PUT /api/events/:id
+ * @access  Admin
+ */
+exports.updateEvent = async (req, res, next) => {
+  try {
+    const existing = Event.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    const fields = parseEventBody(req.body, { partial: true });
+    if (fields.error) return res.status(400).json({ success: false, error: fields.error });
+
+    // The type decides which rules apply and what a client unlocks, and both are already out in a
+    // broadcast by the time anyone could want it changed. A new event is the answer.
+    if (fields.type && fields.type !== existing.type) {
+      return res.status(400).json({ success: false, error: 'An event type cannot be changed' });
+    }
+
+    // People have been told when this begins, and for a contest the entry window opening is the thing
+    // itself. Moving the end is the live edit that matters; moving the start is a different event.
+    if (fields.startsAt && fields.startsAt !== existing.starts_at && hasStarted(existing)) {
+      return res.status(400).json({ success: false, error: 'A started event cannot have its start moved' });
+    }
+
+    const conflict = windowConflict(resultingWindow(existing, fields), existing.type, existing.id);
+    if (conflict) return res.status(conflict.status).json({ success: false, error: conflict.error });
+
+    // Nothing here posts, recalls or re-sends: an edit changes what the event says it is, and the
+    // notices already sent are ordinary messages the admin polishes through the message edit route.
+    const event = Event.update(existing.id, fields);
+
+    auditEvent('event_edited', req.user, event);
+
+    res.status(200).json({ success: true, data: toDto(event) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Call an event off — the answer for anything that has already been announced.
+ *
+ * Idempotent, because the transition is: a second cancel keeps the first stamp and posts nothing more.
+ * Entries are released here rather than left pointing at a dead event, so nothing downstream ever has
+ * to ask whether the contest a world is entered in is still happening.
+ *
+ * @desc    Cancel an event
+ * @route   POST /api/events/:id/cancel
+ * @access  Admin
+ */
+exports.cancelEventById = async (req, res, next) => {
+  try {
+    const existing = Event.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    const alreadyCancelled = Boolean(existing.cancelled_at);
+    const cancelled = cancelEvent(existing);
+
+    Event.clearEntries(existing.id);
+
+    if (!alreadyCancelled) auditEvent('event_cancelled', req.user, cancelled || existing);
+
+    res.status(200).json({ success: true, data: toDto(cancelled || Event.findById(existing.id)) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Remove an event that never happened.
+ *
+ * Only before it starts. Once a notice has gone out there is something to explain, and the honest
+ * record of that is a cancellation — deleting the row would leave a recalled broadcast about an event
+ * nobody can look up.
+ *
+ * @desc    Delete an event
+ * @route   DELETE /api/events/:id
+ * @access  Admin
+ */
+exports.deleteEvent = async (req, res, next) => {
+  try {
+    const existing = Event.findById(req.params.id);
+    if (!existing) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    if (hasStarted(existing)) {
+      return res.status(409).json({ success: false, error: 'A started event can only be cancelled' });
+    }
+
+    Event.clearEntries(existing.id);
+    Event.delete(existing.id);
+
+    auditEvent('event_deleted', req.user, existing);
+
+    res.status(200).json({ success: true, data: {} });
   } catch (error) {
     next(error);
   }
