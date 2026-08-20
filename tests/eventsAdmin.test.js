@@ -363,10 +363,8 @@ describe('cancelling an event', () => {
   });
 
   it('releases the worlds entered into it', async () => {
-    // The entry column arrives with the entry mechanics; the clear is guarded on it existing, so this
-    // adds it the way that migration will and checks the release lands on the right event's entries.
-    db.exec('ALTER TABLE worlds ADD COLUMN contest_event_id TEXT');
-
+    // The clear is still guarded on the column existing, for a database that has not migrated yet. What
+    // this checks is the other half: that it lands on this event's entries and leaves the rest alone.
     const owner = createUser({ username: 'entrant' });
     const contest = seed({ type: 'contest', ...WINDOWS.active });
     const other = seed({ type: 'contest', ...WINDOWS.ended });

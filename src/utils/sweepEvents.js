@@ -1,6 +1,6 @@
 const Event = require('../models/Event');
 const Message = require('../models/Message');
-const { startBroadcast, endBroadcast, cancelBroadcast } = require('./eventBroadcasts');
+const { startBroadcast, endBroadcast, cancelBroadcast, winnerBroadcast } = require('./eventBroadcasts');
 
 /** How often the timer runs. Windows are set to the hour at finest, so hourly is finer than it needs. */
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -85,6 +85,25 @@ const cancelEvent = (event, at = undefined) => {
 };
 
 /**
+ * Announce a contest's winner.
+ *
+ * Lives here beside the other transitions rather than in the route, because it is one: a stamp on the
+ * event and the notice that goes with it, posted the same way and by the same hand. Unlike the others it
+ * has no deadline to be due at — somebody decides — so nothing sweeps for it.
+ *
+ * @param {Object} event - The event row, with the winner already stamped
+ * @returns {Object|undefined} The updated event row
+ */
+const announceWinner = (event) => {
+  const message = post(event, winnerBroadcast(event, {
+    name: event.winner_name,
+    authorName: event.winner_author_name
+  }));
+
+  return Event.setMessageId(event.id, 'winner_message_id', message.id);
+};
+
+/**
  * Run every transition whose moment has passed.
  *
  * Run from three places, all cheap when there is nothing due: at boot, on an hourly timer, and lazily in
@@ -142,4 +161,4 @@ const startEventSweeper = () => {
   return timer;
 };
 
-module.exports = { sweepEvents, startEventSweeper, startEvent, endEvent, cancelEvent, SWEEP_INTERVAL_MS };
+module.exports = { sweepEvents, startEventSweeper, startEvent, endEvent, cancelEvent, announceWinner, SWEEP_INTERVAL_MS };

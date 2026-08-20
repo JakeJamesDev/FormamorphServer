@@ -42,6 +42,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addFeedbackEditedColumn()');
     expect(source).toContain('addFeedSeenColumn()');
     expect(source).toContain('addTokenVersionColumn()');
+    expect(source).toContain('addContestColumn()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -61,6 +62,7 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addFeedbackEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addFeedSeenColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
   it('brings an existing table up to date, which creating cannot', () => {
@@ -81,6 +83,9 @@ describe('the boot-time schema step', () => {
 
     const seen = require('fs').readFileSync(require.resolve('../src/utils/addFeedSeenColumn.js'), 'utf8');
     expect(seen).toContain('ALTER TABLE users');
+
+    const contest = require('fs').readFileSync(require.resolve('../src/utils/addContestColumn.js'), 'utf8');
+    expect(contest).toContain('ALTER TABLE worlds');
   });
 
   it('creates every table it is responsible for', () => {

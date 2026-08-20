@@ -5,9 +5,10 @@ const {
   createEvent,
   updateEvent,
   cancelEventById,
-  deleteEvent
+  deleteEvent,
+  pickWinner
 } = require('../controllers/eventController');
-const { protect, admin, optionalAuth } = require('../middleware/auth');
+const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,5 +31,9 @@ router.put('/:id', protect, admin, updateEvent);
 // is an announcement in itself; removing the row is the answer only for something nobody ever saw.
 router.post('/:id/cancel', protect, admin, cancelEventById);
 router.delete('/:id', protect, admin, deleteEvent);
+
+// Picking the winner is the moderation team's, not the owner's alone: it is a judgement about entries
+// rather than an announcement to write, and the notice that follows is posted by the server either way.
+router.put('/:id/winner', protect, staff, pickWinner);
 
 module.exports = router;

@@ -51,9 +51,15 @@ const createTables = () => {
       quarantined_at TEXT,
       quarantine_expires_at TEXT,
       quarantine_extended INTEGER NOT NULL DEFAULT 0,
+      -- The contest this listing was published into, if any. Set at publish and cleared by a withdrawal,
+      -- never moved: a listing enters at most one contest, on the day it appears.
+      contest_event_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (author_id) REFERENCES users (id)
+      FOREIGN KEY (author_id) REFERENCES users (id),
+      -- SET NULL rather than the default: a plain reference would make an event with entries impossible
+      -- to delete, which is precisely what the delete route is for.
+      FOREIGN KEY (contest_event_id) REFERENCES events (id) ON DELETE SET NULL
     )
   `);
 
@@ -416,6 +422,7 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_worlds_tags ON worlds(tags);
     CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
     CREATE INDEX IF NOT EXISTS idx_worlds_quarantine ON worlds(quarantine_expires_at);
+    CREATE INDEX IF NOT EXISTS idx_worlds_contest ON worlds(contest_event_id);
   `);
 
   // Both directions are asked for: the catalog counts a listing's likes, and a reader's own are looked up

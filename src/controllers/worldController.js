@@ -8,6 +8,7 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
+const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
 
 /** How long a quarantine runs by default, and the bounds an admin may set instead. */
@@ -30,6 +31,57 @@ function contentSizeError(contentData, rules) {
   if (bytes <= rules.maxContentBytes) return null;
   return `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`;
 }
+
+/**
+ * Decide whether a publish may carry the contest entry it asked for.
+ *
+ * The id is named explicitly rather than inferred, so a publish that started while one contest was
+ * running and landed after another had taken over is refused outright instead of being quietly entered
+ * in the wrong place. One entry per person per contest, and a second one refuses the whole publish —
+ * a listing the author only wanted in the contest must not appear outside it as a consolation.
+ *
+ * @param {string} eventId - The contest named in the body
+ * @param {Object} user - The publishing user
+ * @returns {Object|null} `{ status, code, error }` on refusal, otherwise null
+ */
+const contestEntryRefusal = (eventId, user) => {
+  const active = Event.activeContest();
+
+  if (!active || active.id !== eventId) {
+    return {
+      status: 409,
+      code: 'CONTEST_NOT_ACTIVE',
+      error: 'That contest is not running. Refresh and try again.'
+    };
+  }
+
+  const existing = World.contestEntryFor(user.id, active.id);
+  if (!existing) return null;
+
+  return {
+    status: 409,
+    code: 'CONTEST_ALREADY_ENTERED',
+    error: `You have already entered "${existing.name}" in ${active.title}. Withdraw it first to enter something else.`
+  };
+};
+
+/**
+ * Whether a listing is being judged: entered, past its contest's deadline, no winner yet.
+ *
+ * The whole of the post-deadline lock. Cancelling a contest releases its entries, so a cancelled event
+ * cannot reach this — and a contest still running has no reason to hold anybody's work still.
+ *
+ * @param {Object} world - The world row
+ * @returns {Object|null} The contest it is being judged in, or null
+ */
+const judgingContest = (world) => {
+  if (!world.contest_event_id) return null;
+
+  const event = Event.findById(world.contest_event_id);
+  if (!event || event.state !== 'ended' || event.winner_world_id) return null;
+
+  return event;
+};
 
 /**
  * @desc    Get all worlds
@@ -183,9 +235,18 @@ exports.createWorld = async (req, res, next) => {
       });
     }
 
-    // Extract data from request body
-    const { name, description, thumbnail, previewData, contentData } = req.body;
-    
+    // Extract data from request body. `contestEventId` rides top level rather than inside `contentData`:
+    // entering is what the publisher is doing, not part of the world they are publishing, and putting it
+    // in the content would change the shape of every exported file for a flag the game never reads.
+    const { name, description, thumbnail, previewData, contentData, contestEventId } = req.body;
+
+    if (contestEventId) {
+      const refusal = contestEntryRefusal(contestEventId, req.user);
+      if (refusal) {
+        return res.status(refusal.status).json({ success: false, code: refusal.code, error: refusal.error });
+      }
+    }
+
     // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
     let tags;
     if (contentData && contentData.worldOverview && contentData.worldOverview.tags !== undefined) {
@@ -233,7 +294,8 @@ exports.createWorld = async (req, res, next) => {
           author_id: req.user.id,
           preview_data: previewData,
           tags,
-          kind
+          kind,
+          contest_event_id: contestEventId || null
         },
         contentFile,
         thumbnailFile
@@ -300,6 +362,21 @@ exports.updateWorld = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to update this world'
+      });
+    }
+
+    // An entry stops being editable when its contest stops taking entries, and starts again the moment
+    // there is a winner. Judging something that can be rewritten underneath the judges is not judging it.
+    //
+    // Staff go through, as they do everywhere: moderation always wins, and the audit trail is what
+    // accounts for it. Only the content is held — the spoiler flag, comments, likes and deleting the
+    // whole thing all stay open, because none of them change the work being judged.
+    const judging = judgingContest(world);
+    if (judging && !canModerate(req.user, User.findById(world.author_id))) {
+      return res.status(409).json({
+        success: false,
+        code: 'CONTEST_LOCKED',
+        error: `${judging.title} is being judged, so its entries cannot be changed until the winner is announced.`
       });
     }
 
@@ -605,6 +682,64 @@ exports.releaseWorld = async (req, res, next) => {
     });
 
     res.status(200).json({ success: true, data: {} });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Take a listing out of the contest it was entered in.
+ *
+ * Owner-or-moderator, which is where entry moderation comes from: staff pulling an entry that should not
+ * be in the running is the same act as its author changing their mind, and both are worth a log line.
+ * Always audited, because the schema keeps no record of a withdrawal — the flag simply goes.
+ *
+ * The one refusal is the picked winner. The announcement has gone out and the archive names it; taking it
+ * back would leave a record of a contest won by nothing. Deleting the listing is still the author's.
+ *
+ * @desc    Withdraw a listing from its contest
+ * @route   DELETE /api/worlds/:id/contest
+ * @access  Private (owner or staff)
+ */
+exports.withdrawEntry = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    if (world.author_id !== req.user.id && !canModerate(req.user, User.findById(world.author_id))) {
+      return res.status(403).json({ success: false, error: 'Not authorized to update this world' });
+    }
+
+    if (!world.contest_event_id) {
+      return res.status(400).json({ success: false, error: 'That listing is not entered in a contest' });
+    }
+
+    const event = Event.findById(world.contest_event_id);
+    if (event && event.winner_world_id === world.id) {
+      return res.status(409).json({
+        success: false,
+        code: 'CONTEST_WINNER',
+        error: 'A contest winner cannot be withdrawn. Delete the listing if you want it gone.'
+      });
+    }
+
+    World.withdrawFromContest(world.id);
+
+    // Logged whoever did it, and self-withdrawal names no target — the delete precedent. There is nothing
+    // else anywhere that says this listing was ever entered.
+    AuditLog.tryRecord({
+      action: 'entry_withdrawn',
+      actor: req.user,
+      targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
+      targetKind: world.kind || 'world',
+      targetName: world.name,
+      snippet: event ? event.title : world.contest_event_id
+    });
+
+    res.status(200).json({ success: true, data: { id: world.id, contestEventId: null } });
   } catch (error) {
     next(error);
   }

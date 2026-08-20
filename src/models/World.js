@@ -343,9 +343,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           preview_data, content_file, tags, comment_count, spoiler, kind,
-          created_at, updated_at
+          contest_event_id, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -358,6 +358,9 @@ const World = {
         0, // Initialize comment_count to 0
         worldData.spoiler ? 1 : 0, // Convert boolean to INTEGER (0 or 1)
         worldData.kind || DEFAULT_KIND,
+        // Written here and nowhere else. Entering happens at publish, so nothing ever moves a listing
+        // from one contest into another, and the entry date is simply the publish date.
+        worldData.contest_event_id || null,
         now,
         now
       );
@@ -590,6 +593,35 @@ const World = {
     } catch (error) {
       throw error;
     }
+  },
+
+  /**
+   * This author's entry in a contest, if they have one.
+   *
+   * The one-per-person rule in one question. A quarantined entry still counts: it is out of the room, not
+   * withdrawn, and its author has had their turn.
+   *
+   * @param {string} authorId - Author ID
+   * @param {string} eventId - Contest event ID
+   * @returns {Object|undefined} Their entry, or undefined when they have none
+   */
+  contestEntryFor: (authorId, eventId) => db
+    .prepare('SELECT * FROM worlds WHERE author_id = ? AND contest_event_id = ? LIMIT 1')
+    .get(authorId, eventId),
+
+  /**
+   * Take a listing out of the contest it was entered in.
+   *
+   * Leaves `updated_at` alone, as the spoiler toggle does: withdrawing changes where a listing appears,
+   * not what it is, and bumping the date would push it back up a catalog sorted by freshness.
+   *
+   * @param {string} id - World ID
+   * @returns {Object|undefined} The updated row
+   */
+  withdrawFromContest: (id) => {
+    db.prepare('UPDATE worlds SET contest_event_id = NULL WHERE id = ?').run(id);
+
+    return World.findById(id);
   },
 
   /**

@@ -63,4 +63,20 @@ const cancelBroadcast = (event) => compose({
   scope: 'new'
 });
 
-module.exports = { startBroadcast, endBroadcast, cancelBroadcast, SUBJECT_MAX, BODY_MAX };
+/**
+ * The notice posted when a contest's winner is picked.
+ *
+ * Built from the snapshot rather than from the listing, so it reads the same a year later as the archive
+ * does — and keeps reading that way if the listing is taken down afterwards.
+ *
+ * @param {Object} event - The event row
+ * @param {Object} winner - `{ name, authorName }` as stamped on the event
+ * @returns {Object} Composer fields for `Message.create`
+ */
+const winnerBroadcast = (event, { name, authorName }) => compose({
+  subject: `${event.title} has a winner`,
+  body: `${name} by ${authorName} has won ${event.title}. Congratulations, and thank you to everyone who entered.`,
+  scope: 'new'
+});
+
+module.exports = { startBroadcast, endBroadcast, cancelBroadcast, winnerBroadcast, SUBJECT_MAX, BODY_MAX };

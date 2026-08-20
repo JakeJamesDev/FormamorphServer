@@ -1,7 +1,9 @@
 const Event = require('../models/Event');
+const World = require('../models/World');
+const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
-const { sweepEvents, cancelEvent } = require('../utils/sweepEvents');
+const { sweepEvents, cancelEvent, announceWinner } = require('../utils/sweepEvents');
 const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
 
 /**
@@ -292,6 +294,82 @@ exports.cancelEventById = async (req, res, next) => {
     if (!alreadyCancelled) auditEvent('event_cancelled', req.user, cancelled || existing);
 
     res.status(200).json({ success: true, data: toDto(cancelled || Event.findById(existing.id)) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Name a contest's winner, and tell everyone.
+ *
+ * Four things are checked, and each is a way the pick could be wrong rather than merely unlucky: the
+ * listing has to still be an entry in this contest, it has to be one people can actually see, and it must
+ * not belong to whoever is picking. Staff enter contests like anyone else in a community this size, so
+ * refusing to let them crown themselves is the one rule that keeps that above board.
+ *
+ * Once. The announcement goes out and the archive names it, so a second pick would be a second winner of
+ * the same contest — refused rather than quietly overwritten.
+ *
+ * @desc    Pick a contest winner
+ * @route   PUT /api/events/:id/winner
+ * @access  Staff
+ */
+exports.pickWinner = async (req, res, next) => {
+  try {
+    const event = Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    if (event.type !== 'contest') {
+      return res.status(400).json({ success: false, error: 'Only a contest has a winner' });
+    }
+
+    if (event.winner_world_id) {
+      return res.status(409).json({ success: false, error: 'That contest already has a winner' });
+    }
+
+    // Checked for its type, not merely its presence: an id the query layer cannot bind throws out of the
+    // model, and a malformed body should read as a bad request rather than a broken server.
+    if (typeof req.body.worldId !== 'string' || !req.body.worldId) {
+      return res.status(400).json({ success: false, error: 'A world ID is required' });
+    }
+
+    const world = World.findById(req.body.worldId);
+    if (!world) return res.status(404).json({ success: false, error: 'World not found' });
+
+    if (world.contest_event_id !== event.id) {
+      return res.status(409).json({ success: false, error: 'That listing is not an entry in this contest' });
+    }
+
+    if (world.quarantined_at) {
+      return res.status(409).json({ success: false, error: 'A quarantined entry cannot win. Release it first.' });
+    }
+
+    if (world.author_id === req.user.id) {
+      return res.status(409).json({ success: false, error: 'You cannot pick your own entry' });
+    }
+
+    const author = User.findById(world.author_id);
+
+    // Stamped before the notice is written, because the notice is written from the stamp — which is what
+    // makes the announcement and the archive say the same thing forever.
+    const stamped = Event.setWinner(event.id, {
+      worldId: world.id,
+      name: world.name,
+      authorName: author ? author.username : 'a departed account'
+    });
+
+    const announced = announceWinner(stamped);
+
+    AuditLog.tryRecord({
+      action: 'winner_picked',
+      actor: req.user,
+      targetUser: author,
+      targetKind: 'event',
+      targetName: event.title,
+      snippet: `${world.name} by ${stamped.winner_author_name}`
+    });
+
+    res.status(200).json({ success: true, data: toDto(announced || stamped) });
   } catch (error) {
     next(error);
   }

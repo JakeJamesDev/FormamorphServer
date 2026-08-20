@@ -1,6 +1,6 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, quarantineWorld, releaseWorld } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
@@ -30,6 +30,9 @@ router.post(
     check('name', 'Name cannot exceed 100 characters').isLength({ max: 100 }),
     check('contentData', 'Content data is required').not().isEmpty(),
     check('kind', `Kind must be one of: ${KINDS.join(', ')}`).optional().isIn(KINDS),
+    // Which contest this publish is entering, if any. Whether that contest will take it is the
+    // controller's question; all this says is that an id arrived rather than an object.
+    check('contestEventId', 'Contest event ID must be a string').optional().isString(),
     // Worlds must still supply a description and a thumbnail; characters and dictionaries have no such
     // fields to give, so the controller fills an empty description and placeholder art (see config/kinds).
     check('description').custom((value, { req }) => {
@@ -82,6 +85,10 @@ router.put('/:id/like', smallJson, protect, setLikeStatus);
 // deleted when the deadline passes unless somebody releases it first.
 router.put('/:id/quarantine', smallJson, protect, staff, quarantineWorld);
 router.delete('/:id/quarantine', protect, staff, releaseWorld);
+
+// Take a listing out of the contest it was entered in. Withdraw-only, and DELETE rather than a flag:
+// there is no "enter this existing listing" to be the other half of, since entering happens at publish.
+router.delete('/:id/contest', protect, withdrawEntry);
 
 router.delete('/:id', protect, deleteWorld);
 

@@ -201,6 +201,27 @@ const Event = {
   },
 
   /**
+   * The contest running right now, if there is one.
+   *
+   * Singular by construction: overlapping contest windows are refused at the write, so this never has to
+   * choose between two. The only contest anything may be entered into, which is what makes naming the
+   * wrong one a clean refusal rather than a silent entry in the wrong place.
+   *
+   * @param {string} [now] - The instant to compare the window against, for tests
+   * @returns {Object|undefined} The running contest, or undefined when none is
+   */
+  activeContest: (now = undefined) => db.prepare(`
+    ${SELECT_WITH_STATE}
+    FROM events e
+    WHERE e.type = 'contest'
+      AND e.cancelled_at IS NULL
+      AND datetime(e.starts_at) <= datetime(@now)
+      AND datetime(@now) < datetime(e.ends_at)
+    ${LIST_ORDER}
+    LIMIT 1
+  `).get({ now: nowOr(now) }),
+
+  /**
    * The contest, if any, whose window a proposed one would overlap.
    *
    * This is the whole of the one-active-contest rule: refuse the write and the invariant holds by
@@ -242,6 +263,28 @@ const Event = {
     if (!hasColumn) return 0;
 
     return db.prepare('UPDATE worlds SET contest_event_id = NULL WHERE contest_event_id = ?').run(id).changes;
+  },
+
+  /**
+   * Name a contest's winner.
+   *
+   * The names are stamped rather than joined, for the same reason the audit log stamps its own: the
+   * archive has to still read after the listing is gone, and `winner_world_id` is SET NULL on delete
+   * precisely so it can go. Written once — a second pick is refused at the route.
+   *
+   * @param {string} id - Event ID
+   * @param {Object} winner - `{ worldId, name, authorName }`
+   * @returns {Object|undefined} The updated row
+   */
+  setWinner: (id, { worldId, name, authorName }) => {
+    db.prepare(`
+      UPDATE events
+      SET winner_world_id = @worldId, winner_name = @name, winner_author_name = @authorName,
+          updated_at = @updatedAt
+      WHERE id = @id AND winner_world_id IS NULL
+    `).run({ id, worldId, name, authorName, updatedAt: new Date().toISOString() });
+
+    return Event.findById(id);
   },
 
   /**
