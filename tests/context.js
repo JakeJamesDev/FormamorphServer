@@ -24,3 +24,5 @@ export const db = require('../src/config/db');
 export const app = require('../src/app');
 export const { createTables, createIndexes } = require('../src/utils/initDb');
 export const { initStorage } = require('../src/utils/fileStorage');
+export const Event = require('../src/models/Event');
+export const { sweepEvents, cancelEvent } = require('../src/utils/sweepEvents');

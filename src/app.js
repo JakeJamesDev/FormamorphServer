@@ -17,6 +17,7 @@ const messageRoutes = require('./routes/messages');
 const policyRoutes = require('./routes/policies');
 const feedbackRoutes = require('./routes/feedback');
 const auditRoutes = require('./routes/audit');
+const eventRoutes = require('./routes/events');
 
 const app = express();
 
@@ -62,6 +63,7 @@ app.use('/api/messages', smallJson, messageRoutes);
 app.use('/api/policies', smallJson, policyRoutes);
 app.use('/api/feedback', smallJson, feedbackRoutes);
 app.use('/api/audit', smallJson, auditRoutes);
+app.use('/api/events', smallJson, eventRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
 app.use('/api/avatars', avatarRoutes);
 

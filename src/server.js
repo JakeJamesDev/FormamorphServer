@@ -11,6 +11,7 @@ const { addFeedSeenColumn } = require('./utils/addFeedSeenColumn');
 const { addTokenVersionColumn } = require('./utils/addTokenVersionColumn');
 const { createTables, createIndexes } = require('./utils/initDb');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
+const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const app = require('./app');
 
 // Bring the schema up to date before serving, so a deploy that adds a table needs nothing run by hand.
@@ -54,6 +55,12 @@ initStorage();
 // catalog routes sweep too, so a missed tick can never serve a listing past its deadline.
 void sweepQuarantine();
 startQuarantineSweeper();
+
+// The same arrangement for event windows: open or close anything whose moment passed while the server
+// was down, then keep checking. The events routes sweep too, so a missed tick can never show a banner
+// for something that is over.
+void sweepEvents();
+startEventSweeper();
 
 // Set port
 const PORT = process.env.PORT || 8797;

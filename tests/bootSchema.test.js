@@ -18,7 +18,8 @@ const TABLES = [
   'messages', 'message_states',
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
-  'audit_log', 'follows', 'world_likes'
+  'audit_log', 'follows', 'world_likes',
+  'events'
 ];
 
 const tableNames = () => db

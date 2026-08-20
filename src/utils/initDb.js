@@ -266,6 +266,48 @@ const createTables = () => {
     )
   `);
 
+  // Timed community happenings: a contest with entries and a winner, or a plain announcement. One table
+  // with nullable per-type columns, the same shape `worlds` uses for its kinds — a future type adds
+  // columns rather than a table, and every reader keeps working.
+  //
+  // There is deliberately no status column. Scheduled, active and ended are read off the window, so no
+  // writer can leave a row claiming a state its own dates disagree with; `cancelled_at` is the one thing
+  // the dates cannot say. Timestamps are written ISO here, and every comparison goes through `datetime()`
+  // because the tables this joins against default to CURRENT_TIMESTAMP's format instead.
+  //
+  // The message ids are what the transitions leave behind: the pinned notice posted at the start, the
+  // notice posted at the end, and the winner announcement. They are nullable and SET NULL on delete, so
+  // recalling or pruning a message never takes the event with it. The winner name and author name are
+  // snapshots for the same reason the audit log snapshots names — the archive has to still read after the
+  // world is gone.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'announcement' CHECK (type IN ('contest', 'announcement')),
+      title TEXT NOT NULL,
+      banner_text TEXT NOT NULL,
+      body TEXT NOT NULL,
+      rules_text TEXT,
+      starts_at TEXT NOT NULL,
+      ends_at TEXT NOT NULL,
+      cancelled_at TEXT,
+      start_message_id TEXT,
+      end_message_id TEXT,
+      winner_message_id TEXT,
+      winner_world_id TEXT,
+      winner_name TEXT,
+      winner_author_name TEXT,
+      created_by TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (start_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+      FOREIGN KEY (end_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+      FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+      FOREIGN KEY (winner_world_id) REFERENCES worlds (id) ON DELETE SET NULL,
+      FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+    )
+  `);
+
   // Append-only record of what was done to accounts and to published work. Every name is a *snapshot*
   // rather than a join: the whole point is that an entry still reads after the world, the comment or the
   // account it describes is gone. Nothing here references another table, and nothing cascades.
@@ -400,6 +442,13 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_messages_recalled ON messages(recalled_at);
     CREATE INDEX IF NOT EXISTS idx_message_states_user ON message_states(user_id);
+  `);
+
+  // The sweeper asks for events whose start or end has passed, and the lists ask by type.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+    CREATE INDEX IF NOT EXISTS idx_events_starts ON events(starts_at);
+    CREATE INDEX IF NOT EXISTS idx_events_ends ON events(ends_at);
   `);
 
   // Create indexes for policy acceptances

@@ -19,7 +19,13 @@ const ACTIONS = [
   'quarantine_expired',
   'avatar_removed',
   'role_changed',
-  'feedback_edited'
+  'feedback_edited',
+  'event_created',
+  'event_edited',
+  'event_cancelled',
+  'event_deleted',
+  'winner_picked',
+  'entry_withdrawn'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */
