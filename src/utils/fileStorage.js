@@ -6,7 +6,8 @@ const { v4: uuidv4 } = require('uuid');
 const {
   WORLDS_DIR: worldsStorageDir,
   THUMBNAILS_DIR: thumbnailsStorageDir,
-  AVATARS_DIR: avatarsStorageDir
+  AVATARS_DIR: avatarsStorageDir,
+  EVENT_POSTERS_DIR: eventPostersStorageDir
 } = require('../config/paths');
 
 // Maximum world content size in bytes (200MB)
@@ -41,6 +42,9 @@ const initStorage = () => {
   }
   if (!fs.existsSync(avatarsStorageDir)) {
     fs.mkdirSync(avatarsStorageDir, { recursive: true });
+  }
+  if (!fs.existsSync(eventPostersStorageDir)) {
+    fs.mkdirSync(eventPostersStorageDir, { recursive: true });
   }
 };
 
@@ -246,6 +250,77 @@ const deleteAvatar = async (fileName) => {
   }
 };
 
+// What an event's poster band may be led with. The same list thumbnails take: this is artwork an admin
+// picked off their disk, not something a crop step re-encoded.
+const ALLOWED_POSTER_TYPES = ALLOWED_THUMBNAIL_TYPES;
+
+// The largest poster the events routes will store. A band is a strip behind a title, so this is generous
+// rather than a target; the admin form refuses the same size before the upload.
+const MAX_POSTER_SIZE = 2 * 1024 * 1024;
+
+/**
+ * Save an event's poster artwork, returning its stored filename.
+ *
+ * A fresh UUID per upload, for the reason avatars use one: the URL is then immutable, so it can be
+ * cached forever and a replacement can never be served from a stale cache.
+ *
+ * @param {string} base64Image - A `data:image/(jpeg|png|gif|webp);base64,...` URI
+ * @returns {Promise<string>} The stored filename
+ */
+const saveEventPoster = async (base64Image) => {
+  try {
+    const matches = typeof base64Image === 'string'
+      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
+
+    if (!matches) {
+      throw badRequest('Invalid base64 image string');
+    }
+
+    // Extension comes from an allowlist, never from the raw MIME (avoids arbitrary/unsafe types)
+    const extension = ALLOWED_POSTER_TYPES[matches[1].toLowerCase()];
+    if (!extension) {
+      throw badRequest(`Unsupported poster type '${matches[1]}' (allowed: jpeg, png, gif, webp)`);
+    }
+
+    const imageData = Buffer.from(matches[2], 'base64');
+    if (imageData.length > MAX_POSTER_SIZE) {
+      throw badRequest('Poster image exceeds maximum size of 2MB');
+    }
+
+    const filename = `${uuidv4()}.${extension}`;
+    await fs.promises.writeFile(path.join(eventPostersStorageDir, filename), imageData);
+
+    return filename;
+  } catch (error) {
+    // Don't log expected client-input rejections (bad/oversized image); only real failures
+    if (!error.statusCode) {
+      console.error('Error saving event poster:', error);
+    }
+    throw error;
+  }
+};
+
+/**
+ * Delete an event's poster artwork.
+ *
+ * Never throws: a file that is already gone must not stop the event that pointed at it from being
+ * edited or removed, or an event becomes impossible to change because of a missing image.
+ *
+ * @param {string} fileName - The stored filename
+ */
+const deleteEventPoster = async (fileName) => {
+  if (!fileName) return;
+
+  try {
+    const filePath = path.join(eventPostersStorageDir, path.basename(fileName));
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+    }
+  } catch (error) {
+    console.error('Error deleting event poster:', error);
+  }
+};
+
 module.exports = {
   initStorage,
   saveWorldContent,
@@ -256,8 +331,12 @@ module.exports = {
   deleteThumbnail,
   saveAvatar,
   deleteAvatar,
+  saveEventPoster,
+  deleteEventPoster,
   worldsStorageDir,
   thumbnailsStorageDir,
   avatarsStorageDir,
-  MAX_AVATAR_SIZE
+  eventPostersStorageDir,
+  MAX_AVATAR_SIZE,
+  MAX_POSTER_SIZE
 };

@@ -44,7 +44,8 @@ const Event = {
   /**
    * Insert one event.
    *
-   * @param {Object} data - `{ type, title, bannerText, body, rulesText, startsAt, endsAt, createdBy }`
+   * @param {Object} data - `{ type, title, bannerText, body, rulesText, posterColor, posterImage,
+   *   startsAt, endsAt, createdBy }`
    * @returns {Object} The created row, with its derived state
    */
   create: (data) => {
@@ -53,10 +54,10 @@ const Event = {
 
     db.prepare(`
       INSERT INTO events (
-        id, type, title, banner_text, body, rules_text,
+        id, type, title, banner_text, body, rules_text, poster_color, poster_image,
         starts_at, ends_at, created_by, created_at, updated_at
       )
-      VALUES (@id, @type, @title, @bannerText, @body, @rulesText,
+      VALUES (@id, @type, @title, @bannerText, @body, @rulesText, @posterColor, @posterImage,
               @startsAt, @endsAt, @createdBy, @createdAt, @updatedAt)
     `).run({
       id,
@@ -65,6 +66,8 @@ const Event = {
       bannerText: data.bannerText,
       body: data.body,
       rulesText: data.rulesText || null,
+      posterColor: data.posterColor || null,
+      posterImage: data.posterImage || null,
       startsAt: data.startsAt,
       endsAt: data.endsAt,
       createdBy: data.createdBy || null,
@@ -174,7 +177,8 @@ const Event = {
    * here — those are stamped by the transitions that earn them, not typed in.
    *
    * @param {string} id - Event ID
-   * @param {Object} fields - Any of `{ title, bannerText, body, rulesText, startsAt, endsAt }`
+   * @param {Object} fields - Any of `{ title, bannerText, body, rulesText, posterColor, posterImage,
+   *   startsAt, endsAt }`
    * @returns {Object|undefined} The updated row, with its derived state
    */
   update: (id, fields) => {
@@ -183,6 +187,8 @@ const Event = {
       bannerText: 'banner_text',
       body: 'body',
       rulesText: 'rules_text',
+      posterColor: 'poster_color',
+      posterImage: 'poster_image',
       startsAt: 'starts_at',
       endsAt: 'ends_at'
     };

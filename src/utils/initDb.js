@@ -294,6 +294,10 @@ const createTables = () => {
       banner_text TEXT NOT NULL,
       body TEXT NOT NULL,
       rules_text TEXT,
+      -- The organizer's own presentation for the poster band: a color, and a file the poster route
+      -- serves. Both optional — an event with neither renders in the app's default band.
+      poster_color TEXT,
+      poster_image TEXT,
       starts_at TEXT NOT NULL,
       ends_at TEXT NOT NULL,
       cancelled_at TEXT,

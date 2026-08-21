@@ -4,7 +4,19 @@ const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
 const { sweepEvents, cancelEvent, announceWinner } = require('../utils/sweepEvents');
+const { saveEventPoster, deleteEventPoster } = require('../utils/fileStorage');
 const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
+
+/**
+ * The public URL of an event's poster artwork, or null when it has none.
+ *
+ * Keyed on the filename rather than the event, so the URL is immutable — an upload writes a new UUID,
+ * which means a replacement can never come back from a cache.
+ *
+ * @param {string|null|undefined} posterImage - The `poster_image` column
+ * @returns {string|null} The URL, or null
+ */
+const posterUrlFor = (posterImage) => (posterImage ? `/api/event-posters/${posterImage}` : null);
 
 /**
  * An event as anyone may see it.
@@ -23,6 +35,8 @@ const toDto = (row) => ({
   bannerText: row.banner_text,
   body: row.body,
   rulesText: row.rules_text || null,
+  posterColor: row.poster_color || null,
+  posterImageUrl: posterUrlFor(row.poster_image),
   startsAt: row.starts_at,
   endsAt: row.ends_at,
   cancelledAt: row.cancelled_at || null,
@@ -103,6 +117,21 @@ const isoOrNull = (value) => {
 const trimmed = (value) => (typeof value === 'string' ? value.trim() : '');
 
 /**
+ * Read an organizer's poster color.
+ *
+ * Hex only, which is what the client's picker emits and what CSS can paint. A value in some other
+ * notation is refused rather than stored, because the client would then fall back to the default band
+ * and the admin would have no way to tell their color from a color that simply did not apply.
+ *
+ * @param {*} value - Whatever the caller sent
+ * @returns {string|null} The color as lowercase `#rrggbb`, or null when it is not one
+ */
+const hexOrNull = (value) => {
+  const raw = trimmed(value).toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(raw) ? raw : null;
+};
+
+/**
  * Validate and normalize an event payload.
  *
  * On an edit only the keys actually sent are read, so an admin fixing a typo in the banner cannot blank
@@ -142,6 +171,16 @@ const parseEventBody = (body, { partial = false } = {}) => {
     fields.rulesText = rules || null;
   } else if (!partial) {
     fields.rulesText = null;
+  }
+
+  // Absent leaves the stored color alone on an edit and means "no color" on a create; empty clears it.
+  if (has('posterColor')) {
+    const raw = trimmed(body.posterColor);
+    const color = raw ? hexOrNull(raw) : null;
+    if (raw && !color) return { error: 'Poster color must be a hex color like #1e3a8a' };
+    fields.posterColor = color;
+  } else if (!partial) {
+    fields.posterColor = null;
   }
 
   for (const [key, label] of [['startsAt', 'Start'], ['endsAt', 'End']]) {
@@ -216,7 +255,10 @@ exports.createEvent = async (req, res, next) => {
     const conflict = windowConflict(fields, fields.type);
     if (conflict) return res.status(conflict.status).json({ success: false, error: conflict.error });
 
-    const event = Event.create({ ...fields, createdBy: req.user.id });
+    // Written after the refusals, so a window that was never going to be accepted leaves no file behind.
+    const posterImage = req.body.posterImage ? await saveEventPoster(req.body.posterImage) : null;
+
+    const event = Event.create({ ...fields, posterImage, createdBy: req.user.id });
 
     auditEvent('event_created', req.user, event);
 
@@ -258,9 +300,21 @@ exports.updateEvent = async (req, res, next) => {
     const conflict = windowConflict(resultingWindow(existing, fields), existing.type, existing.id);
     if (conflict) return res.status(conflict.status).json({ success: false, error: conflict.error });
 
+    // Absent leaves the stored artwork alone — an edit that never opened the picker must not delete the
+    // file — while an explicit null clears it and a data URI replaces it.
+    if (req.body.posterImage !== undefined) {
+      fields.posterImage = req.body.posterImage ? await saveEventPoster(req.body.posterImage) : null;
+    }
+
     // Nothing here posts, recalls or re-sends: an edit changes what the event says it is, and the
     // notices already sent are ordinary messages the admin polishes through the message edit route.
     const event = Event.update(existing.id, fields);
+
+    // Only once the row no longer points at it: a delete before the write would strand the event on a
+    // missing file if the update threw.
+    if (fields.posterImage !== undefined && existing.poster_image && existing.poster_image !== fields.posterImage) {
+      await deleteEventPoster(existing.poster_image);
+    }
 
     auditEvent('event_edited', req.user, event);
 
@@ -397,6 +451,8 @@ exports.deleteEvent = async (req, res, next) => {
 
     Event.clearEntries(existing.id);
     Event.delete(existing.id);
+    // The row is gone, so nothing can still be serving this file.
+    await deleteEventPoster(existing.poster_image);
 
     auditEvent('event_deleted', req.user, existing);
 

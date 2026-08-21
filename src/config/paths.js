@@ -28,6 +28,9 @@ const THUMBNAILS_DIR = path.join(STORAGE_ROOT, 'thumbnails');
 /** Profile images. Separate from thumbnails so a listing's art and a person's face never collide. */
 const AVATARS_DIR = path.join(STORAGE_ROOT, 'avatars');
 
+/** Event poster artwork. Its own directory so deleting an event can never reach a listing's thumbnail. */
+const EVENT_POSTERS_DIR = path.join(STORAGE_ROOT, 'event-posters');
+
 module.exports = {
   PROJECT_ROOT,
   DATA_DIR,
@@ -36,4 +39,5 @@ module.exports = {
   WORLDS_DIR,
   THUMBNAILS_DIR,
   AVATARS_DIR,
+  EVENT_POSTERS_DIR,
 };
