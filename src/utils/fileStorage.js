@@ -98,23 +98,32 @@ const readWorldContent = async (fileName) => {
   }
 };
 
-// Get thumbnail as base64 string (for API responses)
+/**
+ * A stored thumbnail as a data-URI, or null when there is no truthful one to give.
+ *
+ * Null rather than a throw: a row can outlive its file, and the listing around it is still readable — a
+ * half-finished delete must not take a world's whole detail page down with it. Null rather than a guess
+ * for the same reason the route 404s an extension nothing is written under: a data-URI whose declared
+ * type is not what the bytes are is worse than no image, because no decoder can read it.
+ *
+ * @param {string} fileName - The stored filename
+ * @returns {Promise<string|null>} `data:image/<type>;base64,...`, or null
+ */
 const getThumbnailBase64 = async (fileName) => {
-  try {
-    // An extension nothing is ever stored under cannot name a real thumbnail, so it is a failure rather
-    // than a type to guess at — labeling whatever this is `image/jpeg` would hand the client a data-URI
-    // no decoder can read.
-    const mimeType = THUMBNAIL_CONTENT_TYPES[path.extname(fileName).toLowerCase()];
-    if (!mimeType) {
-      throw new Error(`No thumbnail is stored as '${path.extname(fileName)}'`);
-    }
+  const mimeType = fileName && THUMBNAIL_CONTENT_TYPES[path.extname(fileName).toLowerCase()];
+  if (!mimeType) return null;
 
+  try {
     const imageBuffer = await fs.promises.readFile(path.join(thumbnailsStorageDir, fileName));
 
     return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
   } catch (error) {
-    console.error('Error getting thumbnail:', error);
-    throw new Error('Failed to read thumbnail file');
+    // A file that is simply gone is an ordinary consequence of the row outliving it; anything else is a
+    // real failure and is worth the line.
+    if (error.code !== 'ENOENT') {
+      console.error('Error getting thumbnail:', error);
+    }
+    return null;
   }
 };
 

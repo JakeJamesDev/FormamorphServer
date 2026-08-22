@@ -339,6 +339,36 @@ describe('thumbnails route', () => {
     }
   });
 
+  it('still reads a listing whose thumbnail file went missing', async () => {
+    // A row can outlive its file — a half-finished delete, a restore that skipped the uploads, a disk
+    // swapped out from under it. The listing is still a listing, so it answers with no art rather than
+    // failing whole; the URL alongside it 404s, which is what a client already handles.
+    const user = createUser();
+    const created = await create(user, { name: 'Lost Art' });
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    fs.unlinkSync(path.join(paths.THUMBNAILS_DIR, path.basename(detail.body.data.thumbnailUrl)));
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.name).toBe('Lost Art');
+    expect(res.body.data.thumbnail).toBeNull();
+    expect((await request(app).get(detail.body.data.thumbnailUrl)).status).toBe(404);
+  });
+
+  it('still downloads the content of a listing whose thumbnail went missing', async () => {
+    const user = createUser();
+    const created = await create(user, { name: 'Lost Art, Kept Content' });
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    fs.unlinkSync(path.join(paths.THUMBNAILS_DIR, path.basename(detail.body.data.thumbnailUrl)));
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}/content`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.contentData.worldOverview.name).toBe('Lost Art, Kept Content');
+    expect(res.body.data.thumbnail).toBeNull();
+  });
+
   it('will not label a file it cannot name a type for as jpeg', async () => {
     // The base64 path answers for the same files the route does, so it owes the same answer: an extension
     // nothing is stored under is a failure, not a type to guess. Guessing hands the client a data-URI
@@ -350,7 +380,7 @@ describe('thumbnails route', () => {
 
     try {
       await expect(getThumbnailBase64('planted-b64.jpeg')).resolves.toMatch(/^data:image\/jpeg;base64,/);
-      await expect(getThumbnailBase64('planted-b64.svg')).rejects.toThrow(/Failed to read thumbnail/);
+      await expect(getThumbnailBase64('planted-b64.svg')).resolves.toBeNull();
     } finally {
       fs.unlinkSync(good);
       fs.unlinkSync(bad);
