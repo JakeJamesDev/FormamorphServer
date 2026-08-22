@@ -350,13 +350,13 @@ const Event = {
    * Record the message a transition posted.
    *
    * @param {string} id - Event ID
-   * @param {string} field - `start_message_id`, `end_message_id` or `winner_message_id`
+   * @param {string} field - `start_message_id`, `end_message_id` or `results_message_id`
    * @param {string} messageId - The posted message's ID
    * @returns {Object|undefined} The updated row
    */
   setMessageId: (id, field, messageId) => {
     // Interpolated into the statement, so it is checked against the list rather than trusted.
-    if (!['start_message_id', 'end_message_id', 'winner_message_id'].includes(field)) {
+    if (!['start_message_id', 'end_message_id', 'results_message_id'].includes(field)) {
       throw new Error(`Not a message column: ${field}`);
     }
 

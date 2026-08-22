@@ -98,7 +98,7 @@ const cancelEvent = (event, at = undefined) => {
 const announceResults = (event, placements) => {
   const message = post(event, podiumBroadcast(event, placements));
 
-  return Event.setMessageId(event.id, 'winner_message_id', message.id);
+  return Event.setMessageId(event.id, 'results_message_id', message.id);
 };
 
 /**

@@ -303,14 +303,14 @@ const createTables = () => {
       cancelled_at TEXT,
       start_message_id TEXT,
       end_message_id TEXT,
-      winner_message_id TEXT,
+      results_message_id TEXT,
       results_announced_at TEXT,
       created_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (start_message_id) REFERENCES messages (id) ON DELETE SET NULL,
       FOREIGN KEY (end_message_id) REFERENCES messages (id) ON DELETE SET NULL,
-      FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+      FOREIGN KEY (results_message_id) REFERENCES messages (id) ON DELETE SET NULL,
       FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
     )
   `);

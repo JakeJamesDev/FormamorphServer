@@ -45,6 +45,7 @@ const legacyDb = () => {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (start_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+      FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL,
       FOREIGN KEY (winner_world_id) REFERENCES worlds (id) ON DELETE SET NULL,
       FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
     )
@@ -87,6 +88,22 @@ const columnsOf = (connection, table) => connection
   .all()
   .map((column) => column.name);
 
+/** The podium table as a database that has already run this migration would have it. */
+const PLACEMENTS_SQL = `
+  CREATE TABLE event_placements (
+    event_id TEXT NOT NULL,
+    place INTEGER NOT NULL CHECK (place IN (1, 2, 3)),
+    world_id TEXT,
+    world_name TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (event_id, place),
+    UNIQUE (event_id, world_id),
+    FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+    FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE SET NULL
+  )
+`;
+
 const placementsIn = (connection) => connection
   .prepare('SELECT * FROM event_placements ORDER BY event_id, place')
   .all();
@@ -121,7 +138,7 @@ describe('the podium schema', () => {
     expect(columns).not.toContain('winner_name');
     expect(columns).not.toContain('winner_author_name');
     // The broadcast id stays: it is the podium announcement's now.
-    expect(columns).toContain('winner_message_id');
+    expect(columns).toContain('results_message_id');
     expect(columnsOf(db, 'event_placements')).toContain('place');
   });
 
@@ -208,7 +225,7 @@ describe('migrating a single-winner database', () => {
 
   it('carries every other column across the rebuild untouched', () => {
     const legacy = legacyDb();
-    const seeded = seedLegacy(legacy, { winner_message_id: null });
+    const seeded = seedLegacy(legacy);
 
     addEventPlacements(legacy);
 
@@ -265,6 +282,67 @@ describe('migrating a single-winner database', () => {
     });
 
     legacy.close();
+  });
+
+  it('renames the broadcast column into the results vocabulary, keeping its value', () => {
+    const legacy = legacyDb();
+    const seeded = seedLegacy(legacy);
+    legacy.prepare("INSERT INTO messages (id) VALUES ('m-old')").run();
+    legacy.prepare('UPDATE events SET winner_message_id = ? WHERE id = ?').run('m-old', seeded.id);
+
+    addEventPlacements(legacy);
+
+    const columns = columnsOf(legacy, 'events');
+    expect(columns).toContain('results_message_id');
+    expect(columns).not.toContain('winner_message_id');
+    expect(legacy.prepare('SELECT results_message_id FROM events WHERE id = ?').get(seeded.id))
+      .toEqual({ results_message_id: 'm-old' });
+
+    legacy.close();
+  });
+
+  it('carries the broadcast column’s foreign key through the rename', () => {
+    // The column is named in a FOREIGN KEY, which is why it is renamed rather than rebuilt away. What
+    // has to survive is the constraint itself: recalling or pruning the announcement must still blank
+    // the reference rather than taking the event with it.
+    const legacy = legacyDb();
+    const seeded = seedLegacy(legacy);
+    legacy.prepare("INSERT INTO messages (id) VALUES ('m-old')").run();
+    legacy.prepare('UPDATE events SET winner_message_id = ? WHERE id = ?').run('m-old', seeded.id);
+
+    addEventPlacements(legacy);
+    legacy.prepare("DELETE FROM messages WHERE id = 'm-old'").run();
+
+    expect(legacy.prepare('SELECT results_message_id FROM events WHERE id = ?').get(seeded.id))
+      .toEqual({ results_message_id: null });
+    expect(legacy.prepare('SELECT COUNT(*) AS count FROM events').get().count).toBe(1);
+
+    legacy.close();
+  });
+
+  it('renames on a database already migrated before the rename existed', () => {
+    // The real case on any box that ran the first version of this migration: the winner columns are
+    // already gone, so nothing triggers the rebuild, and the rename has to stand on its own.
+    const migrated = new Database(':memory:');
+    migrated.pragma('foreign_keys = ON');
+    migrated.exec('CREATE TABLE worlds (id TEXT PRIMARY KEY, name TEXT)');
+    migrated.exec('CREATE TABLE messages (id TEXT PRIMARY KEY)');
+    migrated.exec(`
+      CREATE TABLE events (
+        id TEXT PRIMARY KEY, type TEXT, title TEXT NOT NULL, banner_text TEXT NOT NULL,
+        body TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
+        winner_message_id TEXT, results_announced_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL
+      )
+    `);
+    migrated.exec(PLACEMENTS_SQL);
+
+    expect(addEventPlacements(migrated)).toBe(true);
+    expect(columnsOf(migrated, 'events')).toContain('results_message_id');
+    expect(addEventPlacements(migrated)).toBe(false);
+
+    migrated.close();
   });
 
   it('is a no-op the second time, so every boot after the first costs nothing', () => {

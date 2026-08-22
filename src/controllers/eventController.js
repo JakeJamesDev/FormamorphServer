@@ -49,7 +49,7 @@ const toDto = (row, placements = Event.placements(row.id)) => ({
   cancelledAt: row.cancelled_at || null,
   startMessageId: row.start_message_id || null,
   endMessageId: row.end_message_id || null,
-  winnerMessageId: row.winner_message_id || null,
+  resultsMessageId: row.results_message_id || null,
   resultsAnnouncedAt: row.results_announced_at || null,
   placements: placements.map(placementDto),
   createdAt: row.created_at,

@@ -606,7 +606,7 @@ describe('announcing a contest’s results', () => {
 
     await announce(event, podium(...ids), staffUser('admin'));
 
-    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).winner_message_id);
+    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
 
     expect(announcement).toBeDefined();
     expect(announcement.recipient_id).toBeNull();
