@@ -72,6 +72,9 @@ const createTables = () => {
       author_id TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      -- Set the first time the commenter rewrites it, so the thread can say "edited". updated_at is
+      -- stamped at insert and so cannot tell an edited comment from an untouched one.
+      edited_at TEXT,
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
       FOREIGN KEY (author_id) REFERENCES users (id)
     )

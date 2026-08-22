@@ -22,6 +22,10 @@ const TABLES = [
   'events', 'event_placements'
 ];
 
+const { addCommentEditedColumn } = require('../src/utils/addCommentEditedColumn');
+
+const columnNames = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+
 const tableNames = () => db
   .prepare("SELECT name FROM sqlite_master WHERE type='table'")
   .all()
@@ -40,6 +44,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addAvatarColumns()');
     expect(source).toContain('addAuthorRoleColumn()');
     expect(source).toContain('addFeedbackEditedColumn()');
+    expect(source).toContain('addCommentEditedColumn()');
     expect(source).toContain('addFeedSeenColumn()');
     expect(source).toContain('addTokenVersionColumn()');
     expect(source).toContain('addContestColumn()');
@@ -62,6 +67,7 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addAvatarColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addAuthorRoleColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addFeedbackEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addCommentEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addFeedSeenColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
@@ -85,6 +91,9 @@ describe('the boot-time schema step', () => {
     const edited = require('fs').readFileSync(require.resolve('../src/utils/addFeedbackEditedColumn.js'), 'utf8');
     expect(edited).toContain('ALTER TABLE feedback');
 
+    const commentEdits = require('fs').readFileSync(require.resolve('../src/utils/addCommentEditedColumn.js'), 'utf8');
+    expect(commentEdits).toContain('ALTER TABLE comments');
+
     const seen = require('fs').readFileSync(require.resolve('../src/utils/addFeedSeenColumn.js'), 'utf8');
     expect(seen).toContain('ALTER TABLE users');
 
@@ -99,6 +108,23 @@ describe('the boot-time schema step', () => {
     const podium = require('fs').readFileSync(require.resolve('../src/utils/addEventPlacements.js'), 'utf8');
     expect(podium).toContain('ALTER TABLE events ADD COLUMN results_announced_at');
     expect(podium).toContain('DROP TABLE events');
+  });
+
+  it('puts a new column onto a table that predates it', () => {
+    // The repair `createTables` cannot do: a database from before comments were editable already has a
+    // `comments` table, so `CREATE TABLE IF NOT EXISTS` is a no-op over it and the column never arrives.
+    db.exec('DROP TABLE comments');
+    db.exec(`CREATE TABLE comments (
+      id TEXT PRIMARY KEY, content TEXT NOT NULL, world_id TEXT NOT NULL, author_id TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+
+    createTables();
+    expect(columnNames('comments')).not.toContain('edited_at');
+
+    addCommentEditedColumn(db);
+
+    expect(columnNames('comments')).toContain('edited_at');
   });
 
   it('creates every table it is responsible for', () => {

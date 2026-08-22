@@ -181,15 +181,18 @@ const Comment = {
   },
 
   /**
-   * Update a comment
+   * Update a comment, stamping `edited_at` so the thread can say so.
+   *
    * @param {string} id - Comment ID
    * @param {Object} commentData - Comment data to update
    * @returns {Object} Updated comment object
    */
   update: (id, commentData) => {
     try {
-      // Update timestamp
+      // Update timestamp. `edited_at` rides alongside because `updated_at` is stamped at insert too, so
+      // it cannot tell a rewritten comment from an untouched one.
       commentData.updated_at = new Date().toISOString();
+      commentData.edited_at = commentData.updated_at;
       
       // Build update query
       const fields = Object.keys(commentData).filter(key => key !== 'id');

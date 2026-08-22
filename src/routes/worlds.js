@@ -101,8 +101,10 @@ router.post(
   '/:worldId/comments',
   smallJson,
   [
-    check('content', 'Content is required').not().isEmpty(),
-    check('content', 'Content cannot exceed 1000 characters').isLength({ max: 1000 })
+    // Trimmed before it is checked and before it is stored: without this a body of spaces passes
+    // `isEmpty` and blanks the comment.
+    check('content', 'Content is required').trim().not().isEmpty(),
+    check('content', 'Content cannot exceed 4000 characters').isLength({ max: 4000 })
   ],
   protect,
   createComment

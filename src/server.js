@@ -7,6 +7,7 @@ const { addAuthorRoleColumn } = require('./utils/addAuthorRoleColumn');
 const { addReporterRoleColumn } = require('./utils/addReporterRoleColumn');
 const { addActorRoleColumn } = require('./utils/addActorRoleColumn');
 const { addFeedbackEditedColumn } = require('./utils/addFeedbackEditedColumn');
+const { addCommentEditedColumn } = require('./utils/addCommentEditedColumn');
 const { addFeedSeenColumn } = require('./utils/addFeedSeenColumn');
 const { addTokenVersionColumn } = require('./utils/addTokenVersionColumn');
 const { addContestColumn } = require('./utils/addContestColumn');
@@ -44,6 +45,7 @@ try {
   addReporterRoleColumn();
   addActorRoleColumn();
   addFeedbackEditedColumn();
+  addCommentEditedColumn();
   addFeedSeenColumn();
   addTokenVersionColumn();
   addContestColumn();

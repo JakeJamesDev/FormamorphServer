@@ -165,8 +165,9 @@ exports.updateComment = async (req, res, next) => {
       });
     }
 
-    // Check if user is comment author or admin
-    if (comment.author_id !== req.user.id && !canModerate(req.user, User.findById(comment.author_id))) {
+    // Its author and nobody else. Moderation reaches as far as taking a comment down and stops there:
+    // rewriting somebody's words would leave their name signed to a sentence they never wrote.
+    if (comment.author_id !== req.user.id) {
       return res.status(403).json({
         success: false,
         error: 'Not authorized to update this comment'

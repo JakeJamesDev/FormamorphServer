@@ -259,14 +259,14 @@ describe('comments', () => {
     expect(list.body.data[0].content).toBe('nice world');
   });
 
-  it('rejects a comment over 1000 characters', async () => {
+  it('rejects a comment over 4000 characters', async () => {
     const user = createUser();
     const created = await create(user, { name: 'Commentable 3' });
 
     const res = await request(app)
       .post(`/api/worlds/${created.body.data.id}/comments`)
       .set(authHeader(user))
-      .send({ content: 'x'.repeat(1001) });
+      .send({ content: 'x'.repeat(4001) });
 
     expect(res.status).toBe(400);
   });
