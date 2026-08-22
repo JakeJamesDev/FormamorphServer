@@ -19,7 +19,7 @@ const TABLES = [
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
   'audit_log', 'follows', 'world_likes',
-  'events'
+  'events', 'event_placements'
 ];
 
 const tableNames = () => db
@@ -44,6 +44,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addTokenVersionColumn()');
     expect(source).toContain('addContestColumn()');
     expect(source).toContain('addPosterColumns()');
+    expect(source).toContain('addEventPlacements()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -65,6 +66,7 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addPosterColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
   it('brings an existing table up to date, which creating cannot', () => {
@@ -91,6 +93,12 @@ describe('the boot-time schema step', () => {
 
     const poster = require('fs').readFileSync(require.resolve('../src/utils/addPosterColumns.js'), 'utf8');
     expect(poster).toContain('ALTER TABLE events');
+
+    // The one that cannot be an ALTER: SQLite refuses to drop a column named in a foreign key, so the
+    // single-winner columns go by rebuilding the table around them.
+    const podium = require('fs').readFileSync(require.resolve('../src/utils/addEventPlacements.js'), 'utf8');
+    expect(podium).toContain('ALTER TABLE events ADD COLUMN results_announced_at');
+    expect(podium).toContain('DROP TABLE events');
   });
 
   it('creates every table it is responsible for', () => {

@@ -66,10 +66,12 @@ const contestEntryRefusal = (eventId, user) => {
 };
 
 /**
- * Whether a listing is being judged: entered, past its contest's deadline, no winner yet.
+ * Whether a listing is being judged: entered, past its contest's deadline, results not announced yet.
  *
- * The whole of the post-deadline lock. Cancelling a contest releases its entries, so a cancelled event
- * cannot reach this — and a contest still running has no reason to hold anybody's work still.
+ * The whole of the post-deadline lock. It lifts at the announcement rather than at the first place being
+ * assigned, so judging finishes before entries go back to being editable. Cancelling a contest releases
+ * its entries, so a cancelled event cannot reach this — and a contest still running has no reason to hold
+ * anybody's work still.
  *
  * @param {Object} world - The world row
  * @returns {Object|null} The contest it is being judged in, or null
@@ -78,7 +80,7 @@ const judgingContest = (world) => {
   if (!world.contest_event_id) return null;
 
   const event = Event.findById(world.contest_event_id);
-  if (!event || event.state !== 'ended' || event.winner_world_id) return null;
+  if (!event || event.state !== 'ended' || event.results_announced_at) return null;
 
   return event;
 };
@@ -365,8 +367,8 @@ exports.updateWorld = async (req, res, next) => {
       });
     }
 
-    // An entry stops being editable when its contest stops taking entries, and starts again the moment
-    // there is a winner. Judging something that can be rewritten underneath the judges is not judging it.
+    // An entry stops being editable when its contest stops taking entries, and starts again the moment the
+    // results are announced. Judging something that can be rewritten underneath the judges is not judging it.
     //
     // Staff go through, as they do everywhere: moderation always wins, and the audit trail is what
     // accounts for it. Only the content is held — the spoiler flag, comments, likes and deleting the
@@ -376,7 +378,7 @@ exports.updateWorld = async (req, res, next) => {
       return res.status(409).json({
         success: false,
         code: 'CONTEST_LOCKED',
-        error: `${judging.title} is being judged, so its entries cannot be changed until the winner is announced.`
+        error: `${judging.title} is being judged, so its entries cannot be changed until the results are announced.`
       });
     }
 
@@ -694,8 +696,8 @@ exports.releaseWorld = async (req, res, next) => {
  * be in the running is the same act as its author changing their mind, and both are worth a log line.
  * Always audited, because the schema keeps no record of a withdrawal — the flag simply goes.
  *
- * The one refusal is the picked winner. The announcement has gone out and the archive names it; taking it
- * back would leave a record of a contest won by nothing. Deleting the listing is still the author's.
+ * The one refusal is a listing that placed. The announcement has gone out and the archive names it; taking
+ * it back would leave a hole in the podium. Deleting the listing is still the author's.
  *
  * @desc    Withdraw a listing from its contest
  * @route   DELETE /api/worlds/:id/contest
@@ -718,11 +720,13 @@ exports.withdrawEntry = async (req, res, next) => {
     }
 
     const event = Event.findById(world.contest_event_id);
-    if (event && event.winner_world_id === world.id) {
+    const placed = Event.placements(world.contest_event_id)
+      .some((placement) => placement.world_id === world.id);
+    if (placed) {
       return res.status(409).json({
         success: false,
-        code: 'CONTEST_WINNER',
-        error: 'A contest winner cannot be withdrawn. Delete the listing if you want it gone.'
+        code: 'CONTEST_PLACED',
+        error: 'A world that placed cannot be withdrawn. Delete the listing if you want it gone.'
       });
     }
 

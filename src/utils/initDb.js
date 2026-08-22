@@ -272,7 +272,7 @@ const createTables = () => {
     )
   `);
 
-  // Timed community happenings: a contest with entries and a winner, or a plain announcement. One table
+  // Timed community happenings: a contest with entries and a podium, or a plain announcement. One table
   // with nullable per-type columns, the same shape `worlds` uses for its kinds — a future type adds
   // columns rather than a table, and every reader keeps working.
   //
@@ -282,10 +282,10 @@ const createTables = () => {
   // because the tables this joins against default to CURRENT_TIMESTAMP's format instead.
   //
   // The message ids are what the transitions leave behind: the pinned notice posted at the start, the
-  // notice posted at the end, and the winner announcement. They are nullable and SET NULL on delete, so
-  // recalling or pruning a message never takes the event with it. The winner name and author name are
-  // snapshots for the same reason the audit log snapshots names — the archive has to still read after the
-  // world is gone.
+  // notice posted at the end, and the results announcement. They are nullable and SET NULL on delete, so
+  // recalling or pruning a message never takes the event with it. `results_announced_at` is what makes a
+  // contest decided — the stamp, not any one place, so a podium can be edited afterwards without the
+  // contest ever un-deciding.
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
       id TEXT PRIMARY KEY,
@@ -304,17 +304,36 @@ const createTables = () => {
       start_message_id TEXT,
       end_message_id TEXT,
       winner_message_id TEXT,
-      winner_world_id TEXT,
-      winner_name TEXT,
-      winner_author_name TEXT,
+      results_announced_at TEXT,
       created_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (start_message_id) REFERENCES messages (id) ON DELETE SET NULL,
       FOREIGN KEY (end_message_id) REFERENCES messages (id) ON DELETE SET NULL,
       FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL,
-      FOREIGN KEY (winner_world_id) REFERENCES worlds (id) ON DELETE SET NULL,
       FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+    )
+  `);
+
+  // A contest's podium: up to three places, one row each. Its own table rather than nine more columns on
+  // `events`, because a place is a relationship to a listing and there are three of them — the shape the
+  // strict-podium rule is expressible in. Both uniques are the rule: one world per place, and one place
+  // per world within a contest.
+  //
+  // `world_id` is SET NULL on delete while the two names are snapshots, for the reason the audit log
+  // snapshots its own: the archive has to still read after the listing is gone.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_placements (
+      event_id TEXT NOT NULL,
+      place INTEGER NOT NULL CHECK (place IN (1, 2, 3)),
+      world_id TEXT,
+      world_name TEXT NOT NULL,
+      author_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (event_id, place),
+      UNIQUE (event_id, world_id),
+      FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE SET NULL
     )
   `);
 
@@ -455,11 +474,13 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_message_states_user ON message_states(user_id);
   `);
 
-  // The sweeper asks for events whose start or end has passed, and the lists ask by type.
+  // The sweeper asks for events whose start or end has passed, and the lists ask by type. Placements are
+  // read by event for a podium and by world for a listing's badges.
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_starts ON events(starts_at);
     CREATE INDEX IF NOT EXISTS idx_events_ends ON events(ends_at);
+    CREATE INDEX IF NOT EXISTS idx_event_placements_world ON event_placements(world_id);
   `);
 
   // Create indexes for policy acceptances

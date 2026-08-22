@@ -46,7 +46,7 @@ const startBroadcast = (event) => compose({
  */
 const endBroadcast = (event) => compose({
   subject: `${event.title} has closed`,
-  body: `Entries for ${event.title} are closed and judging has begun. The winner will be announced here.`,
+  body: `Entries for ${event.title} are closed and judging has begun. The results will be announced here.`,
   scope: 'new'
 });
 
@@ -63,20 +63,35 @@ const cancelBroadcast = (event) => compose({
   scope: 'new'
 });
 
+/** How each place reads in the announcement. */
+const PLACE_LABELS = { 1: 'First place', 2: 'Second place', 3: 'Third place' };
+
+/** One place, as its own line of the results. */
+const placeLine = ({ world_name: name, author_name: authorName, place }) =>
+  `${PLACE_LABELS[place]}: ${name} by ${authorName}`;
+
 /**
- * The notice posted when a contest's winner is picked.
+ * The notice posted when a contest's results are announced.
  *
- * Built from the snapshot rather than from the listing, so it reads the same a year later as the archive
- * does — and keeps reading that way if the listing is taken down afterwards.
+ * The whole podium in one message rather than one per place, because it is one decision: a reader who
+ * sees only gold has to guess whether the rest is coming. Built from the stored snapshots rather than
+ * from the listings, so it reads the same a year later as the archive does — and keeps reading that way
+ * if a listing is taken down afterwards.
  *
  * @param {Object} event - The event row
- * @param {Object} winner - `{ name, authorName }` as stamped on the event
+ * @param {Array<Object>} placements - The stored placement rows, gold first
  * @returns {Object} Composer fields for `Message.create`
  */
-const winnerBroadcast = (event, { name, authorName }) => compose({
-  subject: `${event.title} has a winner`,
-  body: `${name} by ${authorName} has won ${event.title}. Congratulations, and thank you to everyone who entered.`,
+const podiumBroadcast = (event, placements) => compose({
+  subject: `${event.title} — the results`,
+  body: [
+    `${event.title} has been judged.`,
+    placements.map(placeLine).join('\n'),
+    'Congratulations, and thank you to everyone who entered.'
+  ].join('\n\n'),
   scope: 'new'
 });
 
-module.exports = { startBroadcast, endBroadcast, cancelBroadcast, winnerBroadcast, SUBJECT_MAX, BODY_MAX };
+module.exports = {
+  startBroadcast, endBroadcast, cancelBroadcast, podiumBroadcast, PLACE_LABELS, SUBJECT_MAX, BODY_MAX
+};

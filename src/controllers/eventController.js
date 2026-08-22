@@ -3,7 +3,7 @@ const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
-const { sweepEvents, cancelEvent, announceWinner } = require('../utils/sweepEvents');
+const { sweepEvents, cancelEvent, announceResults: postResultsBroadcast } = require('../utils/sweepEvents');
 const { saveEventPoster, deleteEventPoster } = require('../utils/fileStorage');
 const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
 
@@ -27,7 +27,14 @@ const posterUrlFor = (posterImage) => (posterImage ? `/api/event-posters/${poste
  * @param {Object} row - An event row with its derived `state`
  * @returns {Object} The public DTO
  */
-const toDto = (row) => ({
+const placementDto = (row) => ({
+  place: row.place,
+  worldId: row.world_id || null,
+  worldName: row.world_name,
+  authorName: row.author_name
+});
+
+const toDto = (row, placements = Event.placements(row.id)) => ({
   id: row.id,
   type: row.type,
   state: row.state,
@@ -43,12 +50,31 @@ const toDto = (row) => ({
   startMessageId: row.start_message_id || null,
   endMessageId: row.end_message_id || null,
   winnerMessageId: row.winner_message_id || null,
-  winnerWorldId: row.winner_world_id || null,
-  winnerName: row.winner_name || null,
-  winnerAuthorName: row.winner_author_name || null,
+  resultsAnnouncedAt: row.results_announced_at || null,
+  placements: placements.map(placementDto),
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
+
+/**
+ * A whole list of events as DTOs, with every podium read in one query.
+ *
+ * The archive is one row per contest ever run, so letting each DTO fetch its own placements would put a
+ * query per row behind the list surface every client opens.
+ *
+ * @param {Array<Object>} rows - Event rows with their derived state
+ * @returns {Array<Object>} The public DTOs
+ */
+const toDtoList = (rows) => {
+  const byEvent = new Map();
+  for (const placement of Event.placementsFor(rows.map((row) => row.id))) {
+    const held = byEvent.get(placement.event_id);
+    if (held) held.push(placement);
+    else byEvent.set(placement.event_id, [placement]);
+  }
+
+  return rows.map((row) => toDto(row, byEvent.get(row.id) ?? []));
+};
 
 /**
  * @desc    Events running right now
@@ -61,7 +87,7 @@ exports.getActiveEvents = async (req, res, next) => {
     // route can never answer with a banner that should be up or one that should be gone.
     await sweepEvents();
 
-    const events = Event.getActive().map(toDto);
+    const events = toDtoList(Event.getActive());
 
     res.status(200).json({ success: true, count: events.length, data: events });
   } catch (error) {
@@ -109,9 +135,8 @@ exports.getEvents = async (req, res, next) => {
     await sweepEvents();
 
     const slim = wantsSlim(req.query.slim);
-    const events = Event
-      .getList({ includeUnannounced: isStaff(req.user) })
-      .map((row) => (slim ? withoutProse(toDto(row)) : toDto(row)));
+    const dtos = toDtoList(Event.getList({ includeUnannounced: isStaff(req.user) }));
+    const events = slim ? dtos.map(withoutProse) : dtos;
 
     res.status(200).json({ success: true, count: events.length, data: events });
   } catch (error) {
@@ -414,77 +439,195 @@ exports.cancelEventById = async (req, res, next) => {
   }
 };
 
+/** The three places a podium has, in the order they read. */
+const PLACES = [1, 2, 3];
+
+/** How each place reads wherever the server has to name one. */
+const PLACE_NAMES = { 1: 'First place', 2: 'Second place', 3: 'Third place' };
+
 /**
- * Name a contest's winner, and tell everyone.
+ * Read a podium out of a request body, or say why it is not one.
  *
- * Four things are checked, and each is a way the pick could be wrong rather than merely unlucky: the
- * listing has to still be an entry in this contest, it has to be one people can actually see, and it must
- * not belong to whoever is picking. Staff enter contests like anyone else in a community this size, so
- * refusing to let them crown themselves is the one rule that keeps that above board.
+ * The strict-podium rule lives here rather than in the two routes that need it, so announcing and editing
+ * cannot drift into judging the same request differently. Two kinds of wrong, and the status says which:
+ * a body that is not a podium at all reads 400, and an entry that cannot hold the place it was given
+ * reads 409 — the same split the rest of this controller uses.
  *
- * Once. The announcement goes out and the archive names it, so a second pick would be a second winner of
- * the same contest — refused rather than quietly overwritten.
+ * Every place is checked against the three refusals the single winner was: the listing has to still be an
+ * entry in this contest, it has to be one people can actually see, and it must not belong to whoever is
+ * judging. Staff enter contests like anyone else in a community this size, so refusing to let them crown
+ * themselves is the one rule that keeps that above board.
  *
- * @desc    Pick a contest winner
- * @route   PUT /api/events/:id/winner
- * @access  Staff
+ * @param {Object} event - The contest being judged
+ * @param {*} body - The request body
+ * @param {Object} actor - The judging account
+ * @returns {Object} `{ placements }` when it holds, or `{ refusal: { status, error } }`
  */
-exports.pickWinner = async (req, res, next) => {
+const readPodium = (event, body, actor) => {
+  const sent = body && body.placements;
+  const refuse = (status, error) => ({ refusal: { status, error } });
+
+  if (!Array.isArray(sent)) return refuse(400, 'A list of placements is required');
+  if (sent.length === 0) return refuse(400, 'First place is required');
+  if (sent.length > PLACES.length) return refuse(400, 'A podium holds three places at most');
+
+  const shaped = sent.every((entry) => entry
+    && PLACES.includes(entry.place)
+    && typeof entry.worldId === 'string'
+    && entry.worldId);
+  if (!shaped) return refuse(400, 'Each placement needs a place of 1, 2 or 3 and a world ID');
+
+  // Compared numerically rather than by `sort()`'s default, which orders as text — right for one digit
+  // and quietly wrong the day a podium grows past nine places.
+  const places = sent.map((entry) => entry.place).sort((a, b) => a - b);
+  if (new Set(places).size !== places.length) return refuse(400, 'One world per place');
+  // Contiguous from gold: the sorted places have to run 1, 2, 3 with nothing skipped.
+  if (places.some((place, index) => place !== index + 1)) {
+    return refuse(400, 'A podium fills from first place down, with no gaps');
+  }
+
+  const worldIds = sent.map((entry) => entry.worldId);
+  if (new Set(worldIds).size !== worldIds.length) return refuse(400, 'One place per world');
+
+  const placements = [];
+
+  for (const place of places) {
+    const { worldId } = sent.find((entry) => entry.place === place);
+    const world = World.findById(worldId);
+
+    if (!world) return refuse(404, 'World not found');
+    if (world.contest_event_id !== event.id) {
+      return refuse(409, 'That listing is not an entry in this contest');
+    }
+    if (world.quarantined_at) {
+      return refuse(409, 'A quarantined entry cannot place. Release it first.');
+    }
+    if (world.author_id === actor.id) {
+      return refuse(409, 'You cannot place your own entry');
+    }
+
+    const author = User.findById(world.author_id);
+    placements.push({
+      place,
+      worldId: world.id,
+      name: world.name,
+      authorName: author ? author.username : 'a departed account'
+    });
+  }
+
+  return { placements };
+};
+
+/** The podium as one line, for a log entry and nothing else. */
+const podiumSnippet = (placements) => placements
+  .map((row) => `${PLACE_NAMES[row.place]}: ${row.world_name} by ${row.author_name}`)
+  .join('; ');
+
+/**
+ * Announce a contest's podium, and tell everyone.
+ *
+ * The decision moment: one request carries the whole podium, so players never meet a contest that has
+ * announced gold and is still thinking about silver. It is also what lifts the entry lock and what makes
+ * the contest read as decided — none of which any single place does on its own.
+ *
+ * Once. A second announce would be a second set of results for the same contest, so it is refused rather
+ * than quietly overwritten; correcting a podium afterwards is the edit route, which announces nothing.
+ *
+ * @desc    Announce a contest's results
+ * @route   PUT /api/events/:id/results
+ * @access  Admin
+ */
+exports.announceResults = async (req, res, next) => {
   try {
     const event = Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, error: 'Event not found' });
 
     if (event.type !== 'contest') {
-      return res.status(400).json({ success: false, error: 'Only a contest has a winner' });
+      return res.status(400).json({ success: false, error: 'Only a contest has results' });
     }
 
-    if (event.winner_world_id) {
-      return res.status(409).json({ success: false, error: 'That contest already has a winner' });
+    if (event.results_announced_at) {
+      return res.status(409).json({ success: false, error: 'That contest has already announced its results' });
     }
 
-    // Checked for its type, not merely its presence: an id the query layer cannot bind throws out of the
-    // model, and a malformed body should read as a bad request rather than a broken server.
-    if (typeof req.body.worldId !== 'string' || !req.body.worldId) {
-      return res.status(400).json({ success: false, error: 'A world ID is required' });
-    }
+    const { placements: podium, refusal } = readPodium(event, req.body, req.user);
+    if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
 
-    const world = World.findById(req.body.worldId);
-    if (!world) return res.status(404).json({ success: false, error: 'World not found' });
-
-    if (world.contest_event_id !== event.id) {
-      return res.status(409).json({ success: false, error: 'That listing is not an entry in this contest' });
-    }
-
-    if (world.quarantined_at) {
-      return res.status(409).json({ success: false, error: 'A quarantined entry cannot win. Release it first.' });
-    }
-
-    if (world.author_id === req.user.id) {
-      return res.status(409).json({ success: false, error: 'You cannot pick your own entry' });
-    }
-
-    const author = User.findById(world.author_id);
-
-    // Stamped before the notice is written, because the notice is written from the stamp — which is what
+    // Stored before the notice is written, because the notice is written from the store — which is what
     // makes the announcement and the archive say the same thing forever.
-    const stamped = Event.setWinner(event.id, {
-      worldId: world.id,
-      name: world.name,
-      authorName: author ? author.username : 'a departed account'
-    });
+    const placements = Event.setPlacements(event.id, podium);
+    const stamped = Event.announceResults(event.id);
+    const announced = postResultsBroadcast(stamped, placements);
 
-    const announced = announceWinner(stamped);
+    const gold = World.findById(podium[0].worldId);
 
     AuditLog.tryRecord({
-      action: 'winner_picked',
+      action: 'results_announced',
       actor: req.user,
-      targetUser: author,
+      targetUser: gold ? User.findById(gold.author_id) : null,
       targetKind: 'event',
       targetName: event.title,
-      snippet: `${world.name} by ${stamped.winner_author_name}`
+      snippet: podiumSnippet(placements)
     });
 
-    res.status(200).json({ success: true, data: toDto(announced || stamped) });
+    res.status(200).json({ success: true, data: toDto(announced || stamped, placements) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Correct an announced podium.
+ *
+ * Silent by design: a place fixed a day later is a correction rather than news, and re-broadcasting would
+ * spend every player's attention on the server's own mistake. What it leaves instead is a log line per
+ * place that actually moved, so a correction is accountable without being announced.
+ *
+ * Only after an announcement. Before one there is nothing stored to correct — the podium is still being
+ * assembled in the dialog, which keeps its own staging and sends it whole.
+ *
+ * @desc    Edit an announced podium
+ * @route   PUT /api/events/:id/placements
+ * @access  Admin
+ */
+exports.editPlacements = async (req, res, next) => {
+  try {
+    const event = Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    if (event.type !== 'contest') {
+      return res.status(400).json({ success: false, error: 'Only a contest has results' });
+    }
+
+    if (!event.results_announced_at) {
+      return res.status(409).json({ success: false, error: 'Announce the results before editing the podium' });
+    }
+
+    const { placements: podium, refusal } = readPodium(event, req.body, req.user);
+    if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
+
+    const before = Event.placements(event.id);
+    const placements = Event.setPlacements(event.id, podium);
+
+    for (const place of PLACES) {
+      const was = before.find((row) => row.place === place);
+      const now = placements.find((row) => row.place === place);
+      if ((was ? was.world_id : null) === (now ? now.world_id : null)) continue;
+
+      const holder = now ? World.findById(now.world_id) : null;
+
+      AuditLog.tryRecord({
+        action: 'podium_edited',
+        actor: req.user,
+        targetUser: holder ? User.findById(holder.author_id) : null,
+        targetKind: 'event',
+        targetName: event.title,
+        snippet: `${PLACE_NAMES[place]}: ${now ? `${now.world_name} by ${now.author_name}` : 'cleared'}`
+          + (was ? ` (was ${was.world_name})` : '')
+      });
+    }
+
+    res.status(200).json({ success: true, data: toDto(Event.findById(event.id), placements) });
   } catch (error) {
     next(error);
   }

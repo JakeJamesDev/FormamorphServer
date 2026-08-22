@@ -11,6 +11,7 @@ const { addFeedSeenColumn } = require('./utils/addFeedSeenColumn');
 const { addTokenVersionColumn } = require('./utils/addTokenVersionColumn');
 const { addContestColumn } = require('./utils/addContestColumn');
 const { addPosterColumns } = require('./utils/addPosterColumns');
+const { addEventPlacements } = require('./utils/addEventPlacements');
 const { createTables, createIndexes } = require('./utils/initDb');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
@@ -47,6 +48,7 @@ try {
   addTokenVersionColumn();
   addContestColumn();
   addPosterColumns();
+  addEventPlacements();
   createIndexes();
 } catch (error) {
   console.error('Schema setup failed — starting anyway; some endpoints may fail until resolved:', error);

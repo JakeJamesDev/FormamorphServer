@@ -156,7 +156,8 @@ describe('GET /api/events/active', () => {
     const [event] = (await activeList()).body.data;
 
     expect(event.rulesText).toBe('One entry per author.');
-    expect(event.winnerWorldId).toBeNull();
+    expect(event.placements).toEqual([]);
+    expect(event.resultsAnnouncedAt).toBeNull();
   });
 });
 
@@ -203,19 +204,23 @@ describe('GET /api/events?slim', () => {
     expect(row.startsAt).toBe(event.starts_at);
   });
 
-  it('keeps a decided contest’s winner aboard, so a badge earned years ago still rides the list', async () => {
+  it('keeps a decided contest’s podium aboard, so a badge earned years ago still rides the list', async () => {
     const contest = makeEvent({ ...WINDOWS.ended, type: 'contest', title: 'Build-off' });
     const author = createUser({ username: 'wren' });
     const published = await request(app).post('/api/worlds')
       .set(authHeader(author))
       .send(worldPayload({ name: 'Sedge Landing' }));
-    Event.setWinner(contest.id, { worldId: published.body.data.id, name: 'Sedge Landing', authorName: 'wren' });
+    Event.setPlacements(contest.id, [
+      { place: 1, worldId: published.body.data.id, name: 'Sedge Landing', authorName: 'wren' }
+    ]);
+    Event.announceResults(contest.id);
 
     const [row] = (await slimList()).body.data;
 
-    expect(row.winnerWorldId).toBe(published.body.data.id);
-    expect(row.winnerName).toBe('Sedge Landing');
-    expect(row.winnerAuthorName).toBe('wren');
+    expect(row.placements).toEqual([
+      { place: 1, worldId: published.body.data.id, worldName: 'Sedge Landing', authorName: 'wren' }
+    ]);
+    expect(row.resultsAnnouncedAt).toBeTruthy();
   });
 
   it('is ignored when it is not asked for, so an older client still gets the prose', async () => {

@@ -502,20 +502,48 @@ const judgeablePair = async () => {
   return { event, user, runnerUp, worldId: world.body.data.id, runnerUpId: other.body.data.id };
 };
 
-const pick = (event, worldId, picker) => request(app)
-  .put(`/api/events/${event.id}/winner`)
-  .set(authHeader(picker))
-  .send({ worldId });
+/** A closed contest with three entrants, so a full podium can be assembled. */
+const judgeableThree = async () => {
+  const event = contest();
+  const entrants = [author(), author(), author()];
+  const names = ['The Entry', 'Runner Up', 'Third Wheel'];
+  const ids = [];
+  for (let i = 0; i < entrants.length; i += 1) {
+    const world = await publish(entrants[i], { contestEventId: event.id, name: names[i] });
+    ids.push(world.body.data.id);
+  }
+  Event.update(event.id, { startsAt: at(-120), endsAt: at(-60) });
+  return { event, entrants, ids };
+};
+
+/** A podium body from world ids in podium order. */
+const podium = (...worldIds) => ({
+  placements: worldIds.map((worldId, index) => ({ place: index + 1, worldId }))
+});
+
+const announce = (event, body, actor) => request(app)
+  .put(`/api/events/${event.id}/results`)
+  .set(authHeader(actor))
+  .send(body);
+
+const editPodium = (event, body, actor) => request(app)
+  .put(`/api/events/${event.id}/placements`)
+  .set(authHeader(actor))
+  .send(body);
 
 const eventRow = (id) => db.prepare('SELECT * FROM events WHERE id = ?').get(id);
 
+const placementRows = (id) => db
+  .prepare('SELECT place, world_id, world_name, author_name FROM event_placements WHERE event_id = ? ORDER BY place')
+  .all(id);
+
 const broadcasts = () => db.prepare('SELECT * FROM messages ORDER BY created_at, id').all();
 
-describe('picking a winner', () => {
+describe('announcing a contest’s results', () => {
   it('refuses a signed-out caller', async () => {
     const { event, worldId } = await judgeable();
 
-    const response = await request(app).put(`/api/events/${event.id}/winner`).send({ worldId });
+    const response = await request(app).put(`/api/events/${event.id}/results`).send(podium(worldId));
 
     expect(response.status).toBe(401);
   });
@@ -523,55 +551,84 @@ describe('picking a winner', () => {
   it('refuses an ordinary account', async () => {
     const { event, worldId } = await judgeable();
 
-    const response = await pick(event, worldId, author());
+    const response = await announce(event, podium(worldId), author());
 
     expect(response.status).toBe(403);
   });
 
-  it('is open to any staff, not only admins', async () => {
+  it('refuses staff who are not administrators, which is the tightening', async () => {
+    // Announcing results speaks to every player at once, exactly as scheduling the contest did. The
+    // moderation team reads the calendar; the podium is the owner's to publish.
     const { event, worldId } = await judgeable();
 
-    const response = await pick(event, worldId, staffUser('mod'));
+    const response = await announce(event, podium(worldId), staffUser('mod'));
+
+    expect(response.status).toBe(403);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('stores a whole podium, gold first', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+
+    const response = await announce(event, podium(...ids), staffUser('admin'));
 
     expect(response.status).toBe(200);
-    expect(eventRow(event.id).winner_world_id).toBe(worldId);
+    expect(placementRows(event.id)).toEqual([
+      { place: 1, world_id: ids[0], world_name: 'The Entry', author_name: entrants[0].username },
+      { place: 2, world_id: ids[1], world_name: 'Runner Up', author_name: entrants[1].username },
+      { place: 3, world_id: ids[2], world_name: 'Third Wheel', author_name: entrants[2].username }
+    ]);
   });
 
-  it('stamps the names as they read on the day', async () => {
-    const { event, user, worldId } = await judgeable();
+  it('answers with the podium it stored', async () => {
+    const { event, entrants, ids } = await judgeableThree();
 
-    const response = await pick(event, worldId, staffUser());
+    const response = await announce(event, podium(ids[0], ids[1]), staffUser('admin'));
 
-    expect(response.body.data.winnerName).toBe('The Entry');
-    expect(response.body.data.winnerAuthorName).toBe(user.username);
+    expect(response.body.data.placements).toEqual([
+      { place: 1, worldId: ids[0], worldName: 'The Entry', authorName: entrants[0].username },
+      { place: 2, worldId: ids[1], worldName: 'Runner Up', authorName: entrants[1].username }
+    ]);
+    expect(response.body.data.resultsAnnouncedAt).toBeTruthy();
   });
 
-  it('announces it, and remembers which message that was', async () => {
-    const { event, user, worldId } = await judgeable();
+  it('takes gold alone, so a small contest is not made to invent three winners', async () => {
+    const { event, worldId } = await judgeable();
 
-    await pick(event, worldId, staffUser());
+    const response = await announce(event, podium(worldId), staffUser('admin'));
 
-    const winnerMessageId = eventRow(event.id).winner_message_id;
-    const announcement = broadcasts().find((message) => message.id === winnerMessageId);
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id)).toHaveLength(1);
+  });
+
+  it('announces the whole podium in one broadcast, and remembers which message that was', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+
+    await announce(event, podium(...ids), staffUser('admin'));
+
+    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).winner_message_id);
 
     expect(announcement).toBeDefined();
     expect(announcement.recipient_id).toBeNull();
     expect(announcement.scope).toBe('new');
-    expect(announcement.body).toContain('The Entry');
-    expect(announcement.body).toContain(user.username);
+    for (const name of ['The Entry', 'Runner Up', 'Third Wheel']) expect(announcement.body).toContain(name);
+    for (const entrant of entrants) expect(announcement.body).toContain(entrant.username);
+    expect(announcement.body).toContain('First place');
+    expect(announcement.body).toContain('Third place');
   });
 
-  it('logs who picked it and whose it was', async () => {
-    const { event, user, worldId } = await judgeable();
-    const picker = staffUser();
+  it('logs who announced it, whose contest it was, and the whole podium', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+    const announcer = staffUser('admin');
 
-    await pick(event, worldId, picker);
+    await announce(event, podium(ids[0], ids[1]), announcer);
 
     expect(auditRows()).toEqual([expect.objectContaining({
-      action: 'winner_picked',
-      actor_username: picker.username,
-      target_username: user.username,
-      target_name: event.title
+      action: 'results_announced',
+      actor_username: announcer.username,
+      target_username: entrants[0].username,
+      target_name: event.title,
+      snippet: `First place: The Entry by ${entrants[0].username}; Second place: Runner Up by ${entrants[1].username}`
     })]);
   });
 
@@ -579,14 +636,14 @@ describe('picking a winner', () => {
     const { worldId } = await judgeable();
 
     const response = await request(app)
-      .put('/api/events/no-such-event/winner')
-      .set(authHeader(staffUser()))
-      .send({ worldId });
+      .put('/api/events/no-such-event/results')
+      .set(authHeader(staffUser('admin')))
+      .send(podium(worldId));
 
     expect(response.status).toBe(404);
   });
 
-  it('refuses an announcement, which has no entries to win it', async () => {
+  it('refuses an announcement, which has no entries to place in it', async () => {
     const { worldId } = await judgeable();
     const notice = Event.create({
       type: 'announcement',
@@ -597,7 +654,7 @@ describe('picking a winner', () => {
       endsAt: at(-60)
     });
 
-    const response = await pick(notice, worldId, staffUser());
+    const response = await announce(notice, podium(worldId), staffUser('admin'));
 
     expect(response.status).toBe(400);
   });
@@ -605,7 +662,7 @@ describe('picking a winner', () => {
   it('refuses a listing that does not exist', async () => {
     const { event } = await judgeable();
 
-    const response = await pick(event, 'no-such-world', staffUser());
+    const response = await announce(event, podium('no-such-world'), staffUser('admin'));
 
     expect(response.status).toBe(404);
   });
@@ -614,59 +671,114 @@ describe('picking a winner', () => {
     const { event } = await judgeable();
     const outsider = await publish(author(), { name: 'Not Entered' });
 
-    const response = await pick(event, outsider.body.data.id, staffUser());
+    const response = await announce(event, podium(outsider.body.data.id), staffUser('admin'));
 
     expect(response.status).toBe(409);
-    expect(eventRow(event.id).winner_world_id).toBeNull();
+    expect(placementRows(event.id)).toEqual([]);
   });
 
   it('refuses an entry that was withdrawn', async () => {
     const { event, user, worldId } = await judgeable();
     await request(app).delete(`/api/worlds/${worldId}/contest`).set(authHeader(user));
 
-    const response = await pick(event, worldId, staffUser());
+    const response = await announce(event, podium(worldId), staffUser('admin'));
 
     expect(response.status).toBe(409);
   });
 
-  it('refuses a quarantined entry, which nobody can even see', async () => {
-    const { event, worldId } = await judgeable();
-    await request(app).put(`/api/worlds/${worldId}/quarantine`).set(authHeader(staffUser())).send({});
+  it('refuses a quarantined entry in any place, not only gold', async () => {
+    const { event, ids } = await judgeableThree();
+    await request(app).put(`/api/worlds/${ids[2]}/quarantine`).set(authHeader(staffUser())).send({});
 
-    const response = await pick(event, worldId, staffUser());
+    const response = await announce(event, podium(...ids), staffUser('admin'));
 
     expect(response.status).toBe(409);
-    expect(eventRow(event.id).winner_world_id).toBeNull();
+    expect(placementRows(event.id)).toEqual([]);
   });
 
-  it('refuses the picker their own entry', async () => {
+  it('refuses the announcer their own entry in any place, not only gold', async () => {
     // Staff enter contests like anyone else in a community this size; not judging your own is the rule
-    // that makes that fine.
-    const picker = staffUser();
-    const { event, worldId } = await judgeable(picker);
+    // that makes that fine, and it has to cover every place or the rule is only about gold.
+    const announcer = staffUser('admin');
+    const event = contest();
+    const other = author();
+    const theirs = await publish(other, { contestEventId: event.id, name: 'Theirs' });
+    const own = await publish(announcer, { contestEventId: event.id, name: 'Mine' });
+    Event.update(event.id, { startsAt: at(-120), endsAt: at(-60) });
 
-    const response = await pick(event, worldId, picker);
+    const response = await announce(
+      event,
+      podium(theirs.body.data.id, own.body.data.id),
+      announcer
+    );
 
     expect(response.status).toBe(409);
-    expect(eventRow(event.id).winner_world_id).toBeNull();
+    expect(placementRows(event.id)).toEqual([]);
   });
 
-  it('refuses a second pick, and announces nothing further', async () => {
-    const { event, worldId, runnerUpId } = await judgeablePair();
-    await pick(event, worldId, staffUser());
+  it('refuses the same world in two places', async () => {
+    const { event, ids } = await judgeableThree();
+
+    const response = await announce(event, podium(ids[0], ids[0]), staffUser('admin'));
+
+    expect(response.status).toBe(400);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it.each([
+    ['silver with no gold', [2]],
+    ['bronze with no silver', [1, 3]],
+    ['bronze alone', [3]]
+  ])('refuses a podium with a gap — %s', async (_label, places) => {
+    const { event, ids } = await judgeableThree();
+
+    const response = await announce(
+      event,
+      { placements: places.map((place, index) => ({ place, worldId: ids[index] })) },
+      staffUser('admin')
+    );
+
+    expect(response.status).toBe(400);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('refuses an empty podium, so nothing can be announced about nothing', async () => {
+    const { event } = await judgeable();
+
+    const response = await announce(event, { placements: [] }, staffUser('admin'));
+
+    expect(response.status).toBe(400);
+    expect(broadcasts().every((message) => !message.body.includes('has been judged'))).toBe(true);
+  });
+
+  it('refuses a fourth place', async () => {
+    const { event, ids } = await judgeableThree();
+
+    const response = await announce(
+      event,
+      { placements: [...podium(...ids).placements, { place: 3, worldId: ids[0] }] },
+      staffUser('admin')
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses a second announcement, and announces nothing further', async () => {
+    const { event, ids } = await judgeableThree();
+    await announce(event, podium(ids[0]), staffUser('admin'));
     const announced = broadcasts().length;
 
-    const response = await pick(event, runnerUpId, staffUser());
+    const response = await announce(event, podium(ids[1]), staffUser('admin'));
 
     expect(response.status).toBe(409);
-    expect(eventRow(event.id).winner_world_id).toBe(worldId);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual([ids[0]]);
     expect(broadcasts()).toHaveLength(announced);
   });
 
-  it('lets the winner edit their listing again', async () => {
+  it('lets a placed entrant edit their listing again', async () => {
     const { event, user, worldId } = await judgeable();
 
-    await pick(event, worldId, staffUser());
+    await announce(event, podium(worldId), staffUser('admin'));
 
     const response = await request(app)
       .put(`/api/worlds/${worldId}`)
@@ -679,7 +791,7 @@ describe('picking a winner', () => {
   it('lets every other entrant edit again too', async () => {
     const { event, worldId, runnerUp, runnerUpId } = await judgeablePair();
 
-    await pick(event, worldId, staffUser());
+    await announce(event, podium(worldId), staffUser('admin'));
 
     const response = await request(app)
       .put(`/api/worlds/${runnerUpId}`)
@@ -689,27 +801,173 @@ describe('picking a winner', () => {
     expect(response.status).toBe(200);
   });
 
-  it('refuses to let the winner be withdrawn', async () => {
+  it('holds the lock until the announcement, not until a place is decided', async () => {
+    // The lock lifts at the announcement, so judging finishes before entries reopen. Storing a podium
+    // without announcing it is not a state a route offers, so the stored placement stands in for it.
     const { event, user, worldId } = await judgeable();
-    await pick(event, worldId, staffUser());
+    Event.setPlacements(event.id, [
+      { place: 1, worldId, name: 'The Entry', authorName: user.username }
+    ]);
 
-    const response = await request(app).delete(`/api/worlds/${worldId}/contest`).set(authHeader(user));
+    const response = await request(app)
+      .put(`/api/worlds/${worldId}`)
+      .set(authHeader(user))
+      .send({ name: 'Rewritten' });
 
     expect(response.status).toBe(409);
-    expect(response.body.code).toBe('CONTEST_WINNER');
-    expect(entryOf(worldId)).toBe(event.id);
+    expect(response.body.code).toBe('CONTEST_LOCKED');
   });
 
-  it('keeps the record after the winning listing is deleted', async () => {
-    const { event, user, worldId } = await judgeable();
-    await pick(event, worldId, staffUser());
+  it.each([[1], [2], [3]])('refuses to let the world in place %i be withdrawn', async (place) => {
+    const { event, entrants, ids } = await judgeableThree();
+    await announce(event, podium(...ids), staffUser('admin'));
 
-    await request(app).delete(`/api/worlds/${worldId}`).set(authHeader(user));
+    const response = await request(app)
+      .delete(`/api/worlds/${ids[place - 1]}/contest`)
+      .set(authHeader(entrants[place - 1]));
 
-    const row = eventRow(event.id);
-    expect(row.winner_world_id).toBeNull();
-    expect(row.winner_name).toBe('The Entry');
-    expect(row.winner_author_name).toBe(user.username);
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('CONTEST_PLACED');
+    expect(entryOf(ids[place - 1])).toBe(event.id);
+  });
+
+  it('still lets an entrant who placed nowhere withdraw', async () => {
+    const { event, runnerUp, runnerUpId, worldId } = await judgeablePair();
+    await announce(event, podium(worldId), staffUser('admin'));
+
+    const response = await request(app)
+      .delete(`/api/worlds/${runnerUpId}/contest`)
+      .set(authHeader(runnerUp));
+
+    expect(response.status).toBe(200);
+    expect(entryOf(runnerUpId)).toBeNull();
+  });
+
+  it('keeps every place after its listing is deleted', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+    await announce(event, podium(...ids), staffUser('admin'));
+
+    await request(app).delete(`/api/worlds/${ids[1]}`).set(authHeader(entrants[1]));
+
+    expect(placementRows(event.id)).toEqual([
+      { place: 1, world_id: ids[0], world_name: 'The Entry', author_name: entrants[0].username },
+      { place: 2, world_id: null, world_name: 'Runner Up', author_name: entrants[1].username },
+      { place: 3, world_id: ids[2], world_name: 'Third Wheel', author_name: entrants[2].username }
+    ]);
+  });
+});
+
+describe('editing an announced podium', () => {
+  /** A contest with its full podium already announced, and the ids to rearrange it with. */
+  const announced = async () => {
+    const seeded = await judgeableThree();
+    const admin = staffUser('admin');
+    await announce(seeded.event, podium(...seeded.ids), admin);
+    db.prepare('DELETE FROM audit_log').run();
+    return { ...seeded, admin };
+  };
+
+  it('refuses staff who are not administrators', async () => {
+    const { event, ids } = await announced();
+
+    const response = await editPodium(event, podium(ids[1], ids[0]), staffUser('mod'));
+
+    expect(response.status).toBe(403);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual(ids);
+  });
+
+  it('refuses a contest that has not announced yet', async () => {
+    const { event, ids } = await judgeableThree();
+
+    const response = await editPodium(event, podium(ids[0]), staffUser('admin'));
+
+    expect(response.status).toBe(409);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('rearranges the podium wholesale, swaps included', async () => {
+    const { event, ids, admin } = await announced();
+
+    const response = await editPodium(event, podium(ids[1], ids[0], ids[2]), admin);
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual([ids[1], ids[0], ids[2]]);
+  });
+
+  it('adds a place that was left off', async () => {
+    const { event, ids, admin } = await judgeableThree().then(async (seeded) => {
+      const staff = staffUser('admin');
+      await announce(seeded.event, podium(seeded.ids[0]), staff);
+      return { ...seeded, admin: staff };
+    });
+
+    const response = await editPodium(event, podium(ids[0], ids[1]), admin);
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id)).toHaveLength(2);
+  });
+
+  it('announces nothing, however much moves', async () => {
+    const { event, ids, admin } = await announced();
+    const before = broadcasts().length;
+
+    await editPodium(event, podium(ids[2], ids[1], ids[0]), admin);
+
+    expect(broadcasts()).toHaveLength(before);
+  });
+
+  it('logs one entry per place that actually moved', async () => {
+    const { event, entrants, ids, admin } = await announced();
+
+    // Gold and silver swap; bronze stays put and should leave no line behind.
+    await editPodium(event, podium(ids[1], ids[0], ids[2]), admin);
+
+    expect(auditRows()).toEqual([
+      expect.objectContaining({
+        action: 'podium_edited',
+        actor_username: admin.username,
+        target_username: entrants[1].username,
+        target_name: event.title,
+        snippet: `First place: Runner Up by ${entrants[1].username} (was The Entry)`
+      }),
+      expect.objectContaining({
+        action: 'podium_edited',
+        target_username: entrants[0].username,
+        snippet: `Second place: The Entry by ${entrants[0].username} (was Runner Up)`
+      })
+    ]);
+  });
+
+  it('logs a place that was dropped', async () => {
+    const { event, ids, admin } = await announced();
+
+    await editPodium(event, podium(ids[0], ids[1]), admin);
+
+    expect(auditRows()).toEqual([expect.objectContaining({
+      action: 'podium_edited',
+      snippet: 'Third place: cleared (was Third Wheel)'
+    })]);
+  });
+
+  it('leaves the contest decided, and the announcement stamp untouched', async () => {
+    const { event, ids, admin } = await announced();
+    const stamp = eventRow(event.id).results_announced_at;
+
+    await editPodium(event, podium(ids[2]), admin);
+
+    expect(eventRow(event.id).results_announced_at).toBe(stamp);
+  });
+
+  it('applies the same eligibility guards the announcement did', async () => {
+    const { event, ids, admin } = await announced();
+    await request(app).put(`/api/worlds/${ids[1]}/quarantine`).set(authHeader(staffUser())).send({});
+
+    const quarantined = await editPodium(event, podium(ids[1]), admin);
+    const duplicated = await editPodium(event, podium(ids[0], ids[0]), admin);
+    const gapped = await editPodium(event, { placements: [{ place: 2, worldId: ids[0] }] }, admin);
+
+    expect([quarantined.status, duplicated.status, gapped.status]).toEqual([409, 400, 400]);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual(ids);
   });
 });
 
@@ -758,19 +1016,18 @@ describe('a client that has never heard of contests', () => {
   });
 });
 
-describe('a winner pick with a malformed body', () => {
+describe('an announce with a malformed body', () => {
   it('reads as a bad request rather than a broken server', async () => {
-    const { event } = await judgeable();
+    const { event, worldId } = await judgeable();
+    const header = authHeader(staffUser('admin'));
+    const send = (body) => request(app).put(`/api/events/${event.id}/results`).set(header).send(body);
 
-    const missing = await request(app)
-      .put(`/api/events/${event.id}/winner`)
-      .set(authHeader(staffUser()))
-      .send({});
-    const wrongType = await request(app)
-      .put(`/api/events/${event.id}/winner`)
-      .set(authHeader(staffUser()))
-      .send({ worldId: { id: 'nope' } });
+    const missing = await send({});
+    const notAList = await send({ placements: { place: 1, worldId } });
+    const wrongType = await send({ placements: [{ place: 1, worldId: { id: 'nope' } }] });
+    const wrongPlace = await send({ placements: [{ place: '1', worldId }] });
 
-    expect([missing.status, wrongType.status]).toEqual([400, 400]);
+    expect([missing.status, notAList.status, wrongType.status, wrongPlace.status])
+      .toEqual([400, 400, 400, 400]);
   });
 });

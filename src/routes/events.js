@@ -7,9 +7,10 @@ const {
   updateEvent,
   cancelEventById,
   deleteEvent,
-  pickWinner
+  announceResults,
+  editPlacements
 } = require('../controllers/eventController');
-const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
+const { protect, admin, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -43,8 +44,11 @@ router.put('/:id', protect, admin, posterJson, updateEvent);
 router.post('/:id/cancel', protect, admin, cancelEventById);
 router.delete('/:id', protect, admin, deleteEvent);
 
-// Picking the winner is the moderation team's, not the owner's alone: it is a judgement about entries
-// rather than an announcement to write, and the notice that follows is posted by the server either way.
-router.put('/:id/winner', protect, staff, express.json({ limit: '100kb' }), pickWinner);
+// Announcing results is the owner's, like every other thing this server says to everyone at once — the
+// broadcast that goes out is the point of the route. Editing an announced podium is the same authority
+// used quietly, so it sits behind the same gate rather than a looser one.
+const podiumJson = express.json({ limit: '100kb' });
+router.put('/:id/results', protect, admin, podiumJson, announceResults);
+router.put('/:id/placements', protect, admin, podiumJson, editPlacements);
 
 module.exports = router;

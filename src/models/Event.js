@@ -2,7 +2,7 @@ const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 
 /**
- * What kind of happening a row describes. `contest` adds entries and a winner; `announcement` is the
+ * What kind of happening a row describes. `contest` adds entries and a podium; `announcement` is the
  * generic case every client already understands.
  */
 const TYPES = ['contest', 'announcement'];
@@ -173,7 +173,7 @@ const Event = {
    * Change an event's authored fields.
    *
    * Only the keys handed in are written, so a caller editing the banner cannot blank the rules by
-   * omission. The message ids, the cancellation stamp and the winner are deliberately not reachable
+   * omission. The message ids, the cancellation stamp and the podium are deliberately not reachable
    * here — those are stamped by the transitions that earn them, not typed in.
    *
    * @param {string} id - Event ID
@@ -272,23 +272,76 @@ const Event = {
   },
 
   /**
-   * Name a contest's winner.
-   *
-   * The names are stamped rather than joined, for the same reason the audit log stamps its own: the
-   * archive has to still read after the listing is gone, and `winner_world_id` is SET NULL on delete
-   * precisely so it can go. Written once — a second pick is refused at the route.
+   * A contest's podium, gold first.
    *
    * @param {string} id - Event ID
-   * @param {Object} winner - `{ worldId, name, authorName }`
+   * @returns {Array<Object>} The placement rows, ordered by place
+   */
+  placements: (id) => db
+    .prepare('SELECT * FROM event_placements WHERE event_id = ? ORDER BY place')
+    .all(id),
+
+  /**
+   * Every placement across a set of events, so a whole list's podiums cost one query rather than one each.
+   *
+   * @param {Array<string>} ids - Event IDs
+   * @returns {Array<Object>} The placement rows, ordered by event and then by place
+   */
+  placementsFor: (ids) => {
+    if (!ids.length) return [];
+
+    const slots = ids.map(() => '?').join(', ');
+    return db
+      .prepare(`SELECT * FROM event_placements WHERE event_id IN (${slots}) ORDER BY event_id, place`)
+      .all(...ids);
+  },
+
+  /**
+   * Replace a contest's podium with the one handed in.
+   *
+   * Wholesale rather than per place, in one transaction, because the podium is a shape rather than three
+   * independent facts: swapping gold and silver written place by place would trip the one-place-per-world
+   * unique halfway through, and an edit that failed partway would leave a contest wearing a podium nobody
+   * chose. The names are stamped rather than joined, for the reason the audit log stamps its own — the
+   * archive has to still read after the listing is gone.
+   *
+   * @param {string} id - Event ID
+   * @param {Array<Object>} placements - `[{ place, worldId, name, authorName }]`, contiguous from 1
+   * @returns {Array<Object>} The stored placement rows, gold first
+   */
+  setPlacements: (id, placements) => {
+    const stamp = new Date().toISOString();
+    const clear = db.prepare('DELETE FROM event_placements WHERE event_id = ?');
+    const insert = db.prepare(`
+      INSERT INTO event_placements (event_id, place, world_id, world_name, author_name, created_at)
+      VALUES (@eventId, @place, @worldId, @name, @authorName, @createdAt)
+    `);
+    const touch = db.prepare('UPDATE events SET updated_at = ? WHERE id = ?');
+
+    db.transaction(() => {
+      clear.run(id);
+      for (const placement of placements) insert.run({ eventId: id, createdAt: stamp, ...placement });
+      touch.run(stamp, id);
+    })();
+
+    return Event.placements(id);
+  },
+
+  /**
+   * Stamp a contest as having announced its results. Written once — a second announce is refused at the route.
+   *
+   * The stamp is what makes a contest decided, rather than any one place existing: that is what lets an
+   * announced podium be edited afterwards without the contest un-deciding in between.
+   *
+   * @param {string} id - Event ID
+   * @param {string} [at] - The announcement instant, for tests
    * @returns {Object|undefined} The updated row
    */
-  setWinner: (id, { worldId, name, authorName }) => {
+  announceResults: (id, at = undefined) => {
     db.prepare(`
-      UPDATE events
-      SET winner_world_id = @worldId, winner_name = @name, winner_author_name = @authorName,
-          updated_at = @updatedAt
-      WHERE id = @id AND winner_world_id IS NULL
-    `).run({ id, worldId, name, authorName, updatedAt: new Date().toISOString() });
+      UPDATE events SET results_announced_at = @at, updated_at = @updatedAt
+      WHERE id = @id AND results_announced_at IS NULL
+    `).run({ id, at: nowOr(at), updatedAt: new Date().toISOString() });
 
     return Event.findById(id);
   },

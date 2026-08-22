@@ -24,7 +24,8 @@ const ACTIONS = [
   'event_edited',
   'event_cancelled',
   'event_deleted',
-  'winner_picked',
+  'results_announced',
+  'podium_edited',
   'entry_withdrawn'
 ];
 
