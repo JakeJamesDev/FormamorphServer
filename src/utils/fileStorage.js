@@ -70,45 +70,6 @@ const saveWorldContent = async (worldId, content) => {
   }
 };
 
-// Save thumbnail image to a file
-const saveThumbnail = async (base64Image) => {
-  try {
-    // Parse a base64 image data-URI (data:image/<subtype>;base64,<data>)
-    const matches = typeof base64Image === 'string'
-      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
-
-    if (!matches) {
-      throw badRequest('Invalid base64 image string');
-    }
-
-    // Extension comes from an allowlist, never from the raw MIME (avoids arbitrary/unsafe types)
-    const extension = ALLOWED_THUMBNAIL_TYPES[matches[1].toLowerCase()];
-    if (!extension) {
-      throw badRequest(`Unsupported thumbnail type '${matches[1]}' (allowed: jpeg, png, gif, webp)`);
-    }
-
-    const imageData = Buffer.from(matches[2], 'base64');
-    if (imageData.length > MAX_THUMBNAIL_SIZE) {
-      throw badRequest('Thumbnail exceeds maximum size of 5MB');
-    }
-
-    // Generate a unique filename
-    const filename = `${uuidv4()}.${extension}`;
-    const filePath = path.join(thumbnailsStorageDir, filename);
-
-    // Write the image file
-    await fs.promises.writeFile(filePath, imageData);
-
-    return filename;
-  } catch (error) {
-    // Don't log expected client-input rejections (bad/oversized image); only real failures
-    if (!error.statusCode) {
-      console.error('Error saving thumbnail:', error);
-    }
-    throw error;
-  }
-};
-
 // Read world content from a file
 const readWorldContent = async (fileName) => {
   try {
@@ -160,20 +121,6 @@ const deleteWorldContent = async (fileName) => {
     throw new Error('Failed to delete world content file');
   }
 };
-
-// Delete thumbnail file
-const deleteThumbnail = async (fileName) => {
-  try {
-    const filePath = path.join(thumbnailsStorageDir, fileName);
-    if (fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath);
-    }
-  } catch (error) {
-    console.error('Error deleting thumbnail:', error);
-    throw new Error('Failed to delete thumbnail file');
-  }
-};
-
 
 /**
  * Save an uploaded image under a fresh UUID filename, returning that filename.
@@ -288,6 +235,30 @@ const saveAvatar = (base64Image) => saveImageAsset(base64Image, {
 const deleteAvatar = (fileName) => deleteImageAsset(fileName, {
   directory: avatarsStorageDir,
   noun: 'avatar'
+});
+
+/**
+ * Save a listing's thumbnail, returning its stored filename.
+ *
+ * @param {string} base64Image - A `data:image/(jpeg|jpg|png|gif|webp);base64,...` URI
+ * @returns {Promise<string>} The stored filename
+ */
+const saveThumbnail = (base64Image) => saveImageAsset(base64Image, {
+  directory: thumbnailsStorageDir,
+  allowedTypes: ALLOWED_THUMBNAIL_TYPES,
+  maxBytes: MAX_THUMBNAIL_SIZE,
+  noun: 'thumbnail',
+  oversized: 'Thumbnail exceeds maximum size of 5MB'
+});
+
+/**
+ * Delete a listing's thumbnail.
+ *
+ * @param {string} fileName - The stored filename
+ */
+const deleteThumbnail = (fileName) => deleteImageAsset(fileName, {
+  directory: thumbnailsStorageDir,
+  noun: 'thumbnail'
 });
 
 // What an event's poster band may be led with. The same list thumbnails take: this is artwork an admin

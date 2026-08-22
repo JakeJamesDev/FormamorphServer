@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import request from 'supertest';
-import { app } from './context.js';
+import { app, paths } from './context.js';
 import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 
 /**
@@ -132,6 +134,18 @@ describe('POST /api/worlds', () => {
     const user = createUser();
     const res = await create(user, { thumbnail: 'not-an-image' });
     expect(res.status).toBe(400);
+  });
+
+  it('refuses a subtype that only names something every object inherits', async () => {
+    // The allowlist is looked up by the subtype the caller sent, so `constructor` would otherwise find
+    // `Object` on the prototype, read as an allowed type, and be written under its stringified form —
+    // a filename the thumbnails route can never hand back.
+    const user = createUser();
+    const res = await create(user, { thumbnail: 'data:image/constructor;base64,AAAA' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Unsupported thumbnail type/);
+    expect(fs.readdirSync(paths.THUMBNAILS_DIR).some((f) => f.includes('native code'))).toBe(false);
   });
 });
 
@@ -301,5 +315,35 @@ describe('thumbnails route', () => {
     const webp = TINY_PNG.replace('image/png', 'image/webp');
     const res = await create(user, { name: 'Webp', thumbnail: webp });
     expect(res.status).toBe(201);
+  });
+
+  it('refuses an extension nothing is ever written as', async () => {
+    // The files are real, so this isolates the extension allowlist from the existence check: a name the
+    // route would have to guess a type for is a miss even when something sits at it. Every stored row is
+    // a uuid under one of the four written extensions, so nothing existing turns into a miss.
+    for (const name of ['planted.svg', 'planted-no-extension']) {
+      fs.writeFileSync(path.join(paths.THUMBNAILS_DIR, name), '<svg/>');
+    }
+
+    try {
+      expect((await request(app).get('/api/thumbnails/planted.svg')).status).toBe(404);
+      expect((await request(app).get('/api/thumbnails/planted-no-extension')).status).toBe(404);
+    } finally {
+      for (const name of ['planted.svg', 'planted-no-extension']) {
+        fs.unlinkSync(path.join(paths.THUMBNAILS_DIR, name));
+      }
+    }
+  });
+
+  it('is cacheable forever, because the name never gets reused', async () => {
+    const user = createUser();
+    const created = await create(user, { name: 'Cached' });
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+
+    const res = await request(app).get(detail.body.data.thumbnailUrl);
+
+    expect(res.headers['cache-control']).toMatch(/immutable/);
+    // The client and the server are different origins, so Helmet's default would block the image.
+    expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
   });
 });
