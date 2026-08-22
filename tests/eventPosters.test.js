@@ -111,11 +111,29 @@ describe('scheduling a styled event', () => {
     expect(response.body.data.posterImageUrl).toBeNull();
   });
 
+  it('takes a shorthand hex and stores what it expands to, so every reader sees one form', async () => {
+    const response = await create(admin(), { posterColor: '#0AF' });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.posterColor).toBe('#00aaff');
+  });
+
   it('refuses a color CSS could not paint, rather than storing it to be ignored', async () => {
-    const response = await create(admin(), { posterColor: 'rebeccapurple' });
+    for (const color of ['rebeccapurple', '#12', '#abcd', '#12345', '#gggggg', 'rgb(1, 2, 3)']) {
+      const response = await create(admin(), { posterColor: color });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/hex color/);
+    }
+  });
+
+  it('refuses a subtype that only names something every object inherits', async () => {
+    // The allowlist is looked up by the subtype the caller sent, so `constructor` would otherwise find
+    // `Object` on the prototype, read as an allowed type, and be written under its stringified form.
+    const response = await create(admin(), { posterImage: 'data:image/constructor;base64,AAAA' });
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toMatch(/hex color/);
+    expect(response.body.error).toMatch(/Unsupported poster type/);
   });
 
   it('refuses artwork past the cap', async () => {

@@ -175,6 +175,85 @@ const deleteThumbnail = async (fileName) => {
 };
 
 
+/**
+ * Save an uploaded image under a fresh UUID filename, returning that filename.
+ *
+ * A UUID per upload rather than a name derived from what owns the image: the URL is then immutable, so
+ * it can be cached forever and a replacement can never be served from a stale cache.
+ *
+ * The extension comes from the allowlist, never from the raw MIME, so nothing arbitrary or unsafe can be
+ * written; the caps and the allowlist itself are the caller's, because a cropped 256-square avatar and an
+ * admin's poster artwork are genuinely different uploads.
+ *
+ * @param {string} base64Image - A `data:image/<subtype>;base64,...` URI
+ * @param {Object} options
+ * @param {string} options.directory - Where to write it
+ * @param {Object} options.allowedTypes - Lowercase MIME subtype to the extension it is stored under
+ * @param {number} options.maxBytes - The largest decoded image accepted
+ * @param {string} options.noun - What the type rejection and the log line call it ("avatar", "poster")
+ * @param {string} options.oversized - The whole message an image past the cap is refused with
+ * @returns {Promise<string>} The stored filename
+ */
+const saveImageAsset = async (base64Image, { directory, allowedTypes, maxBytes, noun, oversized }) => {
+  try {
+    const matches = typeof base64Image === 'string'
+      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
+
+    if (!matches) {
+      throw badRequest('Invalid base64 image string');
+    }
+
+    // Null-prototype so a subtype spelling an inherited key ('constructor') cannot pass for an allowed
+    // one and be written under whatever that key happens to hold.
+    const allowed = Object.assign(Object.create(null), allowedTypes);
+    const extension = allowed[matches[1].toLowerCase()];
+    if (!extension) {
+      const list = [...new Set(Object.values(allowedTypes))].join(', ');
+      throw badRequest(`Unsupported ${noun} type '${matches[1]}' (allowed: ${list})`);
+    }
+
+    const imageData = Buffer.from(matches[2], 'base64');
+    if (imageData.length > maxBytes) {
+      throw badRequest(oversized);
+    }
+
+    const filename = `${uuidv4()}.${extension}`;
+    await fs.promises.writeFile(path.join(directory, filename), imageData);
+
+    return filename;
+  } catch (error) {
+    // Don't log expected client-input rejections (bad/oversized image); only real failures
+    if (!error.statusCode) {
+      console.error(`Error saving ${noun}:`, error);
+    }
+    throw error;
+  }
+};
+
+/**
+ * Delete an uploaded image.
+ *
+ * Never throws: a file that is already gone must not stop the row that pointed at it from being cleared,
+ * or that row is stuck pointing at nothing with no way to fix it.
+ *
+ * @param {string} fileName - The stored filename
+ * @param {Object} options
+ * @param {string} options.directory - Where it was written
+ * @param {string} options.noun - What a real failure is logged as
+ */
+const deleteImageAsset = async (fileName, { directory, noun }) => {
+  if (!fileName) return;
+
+  try {
+    const filePath = path.join(directory, path.basename(fileName));
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+    }
+  } catch (error) {
+    console.error(`Error deleting ${noun}:`, error);
+  }
+};
+
 // The avatar the crop step produces: 256x256, lossless. WebP everywhere the canvas can encode it, PNG on
 // a browser that cannot. Nothing else is accepted — the client always re-encodes, so a JPEG or a GIF
 // arriving here means something other than the crop dialog sent it.
@@ -190,65 +269,26 @@ const MAX_AVATAR_SIZE = 1024 * 1024;
 /**
  * Save a profile image, returning its stored filename.
  *
- * A fresh UUID per upload rather than a name derived from the account: the URL is then immutable, so it
- * can be cached forever and a replacement can never be served from a stale cache.
- *
  * @param {string} base64Image - A `data:image/(webp|png);base64,...` URI
  * @returns {Promise<string>} The stored filename
  */
-const saveAvatar = async (base64Image) => {
-  try {
-    const matches = typeof base64Image === 'string'
-      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
-
-    if (!matches) {
-      throw badRequest('Invalid base64 image string');
-    }
-
-    // Extension comes from an allowlist, never from the raw MIME (avoids arbitrary/unsafe types)
-    const extension = ALLOWED_AVATAR_TYPES[matches[1].toLowerCase()];
-    if (!extension) {
-      throw badRequest(`Unsupported avatar type '${matches[1]}' (allowed: webp, png)`);
-    }
-
-    const imageData = Buffer.from(matches[2], 'base64');
-    if (imageData.length > MAX_AVATAR_SIZE) {
-      throw badRequest('Avatar exceeds maximum size of 1MB');
-    }
-
-    const filename = `${uuidv4()}.${extension}`;
-    await fs.promises.writeFile(path.join(avatarsStorageDir, filename), imageData);
-
-    return filename;
-  } catch (error) {
-    // Don't log expected client-input rejections (bad/oversized image); only real failures
-    if (!error.statusCode) {
-      console.error('Error saving avatar:', error);
-    }
-    throw error;
-  }
-};
+const saveAvatar = (base64Image) => saveImageAsset(base64Image, {
+  directory: avatarsStorageDir,
+  allowedTypes: ALLOWED_AVATAR_TYPES,
+  maxBytes: MAX_AVATAR_SIZE,
+  noun: 'avatar',
+  oversized: 'Avatar exceeds maximum size of 1MB'
+});
 
 /**
  * Delete a profile image.
  *
- * Never throws: an avatar file that is already gone must not stop the row that pointed at it from being
- * cleared, or the account is left pointing at nothing with no way to fix it.
- *
  * @param {string} fileName - The stored filename
  */
-const deleteAvatar = async (fileName) => {
-  if (!fileName) return;
-
-  try {
-    const filePath = path.join(avatarsStorageDir, path.basename(fileName));
-    if (fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath);
-    }
-  } catch (error) {
-    console.error('Error deleting avatar:', error);
-  }
-};
+const deleteAvatar = (fileName) => deleteImageAsset(fileName, {
+  directory: avatarsStorageDir,
+  noun: 'avatar'
+});
 
 // What an event's poster band may be led with. The same list thumbnails take: this is artwork an admin
 // picked off their disk, not something a crop step re-encoded.
@@ -261,65 +301,26 @@ const MAX_POSTER_SIZE = 2 * 1024 * 1024;
 /**
  * Save an event's poster artwork, returning its stored filename.
  *
- * A fresh UUID per upload, for the reason avatars use one: the URL is then immutable, so it can be
- * cached forever and a replacement can never be served from a stale cache.
- *
  * @param {string} base64Image - A `data:image/(jpeg|png|gif|webp);base64,...` URI
  * @returns {Promise<string>} The stored filename
  */
-const saveEventPoster = async (base64Image) => {
-  try {
-    const matches = typeof base64Image === 'string'
-      && base64Image.match(/^data:image\/([A-Za-z0-9.+-]+);base64,(.+)$/);
-
-    if (!matches) {
-      throw badRequest('Invalid base64 image string');
-    }
-
-    // Extension comes from an allowlist, never from the raw MIME (avoids arbitrary/unsafe types)
-    const extension = ALLOWED_POSTER_TYPES[matches[1].toLowerCase()];
-    if (!extension) {
-      throw badRequest(`Unsupported poster type '${matches[1]}' (allowed: jpeg, png, gif, webp)`);
-    }
-
-    const imageData = Buffer.from(matches[2], 'base64');
-    if (imageData.length > MAX_POSTER_SIZE) {
-      throw badRequest('Poster image exceeds maximum size of 2MB');
-    }
-
-    const filename = `${uuidv4()}.${extension}`;
-    await fs.promises.writeFile(path.join(eventPostersStorageDir, filename), imageData);
-
-    return filename;
-  } catch (error) {
-    // Don't log expected client-input rejections (bad/oversized image); only real failures
-    if (!error.statusCode) {
-      console.error('Error saving event poster:', error);
-    }
-    throw error;
-  }
-};
+const saveEventPoster = (base64Image) => saveImageAsset(base64Image, {
+  directory: eventPostersStorageDir,
+  allowedTypes: ALLOWED_POSTER_TYPES,
+  maxBytes: MAX_POSTER_SIZE,
+  noun: 'poster',
+  oversized: 'Poster image exceeds maximum size of 2MB'
+});
 
 /**
  * Delete an event's poster artwork.
  *
- * Never throws: a file that is already gone must not stop the event that pointed at it from being
- * edited or removed, or an event becomes impossible to change because of a missing image.
- *
  * @param {string} fileName - The stored filename
  */
-const deleteEventPoster = async (fileName) => {
-  if (!fileName) return;
-
-  try {
-    const filePath = path.join(eventPostersStorageDir, path.basename(fileName));
-    if (fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath);
-    }
-  } catch (error) {
-    console.error('Error deleting event poster:', error);
-  }
-};
+const deleteEventPoster = (fileName) => deleteImageAsset(fileName, {
+  directory: eventPostersStorageDir,
+  noun: 'poster'
+});
 
 module.exports = {
   initStorage,

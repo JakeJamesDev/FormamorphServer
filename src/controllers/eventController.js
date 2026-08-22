@@ -123,12 +123,22 @@ const trimmed = (value) => (typeof value === 'string' ? value.trim() : '');
  * notation is refused rather than stored, because the client would then fall back to the default band
  * and the admin would have no way to tell their color from a color that simply did not apply.
  *
+ * Shorthand is expanded rather than refused, matching the client's own parser: `#0af` is a color a
+ * person can reasonably have typed or pasted off a stylesheet. Storing the expanded form means every
+ * reader — including a client older than this server — sees the one canonical spelling.
+ *
  * @param {*} value - Whatever the caller sent
  * @returns {string|null} The color as lowercase `#rrggbb`, or null when it is not one
  */
 const hexOrNull = (value) => {
   const raw = trimmed(value).toLowerCase();
-  return /^#[0-9a-f]{6}$/.test(raw) ? raw : null;
+  if (/^#[0-9a-f]{6}$/.test(raw)) return raw;
+
+  if (/^#[0-9a-f]{3}$/.test(raw)) {
+    return `#${raw.slice(1).split('').map((digit) => digit + digit).join('')}`;
+  }
+
+  return null;
 };
 
 /**
