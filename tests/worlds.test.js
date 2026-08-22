@@ -141,9 +141,7 @@ describe('POST /api/worlds', () => {
   });
 
   it('refuses a subtype that only names something every object inherits', async () => {
-    // The allowlist is looked up by the subtype the caller sent, so `constructor` would otherwise find
-    // `Object` on the prototype, read as an allowed type, and be written under its stringified form —
-    // a filename the thumbnails route can never hand back.
+    // A plain-object allowlist finds `constructor` on the prototype and stores a file no route can serve.
     const user = createUser();
     const res = await create(user, { thumbnail: 'data:image/constructor;base64,AAAA' });
 
@@ -322,9 +320,7 @@ describe('thumbnails route', () => {
   });
 
   it('refuses an extension nothing is ever written as', async () => {
-    // The files are real, so this isolates the extension allowlist from the existence check: a name the
-    // route would have to guess a type for is a miss even when something sits at it. Every stored row is
-    // a uuid under one of the four written extensions, so nothing existing turns into a miss.
+    // Real files planted, so this isolates the extension allowlist from the existence check.
     for (const name of ['planted.svg', 'planted-no-extension']) {
       fs.writeFileSync(path.join(paths.THUMBNAILS_DIR, name), '<svg/>');
     }
@@ -339,10 +335,25 @@ describe('thumbnails route', () => {
     }
   });
 
+  it('stores a .jpg upload as .jpeg, so .jpg itself is never served', async () => {
+    const user = createUser();
+    const created = await create(user, { name: 'Jpg', thumbnail: TINY_PNG.replace('image/png', 'image/jpg') });
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+
+    expect(detail.body.data.thumbnailUrl).toMatch(/\.jpeg$/);
+
+    // The old route served a planted .jpg via its jpeg default; nothing is stored as .jpg, so it is a miss.
+    const planted = path.join(paths.THUMBNAILS_DIR, 'planted.jpg');
+    fs.writeFileSync(planted, 'jpeg-bytes');
+    try {
+      expect((await request(app).get('/api/thumbnails/planted.jpg')).status).toBe(404);
+    } finally {
+      fs.unlinkSync(planted);
+    }
+  });
+
   it('still reads a listing whose thumbnail file went missing', async () => {
-    // A row can outlive its file — a half-finished delete, a restore that skipped the uploads, a disk
-    // swapped out from under it. The listing is still a listing, so it answers with no art rather than
-    // failing whole; the URL alongside it 404s, which is what a client already handles.
+    // A row can outlive its file; the listing answers with no art rather than failing whole.
     const user = createUser();
     const created = await create(user, { name: 'Lost Art' });
     const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
@@ -370,9 +381,7 @@ describe('thumbnails route', () => {
   });
 
   it('will not label a file it cannot name a type for as jpeg', async () => {
-    // The base64 path answers for the same files the route does, so it owes the same answer: an extension
-    // nothing is stored under is a failure, not a type to guess. Guessing hands the client a data-URI
-    // whose declared type is not what the bytes are, which no decoder can read.
+    // The base64 path owes the route's answer: an unknown extension is a failure, not a type to guess.
     const good = path.join(paths.THUMBNAILS_DIR, 'planted-b64.jpeg');
     const bad = path.join(paths.THUMBNAILS_DIR, 'planted-b64.svg');
     fs.writeFileSync(good, 'jpeg-bytes');

@@ -9,8 +9,7 @@ const { createImageAssetRouter } = require('./imageAssetRouter');
  */
 module.exports = createImageAssetRouter({
   directory: THUMBNAILS_DIR,
-  // Shared with the base64 path, which answers for these same files — unlike avatars and posters, whose
-  // route is the only way they are read.
+  // Shared with `getThumbnailBase64`, which answers for these same files.
   contentTypes: THUMBNAIL_CONTENT_TYPES,
   noun: 'Thumbnail'
 });

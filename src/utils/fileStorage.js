@@ -25,9 +25,7 @@ const ALLOWED_THUMBNAIL_TYPES = {
   webp: 'webp'
 };
 
-// What a stored thumbnail is handed back as, by the extension it was written under. Two consumers — the
-// route streaming the file and the base64 path building a data-URI — so one map rather than a copy each,
-// and neither can answer with a type the other would not.
+// Served type per stored extension — shared by the route and the base64 path so the two cannot drift.
 const THUMBNAIL_CONTENT_TYPES = Object.assign(Object.create(null), {
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
@@ -99,12 +97,8 @@ const readWorldContent = async (fileName) => {
 };
 
 /**
- * A stored thumbnail as a data-URI, or null when there is no truthful one to give.
- *
- * Null rather than a throw: a row can outlive its file, and the listing around it is still readable — a
- * half-finished delete must not take a world's whole detail page down with it. Null rather than a guess
- * for the same reason the route 404s an extension nothing is written under: a data-URI whose declared
- * type is not what the bytes are is worse than no image, because no decoder can read it.
+ * A stored thumbnail as a data-URI, or null when the file is gone or its extension names no served type
+ * — the listing around a lost file stays readable, and a type is never guessed.
  *
  * @param {string} fileName - The stored filename
  * @returns {Promise<string|null>} `data:image/<type>;base64,...`, or null
@@ -118,8 +112,7 @@ const getThumbnailBase64 = async (fileName) => {
 
     return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
   } catch (error) {
-    // A file that is simply gone is an ordinary consequence of the row outliving it; anything else is a
-    // real failure and is worth the line.
+    // A row outliving its file is ordinary; anything else is a real failure.
     if (error.code !== 'ENOENT') {
       console.error('Error getting thumbnail:', error);
     }
