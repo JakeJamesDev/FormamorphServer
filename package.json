@@ -20,6 +20,15 @@
     "test:coverage": "vitest run --coverage",
     "migrate-kind": "node src/utils/addKindColumn.js"
   },
+  "nodemonConfig": {
+    "watch": [
+      "src"
+    ],
+    "ignore": [
+      "src/storage/**",
+      "data/**"
+    ]
+  },
   "dependencies": {
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
