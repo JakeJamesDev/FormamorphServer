@@ -70,6 +70,36 @@ exports.getActiveEvents = async (req, res, next) => {
 };
 
 /**
+ * The prose an event carries: the poster's body and, for a contest, its rules. Together they are most of
+ * a row's bytes, and the archive keeps every event that ever started.
+ */
+const PROSE_FIELDS = ['body', 'rulesText'];
+
+/**
+ * The same DTO with its prose left out.
+ *
+ * The keys are removed rather than nulled. A caller tells a trimmed row from a whole one by asking
+ * whether the field is there at all, and `rulesText: null` is what an announcement legitimately carries.
+ *
+ * @param {Object} dto - A public DTO
+ * @returns {Object} A copy without the prose fields
+ */
+const withoutProse = (dto) => {
+  const out = { ...dto };
+  PROSE_FIELDS.forEach((field) => { delete out[field]; });
+  return out;
+};
+
+/**
+ * Whether a query asked for the trimmed rows. Opt-in: an older client sends nothing and is served whole
+ * rows, which is why deploying this breaks none of them.
+ *
+ * @param {*} value - The `slim` query value; a bare `?slim` arrives as an empty string
+ * @returns {boolean} Whether to trim
+ */
+const wantsSlim = (value) => value === '' || value === '1' || value === 'true';
+
+/**
  * @desc    Every event that has started, including those that have ended — the archive source
  * @route   GET /api/events
  * @access  Public (staff additionally see scheduled and cancelled events)
@@ -78,11 +108,32 @@ exports.getEvents = async (req, res, next) => {
   try {
     await sweepEvents();
 
+    const slim = wantsSlim(req.query.slim);
     const events = Event
       .getList({ includeUnannounced: isStaff(req.user) })
-      .map(toDto);
+      .map((row) => (slim ? withoutProse(toDto(row)) : toDto(row)));
 
     res.status(200).json({ success: true, count: events.length, data: events });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    One event in full — what a trimmed list is read out to when its prose is needed
+ * @route   GET /api/events/:id
+ * @access  Public (staff additionally see scheduled and cancelled events)
+ */
+exports.getEvent = async (req, res, next) => {
+  try {
+    await sweepEvents();
+
+    const event = Event.findById(req.params.id);
+    // The list's visibility rule, applied one row at a time: a detail read must not be the way around it.
+    const visible = event && (isStaff(req.user) || (!event.cancelled_at && hasStarted(event)));
+    if (!visible) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    res.status(200).json({ success: true, data: toDto(event) });
   } catch (error) {
     next(error);
   }

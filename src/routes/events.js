@@ -2,6 +2,7 @@ const express = require('express');
 const {
   getActiveEvents,
   getEvents,
+  getEvent,
   createEvent,
   updateEvent,
   cancelEventById,
@@ -27,6 +28,10 @@ router.get('/active', optionalAuth, getActiveEvents);
 // Everything that has started, ended ones included — the archive source. Staff additionally see what is
 // still scheduled and what was cancelled.
 router.get('/', optionalAuth, getEvents);
+
+// One event in full. What a client reads when the list it holds was served trimmed and a surface needs
+// the prose — the end-of-contest poster and the rules dialog, and nothing else.
+router.get('/:id', optionalAuth, getEvent);
 
 // Scheduling, editing and withdrawing an event are the owner's, not the moderation team's: these speak
 // to everyone at once, exactly as a broadcast does, and that gate has always been `admin`.

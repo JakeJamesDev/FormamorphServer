@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import { app, db, Event, cancelEvent, createTables, createIndexes } from './context.js';
-import { createUser, authHeader } from './helpers.js';
+import { createUser, authHeader, worldPayload } from './helpers.js';
 
 /**
  * Server events — timed community happenings, and the notices the server posts about them.
@@ -38,6 +38,16 @@ const activeList = (user) => {
 
 const list = (user) => {
   const r = request(app).get('/api/events');
+  return user ? r.set(authHeader(user)) : r;
+};
+
+const slimList = (user) => {
+  const r = request(app).get('/api/events?slim=1');
+  return user ? r.set(authHeader(user)) : r;
+};
+
+const detail = (id, user) => {
+  const r = request(app).get(`/api/events/${id}`);
   return user ? r.set(authHeader(user)) : r;
 };
 
@@ -178,6 +188,101 @@ describe('GET /api/events', () => {
     expect(response.body.data.find((event) => event.id === cancelled.id).state).toBe('cancelled');
   });
 });
+
+describe('GET /api/events?slim', () => {
+  it('leaves the prose out of every row, and leaves the rest alone', async () => {
+    const event = makeEvent({ ...WINDOWS.active, type: 'contest', rulesText: 'One entry per author.' });
+
+    const [row] = (await slimList()).body.data;
+
+    expect('body' in row).toBe(false);
+    expect('rulesText' in row).toBe(false);
+    expect(row.id).toBe(event.id);
+    expect(row.title).toBe('Sedge Landing Week');
+    expect(row.bannerText).toBe('A week of building on Sedge Landing.');
+    expect(row.startsAt).toBe(event.starts_at);
+  });
+
+  it('keeps a decided contest’s winner aboard, so a badge earned years ago still rides the list', async () => {
+    const contest = makeEvent({ ...WINDOWS.ended, type: 'contest', title: 'Build-off' });
+    const author = createUser({ username: 'wren' });
+    const published = await request(app).post('/api/worlds')
+      .set(authHeader(author))
+      .send(worldPayload({ name: 'Sedge Landing' }));
+    Event.setWinner(contest.id, { worldId: published.body.data.id, name: 'Sedge Landing', authorName: 'wren' });
+
+    const [row] = (await slimList()).body.data;
+
+    expect(row.winnerWorldId).toBe(published.body.data.id);
+    expect(row.winnerName).toBe('Sedge Landing');
+    expect(row.winnerAuthorName).toBe('wren');
+  });
+
+  it('is ignored when it is not asked for, so an older client still gets the prose', async () => {
+    makeEvent({ ...WINDOWS.active, type: 'contest', rulesText: 'One entry per author.' });
+
+    const [row] = (await list()).body.data;
+
+    expect(row.body).toBe('Build something on Sedge Landing before the week is out.');
+    expect(row.rulesText).toBe('One entry per author.');
+  });
+
+  it('shows the same rows the full list would, staff visibility included', async () => {
+    const running = makeEvent(WINDOWS.active);
+    makeEvent({ ...WINDOWS.scheduled, title: 'Next month' });
+    const staff = createUser({ username: 'mod', accountType: 'mod' });
+
+    expect(idsOf(await slimList())).toEqual([running.id]);
+    expect(idsOf(await slimList(staff)).length).toBe(2);
+  });
+});
+
+describe('GET /api/events/:id', () => {
+  it('answers a signed-out visitor with the full prose of a started event', async () => {
+    const event = makeEvent({ ...WINDOWS.active, type: 'contest', rulesText: 'One entry per author.' });
+
+    const response = await detail(event.id);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.body).toBe('Build something on Sedge Landing before the week is out.');
+    expect(response.body.data.rulesText).toBe('One entry per author.');
+  });
+
+  it('answers for one that has ended, which is what an archive is read from', async () => {
+    const event = makeEvent({ ...WINDOWS.ended, title: 'Last month' });
+
+    expect((await detail(event.id)).status).toBe(200);
+  });
+
+  it('hides a scheduled or cancelled event from an ordinary account, as the list does', async () => {
+    const scheduled = makeEvent({ ...WINDOWS.scheduled, title: 'Next month' });
+    const cancelled = makeEvent(WINDOWS.active);
+    Event.cancel(cancelled.id);
+    const player = createUser({ username: 'player' });
+
+    expect((await detail(scheduled.id, player)).status).toBe(404);
+    expect((await detail(cancelled.id, player)).status).toBe(404);
+  });
+
+  it('shows both to staff', async () => {
+    const scheduled = makeEvent({ ...WINDOWS.scheduled, title: 'Next month' });
+    const staff = createUser({ username: 'mod', accountType: 'mod' });
+
+    expect((await detail(scheduled.id, staff)).status).toBe(200);
+  });
+
+  it('is a 404 for an id nobody ever had', async () => {
+    expect((await detail('no-such-event')).status).toBe(404);
+  });
+
+  it('is not read as an event named active', async () => {
+    makeEvent(WINDOWS.active);
+
+    expect((await detail('active')).status).toBe(200);
+    expect(Array.isArray((await detail('active')).body.data)).toBe(true);
+  });
+});
+
 
 describe('an event starting', () => {
   it('pins a notice every reader gets, and cannot clear', async () => {
