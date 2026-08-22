@@ -25,6 +25,16 @@ const ALLOWED_THUMBNAIL_TYPES = {
   webp: 'webp'
 };
 
+// What a stored thumbnail is handed back as, by the extension it was written under. Two consumers — the
+// route streaming the file and the base64 path building a data-URI — so one map rather than a copy each,
+// and neither can answer with a type the other would not.
+const THUMBNAIL_CONTENT_TYPES = Object.assign(Object.create(null), {
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp'
+});
+
 // Client-input error tagged so the error handler returns 400, not 500
 const badRequest = (message) => {
   const err = new Error(message);
@@ -91,17 +101,16 @@ const readWorldContent = async (fileName) => {
 // Get thumbnail as base64 string (for API responses)
 const getThumbnailBase64 = async (fileName) => {
   try {
-    const filePath = path.join(thumbnailsStorageDir, fileName);
-    const imageBuffer = await fs.promises.readFile(filePath);
-    
-    // Determine the MIME type based on file extension
-    const ext = path.extname(fileName).toLowerCase();
-    let mimeType = 'image/jpeg'; // Default
-    
-    if (ext === '.png') mimeType = 'image/png';
-    else if (ext === '.gif') mimeType = 'image/gif';
-    else if (ext === '.webp') mimeType = 'image/webp';
-    
+    // An extension nothing is ever stored under cannot name a real thumbnail, so it is a failure rather
+    // than a type to guess at — labeling whatever this is `image/jpeg` would hand the client a data-URI
+    // no decoder can read.
+    const mimeType = THUMBNAIL_CONTENT_TYPES[path.extname(fileName).toLowerCase()];
+    if (!mimeType) {
+      throw new Error(`No thumbnail is stored as '${path.extname(fileName)}'`);
+    }
+
+    const imageBuffer = await fs.promises.readFile(path.join(thumbnailsStorageDir, fileName));
+
     return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
   } catch (error) {
     console.error('Error getting thumbnail:', error);
@@ -310,5 +319,6 @@ module.exports = {
   avatarsStorageDir,
   eventPostersStorageDir,
   MAX_AVATAR_SIZE,
-  MAX_POSTER_SIZE
+  MAX_POSTER_SIZE,
+  THUMBNAIL_CONTENT_TYPES
 };

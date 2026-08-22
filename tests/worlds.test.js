@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import request from 'supertest';
 import { app, paths } from './context.js';
 import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
+
+const require = createRequire(import.meta.url);
+const { getThumbnailBase64 } = require('../src/utils/fileStorage');
 
 /**
  * Characterization tests: these pin how worlds behave *today*, before `kind` exists. Their job is to fail
@@ -332,6 +336,24 @@ describe('thumbnails route', () => {
       for (const name of ['planted.svg', 'planted-no-extension']) {
         fs.unlinkSync(path.join(paths.THUMBNAILS_DIR, name));
       }
+    }
+  });
+
+  it('will not label a file it cannot name a type for as jpeg', async () => {
+    // The base64 path answers for the same files the route does, so it owes the same answer: an extension
+    // nothing is stored under is a failure, not a type to guess. Guessing hands the client a data-URI
+    // whose declared type is not what the bytes are, which no decoder can read.
+    const good = path.join(paths.THUMBNAILS_DIR, 'planted-b64.jpeg');
+    const bad = path.join(paths.THUMBNAILS_DIR, 'planted-b64.svg');
+    fs.writeFileSync(good, 'jpeg-bytes');
+    fs.writeFileSync(bad, '<svg/>');
+
+    try {
+      await expect(getThumbnailBase64('planted-b64.jpeg')).resolves.toMatch(/^data:image\/jpeg;base64,/);
+      await expect(getThumbnailBase64('planted-b64.svg')).rejects.toThrow(/Failed to read thumbnail/);
+    } finally {
+      fs.unlinkSync(good);
+      fs.unlinkSync(bad);
     }
   });
 

@@ -1,4 +1,5 @@
 const { THUMBNAILS_DIR } = require('../config/paths');
+const { THUMBNAIL_CONTENT_TYPES } = require('../utils/fileStorage');
 const { createImageAssetRouter } = require('./imageAssetRouter');
 
 /**
@@ -8,12 +9,8 @@ const { createImageAssetRouter } = require('./imageAssetRouter');
  */
 module.exports = createImageAssetRouter({
   directory: THUMBNAILS_DIR,
-  // Only what `saveThumbnail` writes. A `.jpg` upload is stored as `.jpeg`, so nothing is ever named that.
-  contentTypes: {
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp'
-  },
+  // Shared with the base64 path, which answers for these same files — unlike avatars and posters, whose
+  // route is the only way they are read.
+  contentTypes: THUMBNAIL_CONTENT_TYPES,
   noun: 'Thumbnail'
 });
