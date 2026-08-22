@@ -2,6 +2,7 @@ const express = require('express');
 const { check } = require('express-validator');
 const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
+const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
@@ -109,5 +110,15 @@ router.post(
   protect,
   createComment
 );
+
+// Listing Changelog routes. Sub-resources of the listing, because an entry has no meaning apart from the
+// listing it describes — unlike a comment, which is addressed by its own id so a thread can be moderated
+// without knowing where it sits.
+//
+// No GET: the changelog is read as part of the listing (`?includeChangelog=true`), so a viewer opening a
+// details window fetches it in the same breath as everything else the window shows.
+router.post('/:worldId/changelog', smallJson, protect, createEntry);
+router.put('/:worldId/changelog/:entryId', smallJson, protect, updateEntry);
+router.delete('/:worldId/changelog/:entryId', protect, deleteEntry);
 
 module.exports = router;

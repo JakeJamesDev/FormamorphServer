@@ -19,10 +19,12 @@ const TABLES = [
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
   'audit_log', 'follows', 'world_likes',
-  'events', 'event_placements'
+  'events', 'event_placements',
+  'world_changelog'
 ];
 
 const { addCommentEditedColumn } = require('../src/utils/addCommentEditedColumn');
+const { addWorldChangelog } = require('../src/utils/addWorldChangelog');
 
 const columnNames = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
 
@@ -50,6 +52,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addContestColumn()');
     expect(source).toContain('addPosterColumns()');
     expect(source).toContain('addEventPlacements()');
+    expect(source).toContain('addWorldChangelog()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -73,6 +76,10 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addPosterColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    // The changelog index names a table this migration is what creates, so the same ordering rule applies
+    // to a new *table* as to a new column.
+    expect(indexes).toContain('world_changelog');
+    expect(boot.indexOf('addWorldChangelog()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
   it('brings an existing table up to date, which creating cannot', () => {
@@ -125,6 +132,20 @@ describe('the boot-time schema step', () => {
     addCommentEditedColumn(db);
 
     expect(columnNames('comments')).toContain('edited_at');
+  });
+
+  it('gives a database that predates the changelog its table', () => {
+    // The migration's own repair, separate from `createTables` doing it: the two have to agree, because a
+    // deploy where only one of them ran is the case both exist for.
+    db.exec('DROP TABLE world_changelog');
+    expect(tableNames()).not.toContain('world_changelog');
+
+    addWorldChangelog(db);
+
+    expect(tableNames()).toContain('world_changelog');
+    expect(columnNames('world_changelog')).toEqual(
+      expect.arrayContaining(['id', 'world_id', 'title', 'body', 'entry_date', 'created_at', 'updated_at'])
+    );
   });
 
   it('creates every table it is responsible for', () => {

@@ -8,6 +8,7 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
+const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
 
@@ -159,6 +160,14 @@ exports.getWorld = async (req, res, next) => {
         success: false,
         error: 'World not found'
       });
+    }
+
+    // Opt-in like the comments embed, and for the same reason: this row is what the catalog serves for
+    // every card on a page, and a changelog only an open listing ever reads would ride along with all of
+    // them. Attached here rather than as a `findByIdWith…` variant so it composes with the comments flag
+    // instead of needing a method per combination.
+    if (req.query.includeChangelog === 'true') {
+      world.changelog = Changelog.getByWorldId(world.id);
     }
 
     // Get thumbnail as base64

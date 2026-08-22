@@ -80,6 +80,26 @@ const createTables = () => {
     )
   `);
 
+  // A listing's author-maintained update history: one row per Changelog Entry. Its own table rather than
+  // columns on `worlds`, because the catalog list projection selects the whole listing row — a column here
+  // would ride along with every card on every page for something only one open listing ever shows.
+  //
+  // `entry_date` is the author's own date for the update and is what the list is sorted by; `created_at`
+  // only breaks its ties. The two are separate so a history backfilled years late still reads as the
+  // history it is rather than as a day of frantic writing. Cascades: the history goes with the listing.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS world_changelog (
+      id TEXT PRIMARY KEY,
+      world_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+    )
+  `);
+
   // Messages table — admin-authored, one-way. `recipient_id` NULL means a broadcast; `recalled_at` is a
   // soft delete that hides it from users while keeping the audit trail. `created_at` is CURRENT_TIMESTAMP
   // so it shares a format with `users.created_at`, which the broadcast visibility rule compares against.
@@ -468,6 +488,11 @@ const createIndexes = () => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_comments_world ON comments(world_id);
     CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
+  `);
+
+  // Read one listing at a time, newest entry first — the only order the changelog is ever asked for.
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_world_changelog_world ON world_changelog(world_id, entry_date DESC);
   `);
 
   // Create indexes for messages tables
