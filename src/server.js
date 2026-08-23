@@ -13,6 +13,7 @@ const { addTokenVersionColumn } = require('./utils/addTokenVersionColumn');
 const { addContestColumn } = require('./utils/addContestColumn');
 const { addPosterColumns } = require('./utils/addPosterColumns');
 const { addEventPlacements } = require('./utils/addEventPlacements');
+const { addPosterPlacement } = require('./utils/addPosterPlacement');
 const { addWorldChangelog } = require('./utils/addWorldChangelog');
 const { createTables, createIndexes } = require('./utils/initDb');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
@@ -52,6 +53,9 @@ try {
   addContestColumn();
   addPosterColumns();
   addEventPlacements();
+  // After the podium migration, which rebuilds `events` from a fixed column list and would drop a
+  // column added before it.
+  addPosterPlacement();
   addWorldChangelog();
   createIndexes();
 } catch (error) {

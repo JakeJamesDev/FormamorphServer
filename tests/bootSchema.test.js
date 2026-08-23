@@ -52,6 +52,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addContestColumn()');
     expect(source).toContain('addPosterColumns()');
     expect(source).toContain('addEventPlacements()');
+    expect(source).toContain('addPosterPlacement()');
     expect(source).toContain('addWorldChangelog()');
   });
 
@@ -76,6 +77,7 @@ describe('the boot-time schema step', () => {
     expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addPosterColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
     expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(boot.indexOf('addPosterPlacement()')).toBeLessThan(boot.indexOf('createIndexes()'));
     // The changelog index names a table this migration is what creates, so the same ordering rule applies
     // to a new *table* as to a new column.
     expect(indexes).toContain('world_changelog');

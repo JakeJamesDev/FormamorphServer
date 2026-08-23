@@ -45,7 +45,7 @@ const Event = {
    * Insert one event.
    *
    * @param {Object} data - `{ type, title, bannerText, body, rulesText, posterColor, posterImage,
-   *   startsAt, endsAt, createdBy }`
+   *   posterPlacement, startsAt, endsAt, createdBy }`
    * @returns {Object} The created row, with its derived state
    */
   create: (data) => {
@@ -54,11 +54,11 @@ const Event = {
 
     db.prepare(`
       INSERT INTO events (
-        id, type, title, banner_text, body, rules_text, poster_color, poster_image,
+        id, type, title, banner_text, body, rules_text, poster_color, poster_image, poster_placement,
         starts_at, ends_at, created_by, created_at, updated_at
       )
       VALUES (@id, @type, @title, @bannerText, @body, @rulesText, @posterColor, @posterImage,
-              @startsAt, @endsAt, @createdBy, @createdAt, @updatedAt)
+              @posterPlacement, @startsAt, @endsAt, @createdBy, @createdAt, @updatedAt)
     `).run({
       id,
       type: data.type || 'announcement',
@@ -68,6 +68,7 @@ const Event = {
       rulesText: data.rulesText || null,
       posterColor: data.posterColor || null,
       posterImage: data.posterImage || null,
+      posterPlacement: data.posterPlacement || null,
       startsAt: data.startsAt,
       endsAt: data.endsAt,
       createdBy: data.createdBy || null,
@@ -178,7 +179,7 @@ const Event = {
    *
    * @param {string} id - Event ID
    * @param {Object} fields - Any of `{ title, bannerText, body, rulesText, posterColor, posterImage,
-   *   startsAt, endsAt }`
+   *   posterPlacement, startsAt, endsAt }`
    * @returns {Object|undefined} The updated row, with its derived state
    */
   update: (id, fields) => {
@@ -189,6 +190,7 @@ const Event = {
       rulesText: 'rules_text',
       posterColor: 'poster_color',
       posterImage: 'poster_image',
+      posterPlacement: 'poster_placement',
       startsAt: 'starts_at',
       endsAt: 'ends_at'
     };

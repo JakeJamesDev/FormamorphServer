@@ -321,6 +321,9 @@ const createTables = () => {
       -- serves. Both optional — an event with neither renders in the app's default band.
       poster_color TEXT,
       poster_image TEXT,
+      -- Where that artwork is framed inside the band: a zoom and a focal point, as JSON. One column
+      -- because the three numbers are one choice, and two of them is a placement nothing could render.
+      poster_placement TEXT,
       starts_at TEXT NOT NULL,
       ends_at TEXT NOT NULL,
       cancelled_at TEXT,

@@ -9,6 +9,7 @@ import { createUser, authHeader } from './helpers.js';
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
 const { addPosterColumns } = require('../src/utils/addPosterColumns');
+const { addPosterPlacement } = require('../src/utils/addPosterPlacement');
 
 /**
  * How an organizer's poster styling is stored, served and cleaned up.
@@ -303,5 +304,243 @@ describe('an event carrying no styling', () => {
     const served = response.body.data.find((row) => row.id === event.id);
 
     expect(served).toMatchObject({ posterColor: null, posterImageUrl: null });
+  });
+});
+
+/**
+ * Where the artwork is framed inside the band.
+ *
+ * One nullable column holding one choice: absent means the centered cover, which is what every event
+ * rendered as before there was a choice to make. The column is written through an API, so what is
+ * really being tested is that nothing outside `{ zoom 1-4, x/y 0-1 }` can be stored to be rendered.
+ */
+
+const PLACEMENT = { zoom: 2, x: 0.25, y: 0.75 };
+
+/** An events table as it stands on a database published before poster placement existed. */
+const prePlacementDb = () => {
+  const legacy = new Database(':memory:');
+  legacy.exec('CREATE TABLE events (id TEXT PRIMARY KEY, title TEXT, poster_image TEXT)');
+  return legacy;
+};
+
+const edit = (user, id, body) => request(app).put(`/api/events/${id}`).set(authHeader(user)).send(body);
+
+describe('the poster placement column', () => {
+  it('is on a freshly created events table', () => {
+    const columns = db.prepare('PRAGMA table_info(events)').all().map((column) => column.name);
+
+    expect(columns).toContain('poster_placement');
+  });
+
+  it('is added to an events table that predates it', () => {
+    const legacy = prePlacementDb();
+
+    expect(addPosterPlacement(legacy)).toBe(true);
+    expect(legacy.prepare('PRAGMA table_info(events)').all().map((c) => c.name))
+      .toContain('poster_placement');
+
+    legacy.close();
+  });
+
+  it('is a no-op the second time, so every boot after the first costs nothing', () => {
+    const legacy = prePlacementDb();
+
+    addPosterPlacement(legacy);
+    expect(addPosterPlacement(legacy)).toBe(false);
+
+    legacy.close();
+  });
+
+  it('leaves a database with no events table alone', () => {
+    const empty = new Database(':memory:');
+
+    expect(addPosterPlacement(empty)).toBe(false);
+
+    empty.close();
+  });
+
+  it('is added after the podium migration, which rebuilds the table from a fixed column list', () => {
+    // Run the other way round, the rebuild drops the column that was just added and the framing of
+    // every event on that database goes with it.
+    const boot = fs.readFileSync(require.resolve('../src/server.js'), 'utf8');
+
+    expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('addPosterPlacement()'));
+    expect(boot.indexOf('addPosterPlacement()')).toBeLessThan(boot.indexOf('createIndexes()'));
+  });
+});
+
+describe('scheduling a framed event', () => {
+  it('stores the framing and answers with it', async () => {
+    const response = await create(admin(), { posterImage: PNG, posterPlacement: PLACEMENT });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.posterPlacement).toEqual(PLACEMENT);
+  });
+
+  it('answers with none for an event nobody framed', async () => {
+    const response = await create(admin(), { posterImage: PNG });
+
+    expect(response.body.data.posterPlacement).toBeNull();
+  });
+
+  it('takes both ends of each range, which are choices an organizer can really make', async () => {
+    for (const placement of [{ zoom: 1, x: 0, y: 0 }, { zoom: 4, x: 1, y: 1 }]) {
+      const response = await create(admin(), { posterImage: PNG, posterPlacement: placement });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.posterPlacement).toEqual(placement);
+    }
+  });
+
+  it('refuses anything no organizer’s controls could have produced', async () => {
+    for (const placement of [
+      { zoom: 2, x: 0.5 },
+      { zoom: 0.5, x: 0.5, y: 0.5 },
+      { zoom: 4.1, x: 0.5, y: 0.5 },
+      { zoom: 2, x: -0.01, y: 0.5 },
+      { zoom: 2, x: 0.5, y: 1.01 },
+      { zoom: 2, x: '0.5', y: 0.5 },
+      { zoom: 'lots', x: 0.5, y: 0.5 },
+      [2, 0.5, 0.5],
+      'centered'
+    ]) {
+      const response = await create(admin(), { posterImage: PNG, posterPlacement: placement });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/Poster placement/);
+    }
+  });
+
+  it('refuses a zoom that is a number in name only', async () => {
+    // JSON has no NaN, but a body sent as text can still carry one past the parser as a raw token.
+    const response = await request(app)
+      .post('/api/events')
+      .set(authHeader(admin()))
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ ...payload({ posterImage: PNG }), posterPlacement: { zoom: 1e999, x: 0.5, y: 0.5 } }));
+
+    expect(response.status).toBe(400);
+  });
+
+  it('keeps no framing for artwork that was never uploaded', async () => {
+    // Nothing to frame, and a transform left in the row would misplace whatever is uploaded next.
+    const response = await create(admin(), { posterPlacement: PLACEMENT });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.posterPlacement).toBeNull();
+  });
+});
+
+describe('editing a framed event', () => {
+  const framed = async () => {
+    const author = admin();
+    const response = await create(author, { posterImage: PNG, posterPlacement: PLACEMENT });
+    return { author, event: response.body.data };
+  };
+
+  it('takes a nudged framing without the artwork being sent again', async () => {
+    const { author, event } = await framed();
+    const moved = { zoom: 3, x: 0.4, y: 0.6 };
+
+    const response = await edit(author, event.id, { posterPlacement: moved });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.posterPlacement).toEqual(moved);
+    // The file it frames is untouched, which is the whole point of storing rather than baking.
+    expect(response.body.data.posterImageUrl).toBe(event.posterImageUrl);
+    expect(posterExists(event.posterImageUrl)).toBe(true);
+  });
+
+  it('leaves the framing alone on an edit that never mentions it', async () => {
+    const { author, event } = await framed();
+
+    const response = await edit(author, event.id, { title: 'Renamed' });
+
+    expect(response.body.data.posterPlacement).toEqual(PLACEMENT);
+  });
+
+  it('restores the centered cover when the framing is explicitly cleared', async () => {
+    const { author, event } = await framed();
+
+    const response = await edit(author, event.id, { posterPlacement: null });
+
+    expect(response.body.data.posterPlacement).toBeNull();
+    expect(response.body.data.posterImageUrl).toBe(event.posterImageUrl);
+  });
+
+  it('refuses a framing outside its ranges, leaving the stored one where it was', async () => {
+    const { author, event } = await framed();
+
+    const response = await edit(author, event.id, { posterPlacement: { zoom: 9, x: 0.5, y: 0.5 } });
+
+    expect(response.status).toBe(400);
+    const stored = await request(app).get(`/api/events/${event.id}`).set(authHeader(author));
+    expect(stored.body.data.posterPlacement).toEqual(PLACEMENT);
+  });
+
+  it('clears the framing along with the artwork it framed', async () => {
+    const { author, event } = await framed();
+
+    const response = await edit(author, event.id, { posterImage: null });
+
+    expect(response.body.data.posterImageUrl).toBeNull();
+    expect(response.body.data.posterPlacement).toBeNull();
+  });
+
+  it('recenters when different artwork arrives without a framing of its own', async () => {
+    // A transform chosen for one picture crops a different one somewhere nobody meant.
+    const { author, event } = await framed();
+
+    const response = await edit(author, event.id, { posterImage: PNG });
+
+    expect(response.body.data.posterImageUrl).not.toBe(event.posterImageUrl);
+    expect(response.body.data.posterPlacement).toBeNull();
+  });
+
+  it('takes new artwork and its framing together', async () => {
+    const { author, event } = await framed();
+    const moved = { zoom: 1.5, x: 0.2, y: 0.8 };
+
+    const response = await edit(author, event.id, { posterImage: PNG, posterPlacement: moved });
+
+    expect(response.body.data.posterPlacement).toEqual(moved);
+  });
+});
+
+describe('reading a framed event back', () => {
+  it('serves the framing on the lists, slim rows included', async () => {
+    const author = admin();
+    const scheduled = await create(author, { posterImage: PNG, posterPlacement: PLACEMENT });
+
+    const slim = await request(app).get('/api/events?slim').set(authHeader(author));
+    const row = slim.body.data.find((event) => event.id === scheduled.body.data.id);
+
+    expect(row.posterPlacement).toEqual(PLACEMENT);
+    // Still a slim row: the prose is what those leave out.
+    expect(row).not.toHaveProperty('body');
+  });
+
+  it('reads a column somebody wrote by hand as no framing at all', async () => {
+    // The rendering client would otherwise position artwork off the edge of its own band.
+    const author = admin();
+    const scheduled = await create(author, { posterImage: PNG });
+    db.prepare('UPDATE events SET poster_placement = @junk WHERE id = @id')
+      .run({ id: scheduled.body.data.id, junk: '{"zoom":99,"x":"left"}' });
+
+    const response = await request(app).get(`/api/events/${scheduled.body.data.id}`).set(authHeader(author));
+
+    expect(response.body.data.posterPlacement).toBeNull();
+  });
+
+  it('reads a column that is not even JSON as no framing at all', async () => {
+    const author = admin();
+    const scheduled = await create(author, { posterImage: PNG });
+    db.prepare('UPDATE events SET poster_placement = @junk WHERE id = @id')
+      .run({ id: scheduled.body.data.id, junk: 'centered' });
+
+    const response = await request(app).get(`/api/events/${scheduled.body.data.id}`).set(authHeader(author));
+
+    expect(response.body.data.posterPlacement).toBeNull();
   });
 });

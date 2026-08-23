@@ -18,6 +18,53 @@ const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
  */
 const posterUrlFor = (posterImage) => (posterImage ? `/api/event-posters/${posterImage}` : null);
 
+/** The zoom range the client's own controls offer; outside it is a request no organizer's UI produced. */
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
+/** Whether a value is a real number inside a range. */
+const numberWithin = (value, low, high) =>
+  typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
+
+/**
+ * How an organizer framed their artwork, or null.
+ *
+ * `x`/`y` are the fraction of the source that sits at the band's center and `zoom` multiplies the scale
+ * that just covers it — one stored value that holds the same subject at every width the band is drawn.
+ * Refused rather than repaired, because a placement half inside its ranges is not a framing anyone chose.
+ *
+ * @param {*} value - Whatever was sent or stored
+ * @returns {Object|null} `{ zoom, x, y }`, or null when it is not one
+ */
+const placementOrNull = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const { zoom, x, y } = value;
+  if (!numberWithin(zoom, MIN_ZOOM, MAX_ZOOM)) return null;
+  if (!numberWithin(x, 0, 1) || !numberWithin(y, 0, 1)) return null;
+
+  return { zoom, x, y };
+};
+
+/**
+ * The framing a row holds, read back out of its column.
+ *
+ * Parsed rather than passed through: the column is text, so a value from a hand-crafted request or an
+ * older tool must not reach a client that would then position artwork off the edge of its own band.
+ *
+ * @param {string|null|undefined} stored - The `poster_placement` column
+ * @returns {Object|null} `{ zoom, x, y }`, or null
+ */
+const placementFor = (stored) => {
+  if (!stored) return null;
+
+  try {
+    return placementOrNull(JSON.parse(stored));
+  } catch {
+    return null;
+  }
+};
+
 /**
  * An event as anyone may see it.
  *
@@ -44,6 +91,9 @@ const toDto = (row, placements = Event.placements(row.id)) => ({
   rulesText: row.rules_text || null,
   posterColor: row.poster_color || null,
   posterImageUrl: posterUrlFor(row.poster_image),
+  // Served on the slim rows too: three numbers is nothing next to the prose those rows leave out, and a
+  // list that showed artwork framed differently from the poster would be the same event seen twice.
+  posterPlacement: placementFor(row.poster_placement),
   startsAt: row.starts_at,
   endsAt: row.ends_at,
   cancelledAt: row.cancelled_at || null,
@@ -269,6 +319,22 @@ const parseEventBody = (body, { partial = false } = {}) => {
     fields.posterColor = null;
   }
 
+  // Sent independently of the artwork, so nudging a stored image's framing needs no re-upload. Absent
+  // leaves the stored framing alone on an edit; an explicit null restores the centered cover.
+  if (has('posterPlacement')) {
+    if (body.posterPlacement === null) {
+      fields.posterPlacement = null;
+    } else {
+      const placement = placementOrNull(body.posterPlacement);
+      if (!placement) {
+        return { error: `Poster placement must be { zoom, x, y } with zoom ${MIN_ZOOM}-${MAX_ZOOM} and x/y 0-1` };
+      }
+      fields.posterPlacement = JSON.stringify(placement);
+    }
+  } else if (!partial) {
+    fields.posterPlacement = null;
+  }
+
   for (const [key, label] of [['startsAt', 'Start'], ['endsAt', 'End']]) {
     if (partial && !has(key)) continue;
 
@@ -344,7 +410,10 @@ exports.createEvent = async (req, res, next) => {
     // Written after the refusals, so a window that was never going to be accepted leaves no file behind.
     const posterImage = req.body.posterImage ? await saveEventPoster(req.body.posterImage) : null;
 
-    const event = Event.create({ ...fields, posterImage, createdBy: req.user.id });
+    // A framing with nothing to frame would misplace whatever artwork is uploaded next.
+    const posterPlacement = posterImage ? fields.posterPlacement : null;
+
+    const event = Event.create({ ...fields, posterImage, posterPlacement, createdBy: req.user.id });
 
     auditEvent('event_created', req.user, event);
 
@@ -390,6 +459,11 @@ exports.updateEvent = async (req, res, next) => {
     // file — while an explicit null clears it and a data URI replaces it.
     if (req.body.posterImage !== undefined) {
       fields.posterImage = req.body.posterImage ? await saveEventPoster(req.body.posterImage) : null;
+
+      // Any write to the artwork resets its framing unless the same request names one, because a
+      // transform chosen for one picture crops a different one somewhere nobody meant. Clearing the
+      // artwork clears the framing outright — there is nothing left for it to be about.
+      if (!fields.posterImage || fields.posterPlacement === undefined) fields.posterPlacement = null;
     }
 
     // Nothing here posts, recalls or re-sends: an edit changes what the event says it is, and the
