@@ -2,6 +2,9 @@ require('dotenv').config();
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+// The reports schema is authored once, in its migration, and read from here — so the two copies that
+// would otherwise drift are one.
+const { REPORTS_TABLE, REPORTS_UNIQUE_OPEN, REPORTS_QUEUE_INDEX } = require('./addReports');
 
 // Create tables
 const createTables = () => {
@@ -393,6 +396,14 @@ const createTables = () => {
     )
   `);
 
+  // What the room told staff about. Its own private table rather than a branch of `feedback`, because
+  // feedback's visibility rules make a suggestion public and nothing here may ever be — the author of
+  // reported content must never be able to read who reported them.
+  //
+  // Built from the migration's own constant so a fresh database and a migrated one cannot drift; see
+  // `utils/addReports` for the column-by-column reasoning.
+  db.exec(REPORTS_TABLE);
+
   console.log('Database tables created successfully');
 };
 
@@ -528,6 +539,11 @@ const createIndexes = () => {
     CREATE INDEX IF NOT EXISTS idx_feedback_votes_thread ON feedback_votes(feedback_id);
     CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, id);
   `);
+
+  // The queue reads open reports grouped by target, and the unique one is the duplicate guard itself —
+  // partial, so re-filing after a resolution stays allowed.
+  db.exec(REPORTS_UNIQUE_OPEN);
+  db.exec(REPORTS_QUEUE_INDEX);
 
   console.log('Database indexes created successfully');
 };

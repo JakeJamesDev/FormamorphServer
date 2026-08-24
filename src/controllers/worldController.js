@@ -8,6 +8,7 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
+const { flagDeletedListing } = require('./reportController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
@@ -795,6 +796,14 @@ exports.deleteWorld = async (req, res, next) => {
 
     // Delete world from database
     World.delete(req.params.id);
+
+    // An author taking their own listing down neither punishes nor absolves them: any open report on it
+    // stays open, flagged, leaning on the snapshot to say what was there. A staff takedown is a
+    // moderation act they will resolve, so only the author's own removal needs saying.
+    //
+    // Reports on its *comments* are flagged too: the thread cascaded away with the listing, so without
+    // this they would sit in the queue looking live and pointing at a listing that is gone.
+    if (world.author_id === req.user.id) flagDeletedListing(world.id);
 
     // Logged whoever did it: an author tidying up and an admin taking something down are the same
     // disappearance to anyone asking where it went, and the entry says which it was.

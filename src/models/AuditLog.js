@@ -26,7 +26,11 @@ const ACTIONS = [
   'event_deleted',
   'results_announced',
   'podium_edited',
-  'entry_withdrawn'
+  'entry_withdrawn',
+  // How a report group closed. Two actions rather than one with a field, so the log filter can ask for
+  // the decisions that changed something apart from the ones that did not.
+  'report_actioned',
+  'report_dismissed'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

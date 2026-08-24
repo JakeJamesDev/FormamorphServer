@@ -3,6 +3,7 @@ const { canModerate, isAdmin } = require('../config/roles');
 const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const { flagDeletedTarget } = require('./reportController');
 const { validationResult } = require('express-validator');
 
 /**
@@ -225,6 +226,11 @@ exports.deleteComment = async (req, res, next) => {
 
     // Delete comment
     Comment.delete(req.params.id);
+
+    // Deleting your own comment neither punishes nor absolves: any open report on it stays open, flagged,
+    // with the snapshot of what was said. Staff deleting it is a moderation act they will resolve, so
+    // only the author's own removal needs saying.
+    if (comment.author_id === req.user.id) flagDeletedTarget('comment', comment.id);
 
     // The text goes into the entry: once the row is gone, "a comment was deleted" answers nothing, and
     // knowing what was removed is the reason to keep a log at all.

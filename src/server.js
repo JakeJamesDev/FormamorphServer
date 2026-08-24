@@ -15,6 +15,7 @@ const { addPosterColumns } = require('./utils/addPosterColumns');
 const { addEventPlacements } = require('./utils/addEventPlacements');
 const { addPosterPlacement } = require('./utils/addPosterPlacement');
 const { addWorldChangelog } = require('./utils/addWorldChangelog');
+const { addReports } = require('./utils/addReports');
 const { createTables, createIndexes } = require('./utils/initDb');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
@@ -57,6 +58,7 @@ try {
   // column added before it.
   addPosterPlacement();
   addWorldChangelog();
+  addReports();
   createIndexes();
 } catch (error) {
   console.error('Schema setup failed — starting anyway; some endpoints may fail until resolved:', error);

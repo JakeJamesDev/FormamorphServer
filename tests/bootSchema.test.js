@@ -20,11 +20,13 @@ const TABLES = [
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
   'audit_log', 'follows', 'world_likes',
   'events', 'event_placements',
-  'world_changelog'
+  'world_changelog',
+  'reports'
 ];
 
 const { addCommentEditedColumn } = require('../src/utils/addCommentEditedColumn');
 const { addWorldChangelog } = require('../src/utils/addWorldChangelog');
+const { addReports } = require('../src/utils/addReports');
 
 const columnNames = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
 
@@ -54,6 +56,7 @@ describe('the boot-time schema step', () => {
     expect(source).toContain('addEventPlacements()');
     expect(source).toContain('addPosterPlacement()');
     expect(source).toContain('addWorldChangelog()');
+    expect(source).toContain('addReports()');
   });
 
   it('migrates the columns before it indexes them', () => {
@@ -82,6 +85,8 @@ describe('the boot-time schema step', () => {
     // to a new *table* as to a new column.
     expect(indexes).toContain('world_changelog');
     expect(boot.indexOf('addWorldChangelog()')).toBeLessThan(boot.indexOf('createIndexes()'));
+    expect(indexes).toContain('REPORTS_UNIQUE_OPEN');
+    expect(boot.indexOf('addReports()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 
   it('brings an existing table up to date, which creating cannot', () => {
@@ -148,6 +153,69 @@ describe('the boot-time schema step', () => {
     expect(columnNames('world_changelog')).toEqual(
       expect.arrayContaining(['id', 'world_id', 'title', 'body', 'entry_date', 'created_at', 'updated_at'])
     );
+  });
+
+  it('gives a database that predates reports its table, index and all', () => {
+    // Same agreement the changelog needs, plus the one thing this table cannot do without: the partial
+    // unique index IS the duplicate guard, so a migration that built the table and not the index would
+    // leave the rule enforced only by a check two racing requests can both pass.
+    db.exec('DROP TABLE reports');
+    expect(tableNames()).not.toContain('reports');
+
+    addReports(db);
+
+    expect(tableNames()).toContain('reports');
+    expect(columnNames('reports')).toEqual(expect.arrayContaining([
+      'id', 'reporter_id', 'target_kind', 'target_id', 'target_name', 'target_author_id',
+      'target_author_username', 'target_snippet', 'target_parent_id', 'category', 'details', 'status', 'outcome',
+      'target_gone_at', 'resolved_at', 'resolved_by', 'resolution_note', 'created_at'
+    ]));
+
+    const indexNames = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='reports'")
+      .all()
+      .map((row) => row.name);
+    expect(indexNames).toContain('idx_reports_one_open');
+  });
+
+  it('adds a later column to a reports table that predates it', () => {
+    // Found live, not imagined: a running server had built `reports` from the first version of this
+    // schema, the table then grew `target_parent_id`, and every attempt to file answered
+    // `no such column` — because `CREATE TABLE IF NOT EXISTS` is a no-op over a table that exists.
+    db.exec('DROP TABLE reports');
+    db.exec(`CREATE TABLE reports (
+      id TEXT PRIMARY KEY, reporter_id TEXT, target_kind TEXT NOT NULL, target_id TEXT NOT NULL,
+      target_name TEXT, target_author_id TEXT, target_author_username TEXT, target_snippet TEXT,
+      category TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'open', outcome TEXT,
+      target_gone_at TEXT, resolved_at TEXT, resolved_by TEXT, resolution_note TEXT,
+      created_at TEXT NOT NULL
+    )`);
+
+    createTables();
+    expect(columnNames('reports')).not.toContain('target_parent_id');
+
+    addReports(db);
+
+    expect(columnNames('reports')).toContain('target_parent_id');
+    // A write naming it is what was broken, so that is what is asserted.
+    expect(() => db.prepare(`
+      INSERT INTO reports (id, target_kind, target_id, target_parent_id, category, status, created_at)
+      VALUES ('after-migration', 'comment', 'c1', 'w1', 'spam', 'open', '2026-08-24T00:00:00.000Z')
+    `).run()).not.toThrow();
+  });
+
+  it('restores the duplicate-guard index to a reports table that lost it', () => {
+    // The index IS the rule under a race, so a database holding the table without it is one where two
+    // simultaneous filings both land.
+    db.exec('DROP INDEX IF EXISTS idx_reports_one_open');
+
+    addReports(db);
+
+    const indexNames = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='reports'")
+      .all()
+      .map((row) => row.name);
+    expect(indexNames).toContain('idx_reports_one_open');
   });
 
   it('creates every table it is responsible for', () => {
