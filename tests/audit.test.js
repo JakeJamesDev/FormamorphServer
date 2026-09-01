@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import { app, db, createTables, createIndexes } from './context.js';
+import { app, db, migrate } from './context.js';
 import { createUser, authHeader, worldPayload } from './helpers.js';
 
 /**
@@ -384,8 +384,7 @@ describe('the log as a record', () => {
       expect(res.body.user.status).toBe('suspended');
     } finally {
       // Put back what this deliberately broke — the shared teardown clears this table by name.
-      createTables();
-      createIndexes();
+      migrate(db);
     }
   });
 });

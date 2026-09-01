@@ -17,8 +17,7 @@
     "cleanup-snapshots": "node src/utils/cleanupSnapshots.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "migrate-kind": "node src/utils/addKindColumn.js"
+    "test:coverage": "vitest run --coverage"
   },
   "nodemonConfig": {
     "watch": [

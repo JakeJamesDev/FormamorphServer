@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import { app, db, Event, cancelEvent, createTables, createIndexes } from './context.js';
+import { app, db, Event, cancelEvent, migrate } from './context.js';
 import { createUser, authHeader, worldPayload } from './helpers.js';
 
 /**
@@ -65,10 +65,8 @@ describe('the events table', () => {
   it('is created by the boot schema step and survives it running again', async () => {
     const event = makeEvent();
 
-    createTables();
-    createIndexes();
-    createTables();
-    createIndexes();
+    migrate(db);
+    migrate(db);
 
     expect(Event.findById(event.id).title).toBe('Sedge Landing Week');
   });

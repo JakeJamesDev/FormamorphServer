@@ -31,7 +31,7 @@ tabs are simply empty.
 |---|---|
 | `src/config/kinds.js` | The kinds, the `world` default, and the per-kind rules |
 | `src/utils/kindQuery.js` | The one place `?kind` is read — the compatibility contract |
-| `src/utils/addKindColumn.js` | The migration |
+| `src/schema/steps/kind.js` | The migration |
 | `src/models/World.js` | `getAll` gained a `kind` filter; `getByAuthor` gained `kind` + a row ceiling |
 
 ## Deploying
@@ -43,7 +43,7 @@ classify themselves as `world` via the column default — no backfill, nothing t
 It boots itself because the failure mode is severe: every list query filters on `worlds.kind`, so new code
 against an unmigrated database returns `500` from the whole catalog (`no such column: w.kind`). We tested
 that on a copy of the old schema — it fails as described, and self-migrating on boot makes the deploy order
-irrelevant. `npm run migrate-kind` still exists if you'd rather run it ahead of time.
+irrelevant. `npm run init-db` runs the same schema step ahead of time if you would rather.
 
 Verified against a database on the old schema with real rows: data intact, download counts preserved,
 existing rows classified `world`, second run a no-op.

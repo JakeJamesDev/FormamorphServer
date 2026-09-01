@@ -6,7 +6,7 @@ import { createUser, authHeader, worldPayload } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
-const { addContestColumn } = require('../src/utils/addContestColumn');
+const { apply: addContestColumn } = require('../src/schema/steps/contest');
 
 /**
  * Entering a contest, leaving one, and what a listing may still do while it is entered.
@@ -86,13 +86,6 @@ describe('the contest entry column', () => {
     expect(addContestColumn(empty)).toBe(false);
 
     empty.close();
-  });
-
-  it('is wired into the boot sequence ahead of the indexes', () => {
-    const boot = require('fs').readFileSync(require.resolve('../src/server.js'), 'utf8');
-
-    expect(boot).toContain('addContestColumn()');
-    expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 });
 

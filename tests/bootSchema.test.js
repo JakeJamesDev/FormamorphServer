@@ -1,18 +1,28 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
-import { db, createTables, createIndexes } from './context.js';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { db, migrate } from './context.js';
 
 const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /**
- * The schema step `server.js` runs before it serves.
+ * The schema step `server.js` runs before it serves and `npm run init-db` runs before it seeds.
  *
- * A deploy that adds a table must need nothing run by hand: forgetting `npm run init-db` would otherwise
- * leave the new endpoints answering `no such table`, which is an outage caused by a step nobody sees
- * until it is missed. These prove the two properties that makes safe — it repairs, and it repeats.
+ * A deploy that adds a table or a column must need nothing run by hand: forgetting a migration would
+ * otherwise leave the new endpoints answering `no such table` or `no such column`, an outage caused by a
+ * step nobody sees until it is missed. These prove the properties that make that safe: it builds a fresh
+ * database whole, it brings the oldest database still in the wild to the same shape, it repeats for free,
+ * and a step that fails leaves nothing half-done.
  */
 
-/** Every table `createTables` is responsible for. */
+/** Every table the schema is responsible for. */
 const TABLES = [
   'users', 'worlds', 'comments',
   'messages', 'message_states',
@@ -24,244 +34,349 @@ const TABLES = [
   'reports'
 ];
 
-const { addCommentEditedColumn } = require('../src/utils/addCommentEditedColumn');
-const { addWorldChangelog } = require('../src/utils/addWorldChangelog');
-const { addReports } = require('../src/utils/addReports');
+/**
+ * The schema as the oldest database still in the wild has it: every table that later grew a column, in the
+ * shape it first shipped with, and nothing that arrived later. Each shape is the current one with the
+ * stepped columns taken out, so the only thing between this and the present is the step list.
+ */
+const OLDEST_SQL = `
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    email TEXT,
+    status TEXT DEFAULT 'normal',
+    account_type TEXT DEFAULT 'normal',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE worlds (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    author_id TEXT NOT NULL,
+    thumbnail_file TEXT NOT NULL,
+    preview_data TEXT NOT NULL,
+    content_file TEXT NOT NULL,
+    downloads INTEGER DEFAULT 0,
+    comment_count INTEGER DEFAULT 0,
+    tags TEXT,
+    spoiler INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (author_id) REFERENCES users (id)
+  );
+  CREATE TABLE comments (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    world_id TEXT NOT NULL,
+    author_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
+    FOREIGN KEY (author_id) REFERENCES users (id)
+  );
+  CREATE TABLE feedback (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'bug' CHECK (type IN ('bug', 'suggestion')),
+    reporter_id TEXT,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    diagnostics TEXT NOT NULL DEFAULT '{}',
+    locked_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE SET NULL
+  );
+  CREATE TABLE feedback_comments (
+    id TEXT PRIMARY KEY,
+    feedback_id TEXT NOT NULL,
+    author_id TEXT,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
+    FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE SET NULL
+  );
+  CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY,
+    action TEXT NOT NULL,
+    actor_id TEXT,
+    actor_username TEXT,
+    actor_was_admin INTEGER NOT NULL DEFAULT 0,
+    target_user_id TEXT,
+    target_username TEXT,
+    target_kind TEXT,
+    target_name TEXT,
+    snippet TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE events (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL DEFAULT 'announcement' CHECK (type IN ('contest', 'announcement')),
+    title TEXT NOT NULL,
+    banner_text TEXT NOT NULL,
+    body TEXT NOT NULL,
+    rules_text TEXT,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    cancelled_at TEXT,
+    start_message_id TEXT,
+    end_message_id TEXT,
+    winner_message_id TEXT,
+    winner_world_id TEXT,
+    winner_name TEXT,
+    winner_author_name TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (start_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+    FOREIGN KEY (end_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+    FOREIGN KEY (winner_message_id) REFERENCES messages (id) ON DELETE SET NULL,
+    FOREIGN KEY (winner_world_id) REFERENCES worlds (id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+  );
+  CREATE TABLE reports (
+    id TEXT PRIMARY KEY,
+    reporter_id TEXT,
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('listing', 'comment', 'profile')),
+    target_id TEXT NOT NULL,
+    target_name TEXT,
+    target_author_id TEXT,
+    target_author_username TEXT,
+    target_snippet TEXT,
+    category TEXT NOT NULL,
+    details TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+    outcome TEXT CHECK (outcome IN ('actioned', 'dismissed')),
+    target_gone_at TEXT,
+    resolved_at TEXT,
+    resolved_by TEXT,
+    resolution_note TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE SET NULL,
+    FOREIGN KEY (resolved_by) REFERENCES users (id) ON DELETE SET NULL
+  );
+`;
 
-const columnNames = (table) => db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+const openDatabase = (file = ':memory:') => {
+  const database = new Database(file);
+  database.pragma('foreign_keys = ON');
+  return database;
+};
 
-const tableNames = () => db
-  .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+const oldestDatabase = (file) => {
+  const database = openDatabase(file);
+  database.exec(OLDEST_SQL);
+  return database;
+};
+
+const tableNames = (database) => database
+  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
   .all()
   .map((row) => row.name);
 
-describe('the boot-time schema step', () => {
-  it('is what server.js runs, alongside the kind migration', () => {
-    // Named rather than inspected: the point is that these three are wired in, so a future table lands
-    // on a deployed server without anyone remembering a command.
-    const source = require('fs').readFileSync(require.resolve('../src/server.js'), 'utf8');
+const columnNames = (database, table) => database
+  .prepare(`PRAGMA table_info(${table})`)
+  .all()
+  .map((row) => row.name);
 
-    expect(source).toContain('createTables()');
-    expect(source).toContain('createIndexes()');
-    expect(source).toContain('addKindColumn()');
-    expect(source).toContain('addQuarantineColumns()');
-    expect(source).toContain('addAvatarColumns()');
-    expect(source).toContain('addAuthorRoleColumn()');
-    expect(source).toContain('addFeedbackEditedColumn()');
-    expect(source).toContain('addCommentEditedColumn()');
-    expect(source).toContain('addFeedSeenColumn()');
-    expect(source).toContain('addTokenVersionColumn()');
-    expect(source).toContain('addContestColumn()');
-    expect(source).toContain('addPosterColumns()');
-    expect(source).toContain('addEventPlacements()');
-    expect(source).toContain('addPosterPlacement()');
-    expect(source).toContain('addWorldChangelog()');
-    expect(source).toContain('addReports()');
+const byName = (a, b) => a.name.localeCompare(b.name);
+
+/**
+ * Everything about a schema that a query can tell apart, with column order left out: a column added by
+ * ALTER lands at the end of its table, and the shape is the same shape wherever it sits.
+ */
+const shapeOf = (database) => Object.fromEntries(tableNames(database).sort().map((table) => [table, {
+  columns: database.prepare(`PRAGMA table_info(${table})`).all()
+    .map(({ name, type, notnull, dflt_value, pk }) => ({ name, type, notnull, dflt_value, pk }))
+    .sort(byName),
+  foreignKeys: database.prepare(`PRAGMA foreign_key_list(${table})`).all()
+    .map(({ table: to, from, to: column, on_update, on_delete }) => ({ from, to, column, on_update, on_delete }))
+    .sort((a, b) => a.from.localeCompare(b.from)),
+  indexes: database.prepare(
+    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = ? AND name NOT LIKE 'sqlite_autoindex%'"
+  ).all(table).map((row) => row.name).sort()
+}]));
+
+/** Run one of the two callers as its own process, the way an operator does, and collect what it printed. */
+const runScript = (script, env, { until } = {}) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [script], {
+    cwd: ROOT,
+    env: { ...process.env, ...env },
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+  let output = '';
+  const timer = setTimeout(() => {
+    child.kill();
+    reject(new Error(`${script} did not finish; output so far:\n${output}`));
+  }, 15000);
+  const onData = (chunk) => {
+    output += chunk;
+    if (until && output.includes(until)) {
+      clearTimeout(timer);
+      child.kill();
+      resolve({ code: null, output });
+    }
+  };
+  child.stdout.on('data', onData);
+  child.stderr.on('data', onData);
+  child.on('exit', (code) => { clearTimeout(timer); resolve({ code, output }); });
+  child.on('error', (error) => { clearTimeout(timer); reject(error); });
+});
 
-  it('migrates the columns before it indexes them', () => {
-    // Found live: an index naming `quarantine_expires_at` ran before the migration that adds it, so on
-    // every database the migration existed for, indexing threw and took the migration down with it —
-    // leaving the server answering `no such column` for the whole feature. The two facts are asserted
-    // together because the order only matters while an index names a migrated column.
-    const boot = require('fs').readFileSync(require.resolve('../src/server.js'), 'utf8');
-    const schema = require('fs').readFileSync(require.resolve('../src/utils/initDb.js'), 'utf8');
+/** A scratch directory holding a database file on the oldest schema, for a process of its own to migrate. */
+const oldestOnDisk = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-schema-'));
+  const file = path.join(dir, 'old.db');
+  oldestDatabase(file).close();
+  return { dir, file };
+};
 
-    const indexes = schema.slice(schema.indexOf('const createIndexes'));
-    expect(indexes).toContain('quarantine_expires_at');
-
-    expect(boot.indexOf('addQuarantineColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addAvatarColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addAuthorRoleColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addFeedbackEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addCommentEditedColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addFeedSeenColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addKindColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addContestColumn()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addPosterColumns()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(boot.indexOf('addPosterPlacement()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    // The changelog index names a table this migration is what creates, so the same ordering rule applies
-    // to a new *table* as to a new column.
-    expect(indexes).toContain('world_changelog');
-    expect(boot.indexOf('addWorldChangelog()')).toBeLessThan(boot.indexOf('createIndexes()'));
-    expect(indexes).toContain('REPORTS_UNIQUE_OPEN');
-    expect(boot.indexOf('addReports()')).toBeLessThan(boot.indexOf('createIndexes()'));
-  });
-
-  it('brings an existing table up to date, which creating cannot', () => {
-    // The split worth remembering: `createTables` adds *tables*, never *columns*. Quarantine was the
-    // first change to a table already in production, so it needs its own migration in the same path.
-    const source = require('fs').readFileSync(require.resolve('../src/utils/addQuarantineColumns.js'), 'utf8');
-
-    expect(source).toContain('ALTER TABLE worlds');
-
-    const avatars = require('fs').readFileSync(require.resolve('../src/utils/addAvatarColumns.js'), 'utf8');
-    expect(avatars).toContain('ALTER TABLE users');
-
-    const roles = require('fs').readFileSync(require.resolve('../src/utils/addAuthorRoleColumn.js'), 'utf8');
-    expect(roles).toContain('ALTER TABLE feedback_comments');
-
-    const edited = require('fs').readFileSync(require.resolve('../src/utils/addFeedbackEditedColumn.js'), 'utf8');
-    expect(edited).toContain('ALTER TABLE feedback');
-
-    const commentEdits = require('fs').readFileSync(require.resolve('../src/utils/addCommentEditedColumn.js'), 'utf8');
-    expect(commentEdits).toContain('ALTER TABLE comments');
-
-    const seen = require('fs').readFileSync(require.resolve('../src/utils/addFeedSeenColumn.js'), 'utf8');
-    expect(seen).toContain('ALTER TABLE users');
-
-    const contest = require('fs').readFileSync(require.resolve('../src/utils/addContestColumn.js'), 'utf8');
-    expect(contest).toContain('ALTER TABLE worlds');
-
-    const poster = require('fs').readFileSync(require.resolve('../src/utils/addPosterColumns.js'), 'utf8');
-    expect(poster).toContain('ALTER TABLE events');
-
-    // The one that cannot be an ALTER: SQLite refuses to drop a column named in a foreign key, so the
-    // single-winner columns go by rebuilding the table around them.
-    const podium = require('fs').readFileSync(require.resolve('../src/utils/addEventPlacements.js'), 'utf8');
-    expect(podium).toContain('ALTER TABLE events ADD COLUMN results_announced_at');
-    expect(podium).toContain('DROP TABLE events');
-  });
-
-  it('puts a new column onto a table that predates it', () => {
-    // The repair `createTables` cannot do: a database from before comments were editable already has a
-    // `comments` table, so `CREATE TABLE IF NOT EXISTS` is a no-op over it and the column never arrives.
-    db.exec('DROP TABLE comments');
-    db.exec(`CREATE TABLE comments (
-      id TEXT PRIMARY KEY, content TEXT NOT NULL, world_id TEXT NOT NULL, author_id TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    createTables();
-    expect(columnNames('comments')).not.toContain('edited_at');
-
-    addCommentEditedColumn(db);
-
-    expect(columnNames('comments')).toContain('edited_at');
-  });
-
-  it('gives a database that predates the changelog its table', () => {
-    // The migration's own repair, separate from `createTables` doing it: the two have to agree, because a
-    // deploy where only one of them ran is the case both exist for.
-    db.exec('DROP TABLE world_changelog');
-    expect(tableNames()).not.toContain('world_changelog');
-
-    addWorldChangelog(db);
-
-    expect(tableNames()).toContain('world_changelog');
-    expect(columnNames('world_changelog')).toEqual(
-      expect.arrayContaining(['id', 'world_id', 'title', 'body', 'entry_date', 'created_at', 'updated_at'])
-    );
-  });
-
-  it('gives a database that predates reports its table, index and all', () => {
-    // Same agreement the changelog needs, plus the one thing this table cannot do without: the partial
-    // unique index IS the duplicate guard, so a migration that built the table and not the index would
-    // leave the rule enforced only by a check two racing requests can both pass.
-    db.exec('DROP TABLE reports');
-    expect(tableNames()).not.toContain('reports');
-
-    addReports(db);
-
-    expect(tableNames()).toContain('reports');
-    expect(columnNames('reports')).toEqual(expect.arrayContaining([
-      'id', 'reporter_id', 'target_kind', 'target_id', 'target_name', 'target_author_id',
-      'target_author_username', 'target_snippet', 'target_parent_id', 'category', 'details', 'status', 'outcome',
-      'target_gone_at', 'resolved_at', 'resolved_by', 'resolution_note', 'created_at'
-    ]));
-
-    const indexNames = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='reports'")
-      .all()
-      .map((row) => row.name);
-    expect(indexNames).toContain('idx_reports_one_open');
-  });
-
-  it('adds a later column to a reports table that predates it', () => {
-    // Found live, not imagined: a running server had built `reports` from the first version of this
-    // schema, the table then grew `target_parent_id`, and every attempt to file answered
-    // `no such column` — because `CREATE TABLE IF NOT EXISTS` is a no-op over a table that exists.
-    db.exec('DROP TABLE reports');
-    db.exec(`CREATE TABLE reports (
-      id TEXT PRIMARY KEY, reporter_id TEXT, target_kind TEXT NOT NULL, target_id TEXT NOT NULL,
-      target_name TEXT, target_author_id TEXT, target_author_username TEXT, target_snippet TEXT,
-      category TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'open', outcome TEXT,
-      target_gone_at TEXT, resolved_at TEXT, resolved_by TEXT, resolution_note TEXT,
-      created_at TEXT NOT NULL
-    )`);
-
-    createTables();
-    expect(columnNames('reports')).not.toContain('target_parent_id');
-
-    addReports(db);
-
-    expect(columnNames('reports')).toContain('target_parent_id');
-    // A write naming it is what was broken, so that is what is asserted.
-    expect(() => db.prepare(`
-      INSERT INTO reports (id, target_kind, target_id, target_parent_id, category, status, created_at)
-      VALUES ('after-migration', 'comment', 'c1', 'w1', 'spam', 'open', '2026-08-24T00:00:00.000Z')
-    `).run()).not.toThrow();
-  });
-
-  it('restores the duplicate-guard index to a reports table that lost it', () => {
-    // The index IS the rule under a race, so a database holding the table without it is one where two
-    // simultaneous filings both land.
-    db.exec('DROP INDEX IF EXISTS idx_reports_one_open');
-
-    addReports(db);
-
-    const indexNames = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='reports'")
-      .all()
-      .map((row) => row.name);
-    expect(indexNames).toContain('idx_reports_one_open');
-  });
-
-  it('creates every table it is responsible for', () => {
-    const names = tableNames();
+describe('the schema step', () => {
+  it('creates every table on a fresh database', () => {
+    const names = tableNames(db);
 
     for (const table of TABLES) expect(names).toContain(table);
   });
 
-  it('puts back a table that is missing', () => {
-    // The repair case: a database that predates a feature gets it on the next boot.
-    db.exec('DROP TABLE feedback_votes');
-    expect(tableNames()).not.toContain('feedback_votes');
+  it('applies the tables and the indexes to a fresh database, and nothing to it twice', () => {
+    const fresh = openDatabase();
 
-    createTables();
-    createIndexes();
+    expect(migrate(fresh)).toEqual(['tables', 'indexes']);
+    expect(migrate(fresh)).toEqual([]);
 
-    expect(tableNames()).toContain('feedback_votes');
+    fresh.close();
+  });
+
+  it('brings the oldest schema up to the current one, shape for shape', () => {
+    // The drift guard. Two paths produce the current schema: the tables step on a fresh database, and
+    // every column step on an old one. A column that reaches one path and not the other is the outage
+    // this exists to prevent.
+    const fresh = openDatabase();
+    const legacy = oldestDatabase();
+
+    migrate(fresh);
+    migrate(legacy);
+
+    expect(shapeOf(legacy)).toEqual(shapeOf(fresh));
+    expect(migrate(legacy)).toEqual([]);
+
+    fresh.close();
+    legacy.close();
+  });
+
+  it('runs the podium rebuild before the framing column, or the rebuild would drop it', () => {
+    // The one pair of steps with an order between them: the podium step rebuilds `events` from a fixed
+    // column list, so a column added to that table before it goes with the old table.
+    const legacy = oldestDatabase();
+
+    migrate(legacy);
+
+    const columns = columnNames(legacy, 'events');
+    expect(columns).toContain('poster_placement');
+    expect(columns).not.toContain('winner_name');
+
+    legacy.close();
   });
 
   it('leaves existing rows alone when it runs again', () => {
     // Every boot after the first re-runs this, so it has to be a no-op over real data.
     db.prepare("INSERT INTO users (id, username, password) VALUES ('u-keep', 'keeper', 'x')").run();
 
-    createTables();
-    createIndexes();
+    expect(migrate(db)).toEqual([]);
 
     expect(db.prepare("SELECT username FROM users WHERE id = 'u-keep'").get().username).toBe('keeper');
   });
 
-  it('survives being run twice in a row', () => {
-    expect(() => {
-      createTables();
-      createIndexes();
-      createTables();
-      createIndexes();
-    }).not.toThrow();
+  it('rolls a failed step back whole, names it, and runs nothing after it', () => {
+    // A column that differs from a stepped one only in case slips past the name check and fails at the
+    // ALTER, after the step has already added its first two columns. Those two must not survive: a step
+    // that half-applies leaves a database no later run can recognize.
+    const legacy = oldestDatabase();
+    legacy.exec('ALTER TABLE worlds ADD COLUMN Quarantine_Extended INTEGER');
+
+    expect(() => migrate(legacy)).toThrow(/quarantine/);
+
+    const worlds = columnNames(legacy, 'worlds');
+    expect(worlds).toContain('kind'); // the step before it stays applied
+    expect(worlds).not.toContain('quarantined_at'); // its own work is rolled back
+    expect(columnNames(legacy, 'users')).not.toContain('avatar_file'); // the step after it never ran
+
+    legacy.close();
+  });
+
+  it('rolls the podium rebuild back whole when it fails partway', () => {
+    // The one step that carries its own transaction. A leftover scratch table makes the rebuild throw
+    // after the rename and the new column have already run; both must be gone afterwards.
+    const legacy = oldestDatabase();
+    legacy.exec('CREATE TABLE events_rebuilt (id TEXT PRIMARY KEY)');
+
+    expect(() => migrate(legacy)).toThrow(/eventPlacements/);
+
+    const events = columnNames(legacy, 'events');
+    expect(events).toContain('poster_color'); // the step before it stays applied
+    expect(events).toContain('winner_message_id'); // its rename is rolled back
+    expect(events).not.toContain('results_announced_at'); // its column is rolled back
+    expect(legacy.pragma('foreign_keys', { simple: true })).toBe(1); // enforcement is restored
+
+    legacy.close();
+  });
+
+  it('indexes the columns the catalog filters on', () => {
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='worlds'")
+      .all()
+      .map((row) => row.name);
+
+    expect(indexes).toEqual(expect.arrayContaining(['idx_worlds_kind', 'idx_worlds_quarantine', 'idx_worlds_contest']));
   });
 
   it('does not seed the admin account', () => {
-    // `createAdminUser` is deliberately left out of the boot path: a server that invents an account with
-    // a default password on every boot is a hazard, and `npm run init-db` still does it on a new install.
+    // The seed is deliberately left out of the boot path: a server that invents an account with a
+    // default password on every boot is a hazard, and `npm run init-db` still does it on a new install.
     db.prepare('DELETE FROM users').run();
 
-    createTables();
-    createIndexes();
+    migrate(db);
 
     expect(db.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
   });
+
+  it('is what the server runs before it listens', async () => {
+    const { dir, file } = oldestOnDisk();
+
+    const { output } = await runScript('src/server.js', {
+      DB_PATH: file,
+      STORAGE_ROOT: path.join(dir, 'storage'),
+      PORT: '0',
+      NODE_ENV: 'test'
+    }, { until: 'Server running' });
+
+    expect(output).not.toContain('Schema setup failed');
+    const migrated = openDatabase(file);
+    expect(columnNames(migrated, 'worlds')).toContain('kind');
+    expect(tableNames(migrated)).toContain('reports');
+    // Serving never invents an owner: the seed belongs to init-db alone.
+    expect(migrated.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
+    migrated.close();
+  }, 20000);
+
+  it('is what init-db runs, ahead of the admin seed', async () => {
+    const { dir, file } = oldestOnDisk();
+
+    const { code, output } = await runScript('src/utils/initDb.js', {
+      DB_PATH: file,
+      STORAGE_ROOT: path.join(dir, 'storage'),
+      ADMIN_USERNAME: 'owner',
+      ADMIN_PASSWORD: 'a-real-password-for-tests',
+      ADMIN_EMAIL: 'owner@example.com'
+    });
+
+    expect(code, output).toBe(0);
+    const migrated = openDatabase(file);
+    expect(columnNames(migrated, 'users')).toContain('token_version');
+    expect(migrated.prepare("SELECT account_type FROM users WHERE username = 'owner'").get().account_type).toBe('admin');
+    migrated.close();
+  }, 20000);
 });

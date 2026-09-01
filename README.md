@@ -176,20 +176,26 @@ character's portrait is optional — so the server stores an empty description a
 from `src/assets/placeholders/`. Each row gets its own copy of that art, so deleting one listing can't
 remove another's thumbnail. Swap the PNGs to change the art; no code knows about them.
 
-## Database migrations
+## Database schema
 
-Migrations are additive and idempotent, and safe to run against a live database.
+The schema lives in `src/schema/`. `migrate(db)` runs an ordered list of steps: create every table, add
+each column that arrived after its table shipped, then create every index. Every step reads the live
+schema and changes only what it finds missing, so the run is safe on a live database and a no-op when
+nothing has changed.
 
-**`kind` runs automatically on startup** (`server.js` → `addKindColumn`), so deploying can't outrun it.
-Without that, booting new code against a database that predates the column would return `500` from every
-list endpoint (`no such column: w.kind`) until someone migrated by hand. Existing rows are classified
-`world` by the column default — there's no backfill pass and nothing to undo.
+**It runs itself on startup** (`server.js`), so deploying can't outrun it. Without that, booting new code
+against a database that predates a column would return `500` from every endpoint that names it until
+someone migrated by hand.
 
-To run it ahead of a deploy instead:
+To run it ahead of a deploy instead, which also seeds the admin account:
 
 ```bash
-npm run migrate-kind   # no-op if already applied
+npm run init-db
 ```
+
+To add a column to a table that has already shipped: put it in the table in `src/schema/tables.js`, add a
+step under `src/schema/steps/`, and list the step in `src/schema/index.js` after the last step that
+touches that table.
 
 ## Configuration
 

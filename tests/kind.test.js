@@ -6,7 +6,7 @@ import { createUser, authHeader, worldPayload } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
-const { addKindColumn } = require('../src/utils/addKindColumn');
+const { apply: addKindColumn } = require('../src/schema/steps/kind');
 const { KINDS, DEFAULT_KIND } = require('../src/config/kinds');
 
 const create = (user, overrides) =>
@@ -68,15 +68,6 @@ describe('addKindColumn migration', () => {
     const row = legacy.prepare("SELECT * FROM worlds WHERE id = 'w-old'").get();
     expect(row.name).toBe('Existing World');
     expect(row.content_file).toBe('w-old.json');
-    legacy.close();
-  });
-
-  it('adds the index the kind filter relies on', () => {
-    const legacy = legacyDb();
-    addKindColumn(legacy);
-
-    const indexes = legacy.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((r) => r.name);
-    expect(indexes).toContain('idx_worlds_kind');
     legacy.close();
   });
 

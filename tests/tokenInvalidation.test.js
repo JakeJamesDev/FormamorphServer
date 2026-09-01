@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createRequire } from 'module';
-import { app, db, createTables } from './context.js';
+import { app, db, migrate } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -30,7 +30,7 @@ const generationOf = (user) =>
 const admin = () => createUser({ accountType: 'admin' });
 
 beforeEach(() => {
-  createTables();
+  migrate(db);
 });
 
 describe('a token from a retired generation', () => {

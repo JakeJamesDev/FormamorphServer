@@ -8,8 +8,8 @@ import { createUser, authHeader } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
-const { addPosterColumns } = require('../src/utils/addPosterColumns');
-const { addPosterPlacement } = require('../src/utils/addPosterPlacement');
+const { apply: addPosterColumns } = require('../src/schema/steps/poster');
+const { apply: addPosterPlacement } = require('../src/schema/steps/posterPlacement');
 
 /**
  * How an organizer's poster styling is stored, served and cleaned up.
@@ -358,15 +358,6 @@ describe('the poster placement column', () => {
     expect(addPosterPlacement(empty)).toBe(false);
 
     empty.close();
-  });
-
-  it('is added after the podium migration, which rebuilds the table from a fixed column list', () => {
-    // Run the other way round, the rebuild drops the column that was just added and the framing of
-    // every event on that database goes with it.
-    const boot = fs.readFileSync(require.resolve('../src/server.js'), 'utf8');
-
-    expect(boot.indexOf('addEventPlacements()')).toBeLessThan(boot.indexOf('addPosterPlacement()'));
-    expect(boot.indexOf('addPosterPlacement()')).toBeLessThan(boot.indexOf('createIndexes()'));
   });
 });
 

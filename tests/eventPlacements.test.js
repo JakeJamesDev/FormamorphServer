@@ -4,7 +4,7 @@ import { db } from './context.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
-const { addEventPlacements } = require('../src/utils/addEventPlacements');
+const { apply: addEventPlacements } = require('../src/schema/steps/eventPlacements');
 
 /**
  * The move from one winner to a podium of three.

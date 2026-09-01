@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
-import { db, createTables } from './context.js';
+import { db, migrate } from './context.js';
 
 const require = createRequire(import.meta.url);
 const { createAdminUser } = require('../src/utils/initDb');
@@ -18,7 +18,7 @@ const ADMIN_VARS = ['ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_EMAIL'];
 let saved;
 
 beforeEach(() => {
-  createTables();
+  migrate(db);
   saved = Object.fromEntries(ADMIN_VARS.map((key) => [key, process.env[key]]));
   for (const key of ADMIN_VARS) delete process.env[key];
   db.prepare("DELETE FROM users WHERE account_type = 'admin'").run();
@@ -98,12 +98,6 @@ describe('seeding the first administrator', () => {
     const rows = admins();
     expect(rows).toHaveLength(1);
     expect(rows[0].password).toBe(first.password);
-  });
-
-  it('is not wired into the boot path, so serving never invents an owner', () => {
-    const boot = require('fs').readFileSync(require.resolve('../src/server.js'), 'utf8');
-
-    expect(boot).not.toContain('createAdminUser');
   });
 });
 
