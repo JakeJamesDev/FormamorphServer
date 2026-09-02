@@ -2,7 +2,8 @@ const express = require('express');
 const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
   setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile,
-  followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount
+  followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
+  getUserLikes, clearUserLikes
 } = require('../controllers/userController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
@@ -47,6 +48,11 @@ router.get('/:id/worlds', optionalAuth, getUserWorlds);
 
 // Remove a user's profile image (staff only)
 router.delete('/:id/avatar', protect, staff, removeUserAvatar);
+
+// What an account has liked, and clearing all of it (staff only). One account liking a whole cluster
+// from one author is the shape a throwaway account leaves, and this is where it shows.
+router.get('/:id/likes', protect, staff, getUserLikes);
+router.delete('/:id/likes', protect, staff, clearUserLikes);
 
 // Suspend or reinstate an account (staff only). The same route also changes what somebody *is*, which
 // is an administrator's alone — enforced in the controller, since one body can carry both.

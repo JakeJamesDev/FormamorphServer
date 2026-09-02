@@ -431,6 +431,84 @@ exports.removeUserAvatar = async (req, res, next) => {
 };
 
 /**
+ * Every listing an account has liked, newest first, each with its author.
+ *
+ * Staff only, and refused to the account itself: a like is a private choice, and this list exists to
+ * judge whether one account's likes are real, not to show anybody their own history.
+ *
+ * @desc    What an account has liked
+ * @route   GET /api/users/:id/likes
+ * @access  Private/Staff
+ */
+exports.getUserLikes = async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const { total, rows } = World.likesGiven(user.id);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        rows: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          authorId: row.author_id,
+          authorUsername: row.author_username,
+          // Flagged rather than dropped: a like on a hidden listing is still a like somebody gave.
+          quarantined: Boolean(row.quarantined_at),
+          likedAt: row.liked_at
+        }))
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Remove every like an account has given, in one action.
+ *
+ * @desc    Clear an account's likes
+ * @route   DELETE /api/users/:id/likes
+ * @access  Private/Staff
+ */
+exports.clearUserLikes = async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (!canModerate(req.user, user)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
+    const removed = World.clearLikes(user.id);
+
+    // One entry for the whole clear, and none when there was nothing to clear: the log records
+    // corrections, not attempts.
+    if (removed > 0) {
+      AuditLog.tryRecord({
+        action: 'likes_cleared',
+        actor: req.user,
+        targetUser: user.id === req.user.id ? null : user,
+        targetKind: 'account',
+        targetName: user.username,
+        snippet: `Removed ${removed} ${removed === 1 ? 'like' : 'likes'}`
+      });
+    }
+
+    res.status(200).json({ success: true, data: { removed } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Follow an account, so their new and updated listings reach you
  * @route   PUT /api/users/:id/follow
  * @access  Private

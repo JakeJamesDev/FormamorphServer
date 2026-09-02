@@ -1,6 +1,6 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, getLikers, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
@@ -80,6 +80,11 @@ router.put(
 // Like a listing, or take it back. Signed in only — a like is one account's, which is what makes it
 // revocable and countable, unlike the anonymous download tally.
 router.put('/:id/like', smallJson, protect, setLikeStatus);
+
+// Who liked it, and taking one of those likes off (staff only). The public count is a count and nothing
+// more; the names behind it are the team's, for telling a popular listing from an inflated one.
+router.get('/:id/likes', protect, staff, getLikers);
+router.delete('/:id/likes/:userId', protect, staff, removeLike);
 
 // Delete world
 // Quarantine a listing, or lift one (staff only). Out of the catalog for everyone but its author, and

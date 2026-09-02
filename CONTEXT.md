@@ -11,6 +11,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Author** | The account that published a listing. Owns its edits, its changelog, and the comments on it. |
 | **Changelog** | A listing's author-maintained update history, one entry per update, sorted by the author's own entry date. |
 | **Comment** | A reader's remark on a listing. Editable and deletable by its own author, deletable by the listing's author and by staff. |
+| **Like** | One account's revocable mark on a listing. The room sees only the count; staff see the likers, and can remove a like or clear an account's likes. |
 | **Image asset** | An uploaded image served back by filename: a listing's thumbnail, an account's avatar, or an event's poster. |
 
 ## Moderation
@@ -21,7 +22,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Quarantine** | A listing hidden from everyone but its author and staff, deleted when its deadline passes unless staff release it. The author gets one grace extension per episode. |
 | **Report** | A private note from a reader to staff about a listing, a comment, or a profile. Resolved as actioned or dismissed; the reporter is told which. |
 | **Feedback** | A public bug report or suggestion thread, with a status, replies, and votes. Distinct from a report, which is never public. |
-| **Audit log** | The append-only record of what staff did to accounts and to published work. Every name in it is a snapshot, never a join. |
+| **Audit log** | The append-only record of what staff did to accounts and to published work, including a like removed (`like_removed`) or an account's likes cleared (`likes_cleared`). Every name in it is a snapshot, never a join. |
 
 ## Events
 

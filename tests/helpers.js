@@ -50,6 +50,23 @@ export function seedUsers(count, prefix = 'seeded') {
 }
 
 /**
+ * Seed one like per user on a listing, straight into the table. For pushing a liker list past its cap:
+ * the like route would need a request per row, and the global rate limit is 1000 per file.
+ *
+ * Like times are one second apart in array order, so the last user given is the newest liker.
+ *
+ * @param {string} worldId - The listing
+ * @param {Array<Object>} users - `{ id }` rows, oldest like first
+ */
+export function seedLikes(worldId, users) {
+  const insert = db.prepare('INSERT INTO world_likes (world_id, user_id, created_at) VALUES (?, ?, ?)');
+  const base = Date.now() - users.length * 1000;
+  db.transaction(() => {
+    users.forEach((user, i) => insert.run(worldId, user.id, new Date(base + i * 1000).toISOString()));
+  })();
+}
+
+/**
  * A bearer header for a seeded user, signed with the same secret `protect` verifies against.
  *
  * The session generation is read at call time rather than captured, because suspending or demoting an

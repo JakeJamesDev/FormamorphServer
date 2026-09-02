@@ -13,6 +13,12 @@ const { isStaff, badgeRole } = require('../config/roles');
 const AUTHOR_LIST_LIMIT = 1000;
 
 /**
+ * Ceiling for a staff like list, in either direction. Enough to read a burst; a viral listing's full
+ * roll would turn the endpoint into a table dump. The list's `total` says when it bites.
+ */
+const LIKE_LIST_LIMIT = 500;
+
+/**
  * Orders the catalog may be asked for. A whitelist: the value is interpolated into the ORDER BY.
  *
  * Maps to the expression rather than a bare name, because `likes` is computed on the select and carries
@@ -665,7 +671,7 @@ const World = {
       return;
     }
 
-    db.prepare('DELETE FROM world_likes WHERE world_id = ? AND user_id = ?').run(worldId, userId);
+    World.removeLike(worldId, userId);
   },
 
   /**
@@ -704,6 +710,78 @@ const World = {
 
     return new Set(rows.map((row) => row.world_id));
   },
+
+  /**
+   * Who liked a listing, newest like first. For staff: the public count is a count and nothing more.
+   *
+   * The age is computed here rather than by the caller because the two timestamps are stored in
+   * different shapes — SQLite's CURRENT_TIMESTAMP for the account, an ISO string for the like — and
+   * SQLite's date functions read both. Whole seconds, since the account stamp has no finer resolution.
+   *
+   * @param {string} worldId - World ID
+   * @param {number} [limit] - Row ceiling
+   * @returns {Object} `{ total, rows }` — `total` is the full count; each row is the account plus
+   *   `liked_at` and `account_age_seconds`
+   */
+  likers: (worldId, limit = LIKE_LIST_LIMIT) => {
+    const rows = db.prepare(`
+      SELECT u.id, u.username, u.avatar_file, u.status, u.created_at,
+        l.created_at AS liked_at,
+        CAST(strftime('%s', l.created_at) AS INTEGER) - CAST(strftime('%s', u.created_at) AS INTEGER)
+          AS account_age_seconds
+      FROM world_likes l
+      JOIN users u ON u.id = l.user_id
+      WHERE l.world_id = ?
+      ORDER BY l.created_at DESC, u.id DESC
+      LIMIT ?
+    `).all(worldId, limit);
+
+    return { total: World.likeCount(worldId), rows };
+  },
+
+  /**
+   * Every listing an account has liked, newest like first, each with its author. For staff: one
+   * account liking a whole cluster from one author is the shape a throwaway account leaves.
+   *
+   * As stored, not as the room sees it: a like on a quarantined listing is a row with the flag set
+   * rather than a row that vanished.
+   *
+   * @param {string} userId - User ID
+   * @param {number} [limit] - Row ceiling
+   * @returns {Object} `{ total, rows }` — `total` is the full count; each row is the listing's id,
+   *   name, author id and username, `quarantined_at`, and `liked_at`
+   */
+  likesGiven: (userId, limit = LIKE_LIST_LIMIT) => {
+    const rows = db.prepare(`
+      SELECT w.id, w.name, w.author_id, a.username AS author_username, w.quarantined_at,
+        l.created_at AS liked_at
+      FROM world_likes l
+      JOIN worlds w ON w.id = l.world_id
+      LEFT JOIN users a ON a.id = w.author_id
+      WHERE l.user_id = ?
+      ORDER BY l.created_at DESC, w.id DESC
+      LIMIT ?
+    `).all(userId, limit);
+    const total = db.prepare('SELECT COUNT(*) AS count FROM world_likes WHERE user_id = ?').get(userId).count;
+
+    return { total, rows };
+  },
+
+  /**
+   * Take one account's like off a listing.
+   * @param {string} worldId - World ID
+   * @param {string} userId - User ID
+   * @returns {boolean} Whether a like was there to remove
+   */
+  removeLike: (worldId, userId) =>
+    db.prepare('DELETE FROM world_likes WHERE world_id = ? AND user_id = ?').run(worldId, userId).changes > 0,
+
+  /**
+   * Remove every like an account has given.
+   * @param {string} userId - User ID
+   * @returns {number} How many likes went
+   */
+  clearLikes: (userId) => db.prepare('DELETE FROM world_likes WHERE user_id = ?').run(userId).changes,
 
   /**
    * Get an author's rows of one kind (or every kind, with `ALL_KINDS`).

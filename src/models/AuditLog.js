@@ -30,7 +30,10 @@ const ACTIONS = [
   // How a report group closed. Two actions rather than one with a field, so the log filter can ask for
   // the decisions that changed something apart from the ones that did not.
   'report_actioned',
-  'report_dismissed'
+  'report_dismissed',
+  // A like taken off a listing by staff, and every like an account gave cleared in one action.
+  'like_removed',
+  'likes_cleared'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

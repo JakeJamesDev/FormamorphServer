@@ -12,6 +12,7 @@ const { flagDeletedListing } = require('./reportController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 
 /** How long a quarantine runs by default, and the bounds an admin may set instead. */
 const DEFAULT_QUARANTINE_DAYS = 7;
@@ -546,6 +547,90 @@ exports.setLikeStatus = async (req, res, next) => {
       success: true,
       data: { liked, likes: World.likeCount(world.id) }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Who liked a listing, newest like first, with how old each account was when it did.
+ *
+ * Staff only, and refused to the listing's own author: their count stays a count and nothing more. The
+ * age is here so a fresh account that liked the day it was made stands out without date math.
+ *
+ * @desc    List the accounts that liked a listing
+ * @route   GET /api/worlds/:id/likes
+ * @access  Private/Staff
+ */
+exports.getLikers = async (req, res, next) => {
+  try {
+    // As stored, not as the room sees it: a quarantined listing still answers, since hiding a listing
+    // must not hide the evidence of how it was liked.
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    const { total, rows } = World.likers(world.id);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        rows: rows.map((row) => ({
+          id: row.id,
+          username: row.username,
+          avatarUrl: avatarUrlFor(row.avatar_file),
+          status: row.status,
+          createdAt: row.created_at,
+          likedAt: row.liked_at,
+          accountAgeAtLikeSeconds: row.account_age_seconds
+        }))
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Take one account's like off a listing. The public count drops on the next read: it is counted per
+ * query, so there is no cache to clear.
+ *
+ * @desc    Remove one account's like from a listing
+ * @route   DELETE /api/worlds/:id/likes/:userId
+ * @access  Private/Staff
+ */
+exports.removeLike = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    const liker = User.findById(req.params.userId);
+    if (!liker) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Checked before the "nothing to remove" answer: whether a staff account liked something is not a
+    // moderator's to learn by probing.
+    if (!canModerate(req.user, liker)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
+    // Logged only when a row went: the log records corrections, not attempts.
+    if (World.removeLike(world.id, liker.id)) {
+      AuditLog.tryRecord({
+        action: 'like_removed',
+        actor: req.user,
+        targetUser: liker.id === req.user.id ? null : liker,
+        targetKind: world.kind || 'world',
+        targetName: world.name
+      });
+    }
+
+    res.status(200).json({ success: true, data: { likes: World.likeCount(world.id) } });
   } catch (error) {
     next(error);
   }
