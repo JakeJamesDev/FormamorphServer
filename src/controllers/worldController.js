@@ -126,6 +126,11 @@ exports.getWorlds = async (req, res, next) => {
       viewer: req.user || null
     });
 
+    // The catalog reads differently for every reader — liked marks, and an author's own quarantined
+    // listings — so it is one reader's to hold, and it is only ever held against a revalidation.
+    res.setHeader('Cache-Control', 'private, no-cache');
+    res.vary('Authorization');
+
     res.status(200).json({
       success: true,
       count: result.worlds.length,
