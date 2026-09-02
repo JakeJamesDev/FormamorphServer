@@ -15,9 +15,11 @@ backups/
 src/storage/worlds/*
 src/storage/thumbnails/*
 src/storage/avatars/*
+src/storage/event-posters/*
 !src/storage/worlds/.gitkeep
 !src/storage/thumbnails/.gitkeep
 !src/storage/avatars/.gitkeep
+!src/storage/event-posters/.gitkeep
 
 # Logs
 logs/
@@ -40,6 +42,9 @@ coverage
 
 # nyc test coverage
 .nyc_output
+
+# Agent scratch space; work that outlives a task belongs in docs-internal/
+.scratch/
 
 # IDEs and editors
 .idea/

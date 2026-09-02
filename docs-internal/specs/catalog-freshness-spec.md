@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Client side: the Formamorph repo, `.scratch/thumbnail-cache/spec.md`. This spec is the server half.
+Client side: the Formamorph repo, `docs-internal/specs/thumbnail-cache-spec.md`. This spec is the server half.
 
 ## Problem Statement
 
