@@ -52,3 +52,8 @@ coverage
 *.swp
 *.swo
 .DS_Store
+.env.production
+
+# Production data pulled off the old server for the move. Never commit: it holds
+# every account row and the old JWT secret.
+migration/
