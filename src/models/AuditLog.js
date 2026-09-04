@@ -35,7 +35,13 @@ const ACTIONS = [
   'report_dismissed',
   // A like taken off a listing by staff, and every like an account gave cleared in one action.
   'like_removed',
-  'likes_cleared'
+  'likes_cleared',
+  // How an account ended: the request, the login that took it back, and the erasure itself. The last is
+  // written by the sweeper or by the command-line tool, so it names no actor — only who it was done to,
+  // which is the one row where keeping the username is the entire point.
+  'account_deletion_requested',
+  'account_deletion_cancelled',
+  'account_deleted'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

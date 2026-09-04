@@ -30,6 +30,8 @@ const STEPS = [
   require('./steps/posterPlacement'),
   require('./steps/reportParent'),
   require('./steps/privacyPolicy'),
+  require('./steps/accountDeletion'),
+  require('./steps/placeholderUser'),
   require('./indexes')
 ];
 

@@ -15,6 +15,7 @@ const { initStorage } = require('./utils/fileStorage');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepSignals, startSignalSweeper } = require('./utils/sweepSignals');
+const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
 const app = require('./app');
 
 // Bring the schema up to date before serving, so a deploy that adds a table or a column needs nothing run
@@ -49,6 +50,11 @@ startEventSweeper();
 // Retention is a promise the privacy policy makes in writing, so nothing here waits for a reader.
 sweepSignals();
 startSignalSweeper();
+
+// And for the accounts that asked to go: erase whatever came due while the server was down, then keep
+// erasing. A user was told a date, so the wait must not depend on the process having stayed up.
+void sweepDeletions();
+startDeletionSweeper();
 
 // Set port
 const PORT = process.env.PORT || 8797;

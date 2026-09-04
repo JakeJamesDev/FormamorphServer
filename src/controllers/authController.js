@@ -1,7 +1,9 @@
 const User = require('../models/User');
+const AuditLog = require('../models/AuditLog');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { recordSignal } = require('../utils/recordSignal');
+const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
 const { validationResult } = require('express-validator');
 
 /**
@@ -80,6 +82,16 @@ exports.login = async (req, res, next) => {
       });
     }
 
+    // The reserved `[deleted user]` row is an owner for other people's work, never a session. Refused
+    // before the password is compared, and with the same wording as a wrong one, so nobody can tell the
+    // reserved name from a name nobody has taken.
+    if (user.status === SYSTEM_STATUS) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials'
+      });
+    }
+
     // Check if password matches
     const isMatch = await User.matchPassword(password, user.password);
     if (!isMatch) {
@@ -99,11 +111,27 @@ exports.login = async (req, res, next) => {
     // event an account that predates the table can acquire without doing anything else.
     recordSignal(req, user.id, 'login');
 
+    // Signing in is how a pending deletion is taken back, and the only way there is. Nothing was hidden
+    // while the request stood, so clearing the stamp restores the account whole. The flag goes back so the
+    // client can say so — the user may not remember asking.
+    let deletionCancelled = false;
+    if (user.deletion_requested_at) deletionCancelled = User.cancelDeletion(user.id);
+
+    if (deletionCancelled) {
+      AuditLog.tryRecord({
+        action: 'account_deletion_cancelled',
+        actor: user,
+        targetKind: 'account',
+        targetName: user.username
+      });
+    }
+
     const token = generateToken(user);
 
     res.status(200).json({
       success: true,
       token,
+      ...(deletionCancelled ? { deletionCancelled: true } : {}),
       user: {
         id: user.id,
         username: user.username,
@@ -112,6 +140,71 @@ exports.login = async (req, res, next) => {
         accountType: user.account_type,
         avatarUrl: avatarUrlFor(user.avatar_file)
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Ask for this account to be erased, after a grace period
+ * @route   POST /api/auth/delete-account
+ * @access  Private (suspended accounts and unaccepted policies included — see `protectDeletionRequest`)
+ */
+exports.requestAccountDeletion = async (req, res, next) => {
+  try {
+    const { password, deleteContent } = req.body;
+
+    // A suspension is evidence about somebody, so the person it is about does not get to erase it. They
+    // still have a way out; the message is where it is.
+    if (req.user.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        error: 'A suspended account cannot be deleted from here. Ask through Feedback and the team will handle it.'
+      });
+    }
+
+    // The password, not the session: a stolen token must not be able to end the account it stole. Asked
+    // before the body is judged, so somebody who cannot prove the account is theirs learns nothing about
+    // what this route wants.
+    if (!(await User.verifyPassword(req.user.id, password))) {
+      return res.status(401).json({
+        success: false,
+        error: 'Password is incorrect'
+      });
+    }
+
+    // No default. Which of their published work survives is the one thing a user cannot be assumed into.
+    if (typeof deleteContent !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'Choose whether your published listings and comments are deleted too'
+      });
+    }
+
+    // A request already standing is left exactly as it is, rather than re-stamped. Asking twice must not
+    // push the date out, or an account could be held in the window indefinitely by repeating the request.
+    const standing = User.deletionRequestedAt(req.user.id);
+    if (standing) {
+      return res.status(200).json({
+        success: true,
+        deletionScheduledFor: erasureDue(standing)
+      });
+    }
+
+    const requestedAt = User.requestDeletion(req.user.id, deleteContent);
+
+    AuditLog.tryRecord({
+      action: 'account_deletion_requested',
+      actor: req.user,
+      targetKind: 'account',
+      targetName: req.user.username,
+      snippet: deleteContent ? 'content deleted' : 'content kept'
+    });
+
+    res.status(200).json({
+      success: true,
+      deletionScheduledFor: erasureDue(requestedAt)
     });
   } catch (error) {
     next(error);

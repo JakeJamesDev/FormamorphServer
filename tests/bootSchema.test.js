@@ -253,11 +253,25 @@ describe('the schema step', () => {
     for (const table of TABLES) expect(names).toContain(table);
   });
 
-  it('applies the tables, the seeded policy and the indexes to a fresh database, and nothing to it twice', () => {
+  it('applies the tables, the seeded rows and the indexes to a fresh database, and nothing to it twice', () => {
     const fresh = openDatabase();
 
-    expect(migrate(fresh)).toEqual(['tables', 'privacyPolicy', 'indexes']);
+    expect(migrate(fresh)).toEqual(['tables', 'privacyPolicy', 'placeholderUser', 'indexes']);
     expect(migrate(fresh)).toEqual([]);
+
+    fresh.close();
+  });
+
+  it('seeds the reserved placeholder account, which no password can sign in as', () => {
+    // Where a departing account's listings and comments go when they choose to leave the work behind. Both
+    // author columns are NOT NULL, so this row is what makes that path possible at all.
+    const fresh = openDatabase();
+    migrate(fresh);
+
+    const placeholder = fresh.prepare("SELECT * FROM users WHERE username = '[deleted user]'").get();
+    expect(placeholder.id).toBe('00000000-0000-4000-8000-000000000000');
+    expect(placeholder.status).toBe('system');
+    expect(placeholder.password).not.toHaveLength(60); // nothing bcrypt can match
 
     fresh.close();
   });
@@ -370,11 +384,13 @@ describe('the schema step', () => {
   it('does not seed the admin account', () => {
     // The seed is deliberately left out of the boot path: a server that invents an account with a
     // default password on every boot is a hazard, and `npm run init-db` still does it on a new install.
+    // The reserved placeholder is the only row a migration ever puts in this table, and it can't log in.
     db.prepare('DELETE FROM users').run();
 
     migrate(db);
 
-    expect(db.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
+    const seeded = db.prepare('SELECT username FROM users').all().map((row) => row.username);
+    expect(seeded).toEqual(['[deleted user]']);
   });
 
   it('is what the server runs before it listens', async () => {
@@ -393,8 +409,8 @@ describe('the schema step', () => {
     expect(tableNames(migrated)).toContain('reports');
     // The seeded policy reaches a real deploy, not only the suite's own migrate.
     expect(migrated.prepare("SELECT enabled FROM policies WHERE id = 'privacy_policy'").get().enabled).toBe(0);
-    // Serving never invents an owner: the seed belongs to init-db alone.
-    expect(migrated.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
+    // Serving never invents an owner: the seed belongs to init-db alone. The placeholder is not one.
+    expect(migrated.prepare("SELECT COUNT(*) AS count FROM users WHERE status <> 'system'").get().count).toBe(0);
     migrated.close();
   }, 20000);
 

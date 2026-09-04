@@ -1,8 +1,8 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { register, login, getMe, changePassword } = require('../controllers/authController');
-const { protect, protectBeforePolicy } = require('../middleware/auth');
+const { register, login, getMe, changePassword, requestAccountDeletion } = require('../controllers/authController');
+const { protect, protectBeforePolicy, protectDeletionRequest } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
@@ -56,5 +56,9 @@ router.post(
   protectBeforePolicy,
   changePassword
 );
+
+// Ask for this account to be erased. Under the credential limiter with the rest: it takes a password, so
+// it is a place to guess one.
+router.post('/delete-account', authLimiter, protectDeletionRequest, requestAccountDeletion);
 
 module.exports = router;

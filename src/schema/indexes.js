@@ -65,6 +65,12 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_event_placements_world ON event_placements(world_id);
   `);
 
+  // The deletion sweeper asks for the accounts whose grace period has run out, and nothing else asks
+  // anything of this column.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_deletion ON users(deletion_requested_at);
+  `);
+
   // Create indexes for policy acceptances
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_policy_acceptances_user ON policy_acceptances(user_id);

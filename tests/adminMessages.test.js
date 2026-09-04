@@ -412,7 +412,10 @@ describe('GET /api/messages/sent', () => {
 
     const res = await sentList(root);
     expect(res.body.data[0].readCount).toBe(2);
-    expect(res.body.data[0].eligibleCount).toBe(4); // 2 readers + idler + the admin
+    // 2 readers + idler + the admin. The reserved `[deleted user]` row is in this table too and is not
+    // one of them: nobody reads a notice sent to a tombstone, and counting it would hold every broadcast
+    // one short of read forever.
+    expect(res.body.data[0].eligibleCount).toBe(4);
     expect(res.body.data[0].recipient).toBeNull();
   });
 

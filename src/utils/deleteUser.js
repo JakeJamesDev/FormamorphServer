@@ -1,127 +1,41 @@
-const db = require('../config/db');
-const fs = require('fs').promises;
-const path = require('path');
-const { WORLDS_DIR, THUMBNAILS_DIR, AVATARS_DIR } = require('../config/paths');
+const User = require('../models/User');
+const { eraseUser } = require('./eraseUser');
 
 /**
- * Delete a user and all their associated data
- * @param {string} username - Username to delete
- * @returns {Object} Result of the deletion operation
+ * Erase an account from a shell, by name.
+ *
+ * A thin caller of the erasure module, which the deletion sweeper also calls: an account ends one way
+ * whether a grace period ran out or an operator typed the name. Content goes by default, which is what
+ * this tool always did; `--keep-content` takes the other path, leaving the work behind the placeholder.
+ *
+ * @param {string} username - Username to erase
+ * @param {Object} [options]
+ *   `keepContent` — leave their listings and comments in place under the placeholder account
+ * @returns {Promise<Object>} `{ success, message, deletedData }`, or `{ success, error }`
  */
-async function deleteUser(username) {
+async function deleteUser(username, { keepContent = false } = {}) {
   try {
-    console.log(`Starting deletion process for user: ${username}`);
-    
-    // Find the user
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-    
+    const user = User.findByUsername(username);
+
     if (!user) {
       return {
         success: false,
         error: `User '${username}' not found`
       };
     }
-    
-    console.log(`Found user: ${user.id} (${user.username})`);
-    
-    // Start transaction
-    db.prepare('BEGIN TRANSACTION').run();
-    
-    try {
-      // Get all worlds created by this user
-      const userWorlds = db.prepare('SELECT * FROM worlds WHERE author_id = ?').all(user.id);
-      console.log(`Found ${userWorlds.length} worlds created by user`);
-      
-      // Delete world files and database records
-      for (const world of userWorlds) {
-        console.log(`Deleting world: ${world.name} (${world.id})`);
-        
-        // Delete world content file
-        if (world.content_file) {
-          try {
-            const contentPath = path.join(WORLDS_DIR, world.content_file);
-            await fs.unlink(contentPath);
-            console.log(`  - Deleted content file: ${world.content_file}`);
-          } catch (err) {
-            console.log(`  - Content file not found or already deleted: ${world.content_file}`);
-          }
-        }
-        
-        // Delete thumbnail file
-        if (world.thumbnail_file) {
-          try {
-            const thumbnailPath = path.join(THUMBNAILS_DIR, world.thumbnail_file);
-            await fs.unlink(thumbnailPath);
-            console.log(`  - Deleted thumbnail file: ${world.thumbnail_file}`);
-          } catch (err) {
-            console.log(`  - Thumbnail file not found or already deleted: ${world.thumbnail_file}`);
-          }
-        }
-        
-        // Delete comments on this world (from all users)
-        const worldComments = db.prepare('SELECT COUNT(*) as count FROM comments WHERE world_id = ?').get(world.id);
-        if (worldComments.count > 0) {
-          db.prepare('DELETE FROM comments WHERE world_id = ?').run(world.id);
-          console.log(`  - Deleted ${worldComments.count} comments on this world`);
-        }
-        
-        // Delete the world record
-        db.prepare('DELETE FROM worlds WHERE id = ?').run(world.id);
-        console.log(`  - Deleted world database record`);
-      }
-      
-      // Delete all comments made by this user on other worlds
-      const userComments = db.prepare('SELECT * FROM comments WHERE author_id = ?').all(user.id);
-      console.log(`Found ${userComments.length} comments made by user`);
-      
-      for (const comment of userComments) {
-        // Decrement comment count on the world
-        db.prepare(`
-          UPDATE worlds
-          SET comment_count = MAX(0, comment_count - 1)
-          WHERE id = ?
-        `).run(comment.world_id);
-        
-        // Delete the comment
-        db.prepare('DELETE FROM comments WHERE id = ?').run(comment.id);
-        console.log(`  - Deleted comment: ${comment.id}`);
-      }
-      
-      // Their profile image, which nothing else points at once the row is gone
-      if (user.avatar_file) {
-        try {
-          await fs.unlink(path.join(AVATARS_DIR, path.basename(user.avatar_file)));
-          console.log(`  - Deleted avatar file: ${user.avatar_file}`);
-        } catch (err) {
-          console.log(`  - Avatar file not found or already deleted: ${user.avatar_file}`);
-        }
-      }
 
-      // Finally, delete the user
-      db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
-      console.log(`Deleted user: ${user.username}`);
-      
-      // Commit transaction
-      db.prepare('COMMIT').run();
-      
-      console.log(`Successfully deleted user '${username}' and all associated data`);
-      
-      return {
-        success: true,
-        message: `Successfully deleted user '${username}' and all associated data`,
-        deletedData: {
-          user: user.username,
-          worlds: userWorlds.length,
-          comments: userComments.length
-        }
-      };
-      
-    } catch (error) {
-      // Rollback transaction on error
-      db.prepare('ROLLBACK').run();
-      throw error;
-    }
-    
+    const erased = await eraseUser(user, { removeContent: !keepContent });
+
+    return {
+      success: true,
+      message: `Successfully deleted user '${username}' and all associated data`,
+      deletedData: {
+        user: erased.username,
+        worlds: erased.worlds,
+        comments: erased.comments,
+        contentKept: keepContent
+      }
+    };
   } catch (error) {
     console.error('Error deleting user:', error);
     return {
@@ -133,22 +47,24 @@ async function deleteUser(username) {
 
 // If this script is run directly
 if (require.main === module) {
-  const username = process.argv[2];
-  
+  const args = process.argv.slice(2);
+  const keepContent = args.includes('--keep-content');
+  const username = args.find((arg) => !arg.startsWith('--'));
+
   if (!username) {
-    console.error('Usage: node deleteUser.js <username>');
+    console.error('Usage: node deleteUser.js <username> [--keep-content]');
     process.exit(1);
   }
-  
-  deleteUser(username)
+
+  deleteUser(username, { keepContent })
     .then(result => {
       if (result.success) {
         console.log('\n✅ SUCCESS:', result.message);
         if (result.deletedData) {
           console.log('Deleted data summary:');
           console.log(`  - User: ${result.deletedData.user}`);
-          console.log(`  - Worlds: ${result.deletedData.worlds}`);
-          console.log(`  - Comments: ${result.deletedData.comments}`);
+          console.log(`  - Worlds: ${result.deletedData.worlds}${result.deletedData.contentKept ? ' (kept)' : ''}`);
+          console.log(`  - Comments: ${result.deletedData.comments}${result.deletedData.contentKept ? ' (kept)' : ''}`);
         }
       } else {
         console.error('\n❌ ERROR:', result.error);

@@ -122,6 +122,16 @@ exports.protectAllowSuspended = authenticate({ allowSuspended: true });
 exports.protectBeforePolicy = authenticate({ allowUnacceptedPolicy: true });
 
 /**
+ * Authentication for asking to have the account erased.
+ *
+ * Both exemptions, for two different reasons. The policy prompt's third button is Delete my account, so the
+ * gate cannot stand in front of the one route that gets somebody out from behind it. And a suspended
+ * account has to reach the handler to be told where its own path is — refused here, it would get the
+ * generic suspension message instead of being pointed at Feedback.
+ */
+exports.protectDeletionRequest = authenticate({ allowSuspended: true, allowUnacceptedPolicy: true });
+
+/**
  * Authentication for a route that is open to everyone but behaves differently for a signed-in caller.
  *
  * Sets `req.user` when a valid token is present and leaves it undefined otherwise — never refusing the

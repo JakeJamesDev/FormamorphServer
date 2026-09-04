@@ -24,6 +24,14 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Feedback** | A public bug report or suggestion thread, with a status, replies, and votes. Distinct from a report, which is never public. |
 | **Audit log** | The append-only record of what staff did to accounts and to published work, including a like removed (`like_removed`) or an account's likes cleared (`likes_cleared`). Every name in it is a snapshot, never a join. |
 
+## Leaving
+
+| Term | Meaning |
+|---|---|
+| **Grace Period** | The seven days between asking for an account to be erased and the erasure. Nothing is hidden or moved during it, and signing in cancels the request outright. |
+| **Erasure** | Carrying the request out: one function, one transaction, files removed after it commits. The sweeper and the command-line tool both call it. |
+| **Placeholder** | The reserved `[deleted user]` account. Owns the listings and comments of anyone who left but chose to keep their work. No login accepts it, and staff are not shown it. |
+
 ## Events
 
 | Term | Meaning |

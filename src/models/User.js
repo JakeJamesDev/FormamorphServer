@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { PLACEHOLDER_ID } = require('../config/accountDeletion');
 
 /**
  * User model
@@ -158,6 +159,88 @@ const User = {
   },
 
   /**
+   * Whether this password is the account's.
+   *
+   * Reads the hash itself rather than handing it to a caller: nothing outside this model has a reason to
+   * hold one, and an endpoint that asks somebody to prove who they are only needs the answer.
+   *
+   * @param {string} id - User ID
+   * @param {string} password - The password to check
+   * @returns {Promise<boolean>} Whether it matches
+   */
+  verifyPassword: async (id, password) => {
+    const row = db.prepare('SELECT password FROM users WHERE id = ?').get(id);
+    if (!row || typeof password !== 'string' || !password) return false;
+
+    return bcrypt.compare(password, row.password);
+  },
+
+  /**
+   * Stamp an account as asking to be erased.
+   *
+   * Nothing else changes: the listings, the comments and the profile stay exactly where they are for the
+   * whole grace period, which is what makes cancelling free — there is nothing to put back.
+   *
+   * @param {string} id - User ID
+   * @param {boolean} removesContent - Whether their published work goes with the account
+   * @returns {string} The ISO timestamp stamped on the row
+   */
+  requestDeletion: (id, removesContent) => {
+    const stamp = new Date().toISOString();
+
+    db.prepare(`
+      UPDATE users
+      SET deletion_requested_at = ?, deletion_removes_content = ?, updated_at = ?
+      WHERE id = ?
+    `).run(stamp, removesContent ? 1 : 0, stamp, id);
+
+    return stamp;
+  },
+
+  /**
+   * When this account asked to be erased, or null when it has not.
+   *
+   * @param {string} id - User ID
+   * @returns {string|null} The ISO timestamp of the standing request
+   */
+  deletionRequestedAt: (id) => {
+    const row = db.prepare('SELECT deletion_requested_at FROM users WHERE id = ?').get(id);
+
+    return row ? row.deletion_requested_at : null;
+  },
+
+  /**
+   * Take a pending request back.
+   *
+   * @param {string} id - User ID
+   * @returns {boolean} Whether there was one to take back
+   */
+  cancelDeletion: (id) => {
+    const info = db.prepare(`
+      UPDATE users
+      SET deletion_requested_at = NULL, deletion_removes_content = 0, updated_at = ?
+      WHERE id = ? AND deletion_requested_at IS NOT NULL
+    `).run(new Date().toISOString(), id);
+
+    return info.changes > 0;
+  },
+
+  /**
+   * Every account whose request was made before `cutoff`, whole rows, for the sweeper to erase.
+   *
+   * Both sides are ISO timestamps this server wrote, so they compare as strings — the same comparison
+   * `World.expiredQuarantines` makes against its own deadline.
+   *
+   * @param {string} cutoff - ISO timestamp a request must predate to be due
+   * @returns {Array<Object>} The user rows
+   */
+  deletionsRequestedBefore: (cutoff) => db.prepare(`
+    SELECT * FROM users
+    WHERE deletion_requested_at IS NOT NULL
+      AND deletion_requested_at <= ?
+  `).all(cutoff),
+
+  /**
    * Cut every signed-in session for an account loose.
    *
    * Suspending somebody who is already signed in otherwise changed nothing they could feel until their
@@ -224,16 +307,21 @@ const User = {
 
     let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
     let countQuery = `SELECT COUNT(*) as count ${from}`;
-    const params = [];
+    // The reserved `[deleted user]` row is left out of every page and every count. It is where a departed
+    // account's work is parked rather than somebody staff have business with, and listing it would only
+    // invite acting on it.
+    const params = [PLACEHOLDER_ID];
+    let filter = ' WHERE u.id <> ?';
 
     if (search) {
       // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
       const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
-      const clause = " WHERE (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
-      query += clause;
-      countQuery += clause;
+      filter += " AND (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
       params.push(term, term);
     }
+
+    query += filter;
+    countQuery += filter;
 
     // `created_at` is CURRENT_TIMESTAMP, i.e. second-resolution, so same-second signups tie. `id` breaks
     // the tie: without it a tied row's page is a query-plan detail, and a page could repeat or skip a user.

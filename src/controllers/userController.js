@@ -9,6 +9,7 @@ const { avatarUrlFor } = require('../utils/avatarUrl');
 const Follow = require('../models/Follow');
 const { recordSignal } = require('../utils/recordSignal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
+const { PLACEHOLDER_ID } = require('../config/accountDeletion');
 
 /**
  * @desc    Get all users
@@ -219,6 +220,15 @@ exports.updateUserStatus = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         error: 'User not found'
+      });
+    }
+
+    // The reserved `[deleted user]` row is not an account and is not moderated like one. Its status is the
+    // whole of what keeps a login off it, so nothing may set that status to an ordinary one.
+    if (user.id === PLACEHOLDER_ID) {
+      return res.status(403).json({
+        success: false,
+        error: 'The reserved account cannot be changed'
       });
     }
 

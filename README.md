@@ -120,7 +120,40 @@ server/
 - `POST /api/auth/register` - Register a new user
 - `POST /api/auth/login` - Login and get JWT token
 - `POST /api/auth/change-password` - Change password
+- `POST /api/auth/delete-account` - Ask for this account to be erased after a seven-day Grace Period. Body: `password` and `deleteContent` (no default). Answers `deletionScheduledFor`
 - `GET /api/auth/me` - Get current user profile
+
+#### Deleting an account
+
+A user asks with their password and one choice: does their published work go too? Nothing changes for
+seven days — the listings, the comments and the profile all stay exactly where they are. **Signing in
+during that window cancels the whole thing**, and the login response carries `deletionCancelled: true` so
+the client can say so.
+
+| | Content deleted | Content kept |
+|---|---|---|
+| Listings and their files | Deleted | Stay, owned by `[deleted user]` |
+| Comments, everywhere | Deleted | Stay, written by `[deleted user]` |
+| Contest placements | Listing name kept, author anonymized | Listing name kept, author anonymized |
+| Avatar | Deleted | Deleted |
+| Likes, follows, Signals, policy answers | Gone by cascade | Gone by cascade |
+
+A **suspended account cannot use this** — it gets a 403 pointing at Feedback, so a suspension's evidence
+cannot be erased by the person it is about. Asking again while a request already stands is a no-op that
+answers the standing date: the window can't be pushed out by repeating the request, and a second call
+carrying a different `deleteContent` does not change the choice already recorded.
+
+After the window, `sweepDeletions()` erases what is due: once at boot to catch up, then hourly. The
+erasure itself lives in `src/utils/eraseUser.js` and is the only one there is — the sweeper and the
+command-line tool both call it, so an account ends the same way whoever ends it:
+
+```bash
+node src/utils/deleteUser.js <username> [--keep-content]
+```
+
+`[deleted user]` is a reserved row seeded by a schema step. It has a fixed id, a status no login accepts,
+and it is left out of the staff user list. It exists because `worlds.author_id` and `comments.author_id`
+are NOT NULL: keeping somebody's work needs an owner to hand it to.
 
 ### World Management
 - `GET /api/worlds` - List worlds with filtering and sorting options
@@ -283,7 +316,8 @@ client has a screen to open rather than a message to print. An older build that 
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
 
 `PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,
-change-password, and everything under `/api/policies`. It applies to suspended accounts like anyone else.
+change-password, delete-account, and everything under `/api/policies`. It applies to suspended accounts
+like anyone else.
 The policy row ships **disabled**, so nothing is refused until an admin enables it in the Policies tab.
 
 ## Client Integration

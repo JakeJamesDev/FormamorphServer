@@ -39,6 +39,11 @@ const apply = (database) => {
       -- under; the auth middleware refuses one that no longer matches. Without it a stolen token stays good for
       -- its full life no matter what the owner or an admin does about the breach.
       token_version INTEGER NOT NULL DEFAULT 0,
+      -- When this account asked to be erased, and whether its published work goes with it. Both are
+      -- cleared by a login inside the grace period, which is the whole of how a request is cancelled:
+      -- nothing is hidden or moved while the stamp stands, so cancelling has nothing to restore.
+      deletion_requested_at TEXT,
+      deletion_removes_content INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

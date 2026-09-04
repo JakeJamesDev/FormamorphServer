@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
+const { SYSTEM_STATUS } = require('../config/accountDeletion');
 
 /** How loud a message is; the client styles each differently. Describes the message, never an action. */
 const SEVERITIES = ['info', 'warning', 'urgent'];
@@ -72,6 +73,7 @@ const SENT_SELECT = `
          (
            SELECT COUNT(*) FROM users eu
            WHERE m.recipient_id IS NULL
+             AND eu.status <> @systemStatus
              AND (m.scope IN ('new', 'pinned') OR datetime(eu.created_at) <= datetime(m.created_at))
          ) AS eligible_count
   FROM messages m
@@ -143,7 +145,7 @@ const Message = {
    * @returns {Object|undefined} Enriched message row, or undefined if not found
    */
   getSentById: (id) => {
-    return db.prepare(`${SENT_SELECT} WHERE m.id = @id`).get({ id });
+    return db.prepare(`${SENT_SELECT} WHERE m.id = @id`).get({ id, systemStatus: SYSTEM_STATUS });
   },
 
   /**
@@ -367,7 +369,7 @@ const Message = {
     // better-sqlite3 rejects named parameters a statement doesn't use, so `recipientId` is only bound
     // when the filter clause that reads it is present.
     const filterParams = recipientId ? { recipientId } : {};
-    const params = { limit, offset, ...filterParams };
+    const params = { limit, offset, systemStatus: SYSTEM_STATUS, ...filterParams };
 
     const messages = db.prepare(`
       ${SENT_SELECT}
