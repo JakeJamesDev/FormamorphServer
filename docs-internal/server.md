@@ -82,13 +82,13 @@ The script does, in order:
 
 1. `npm run backup` — full local backup (DB, worlds, thumbnails, avatars) into `backups/backup-<timestamp>/`.
    Format and restore details: [BACKUP_RESTORE_DOCUMENTATION.md](../BACKUP_RESTORE_DOCUMENTATION.md).
-2. `npm run cleanup-backups -- 3` — keeps the 3 newest local backups.
-3. `rclone copyto` the new DB file to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db`.
+2. `npm run cleanup-backups -- 1` — keeps only the newest local backup. Peak use is two backups (~13 GB) during the run.
+3. `rclone -v copyto` the new DB file to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db`.
 4. Prunes that folder with `--min-age 30d` — 30 daily DB snapshots retained.
 5. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
-6. `rclone sync /srv/formamorph/storage r2:formamorph-files` — mirror of all uploads. Removals propagate.
+6. `rclone -v sync /srv/formamorph/storage r2:formamorph-files` — mirror of all uploads. Removals propagate.
 
-So there are three layers: local full backups (3 days), offsite DB history (30 days), offsite file mirror (current only).
+So there are three layers: local full backup (yesterday only), offsite DB history (30 days), offsite file mirror (current only).
 
 ### Checking backups
 
@@ -109,8 +109,6 @@ rclone size r2:formamorph-files
 
 ## Known gaps
 
-- ⚠️ **Disk.** Each local backup is ~6.4 GB and 3 are kept. With 13 GB free on 38 GB, the third nightly run will
-  likely fill the disk. Lower the keep count or exclude world files from the local backup (R2 already mirrors them).
-- The backup log does not show rclone output, so an upload failure is silent. Add `-v` to the rclone lines.
 - No fail2ban. SSH is key-only, so this is low priority.
 - No alerting. Nothing notifies anyone if the unit or the cron job fails.
+- The pre-edit backup script is kept at `/usr/local/bin/formamorph-backup.bak`.
