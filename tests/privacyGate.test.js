@@ -205,6 +205,20 @@ describe('what the gate lets through', () => {
 
     expect((await request(app).get('/api/worlds').set(authHeader(user))).status).toBe(200);
   });
+
+  it('browses the catalog as a visitor, without the account’s own privileges', async () => {
+    // An author can normally still find their quarantined listing. Unaccepted, they see the room's view.
+    const root = admin();
+    const author = createUser({ username: 'author' });
+    const id = (await request(app).post('/api/worlds').set(authHeader(author)).send(worldPayload())).body.data.id;
+    await request(app).put(`/api/worlds/${id}/quarantine`).set(authHeader(root)).send({});
+    await enablePolicy(root);
+
+    const res = await request(app).get('/api/worlds').set(authHeader(author));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((w) => w.id)).not.toContain(id);
+  });
 });
 
 describe('accepting', () => {

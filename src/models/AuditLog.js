@@ -40,7 +40,7 @@ const ACTIONS = [
   // written by the sweeper or by the command-line tool, so it names no actor — only who it was done to,
   // which is the one row where keeping the username is the entire point.
   'account_deletion_requested',
-  'account_deletion_cancelled',
+  'account_deletion_canceled',
   'account_deleted'
 ];
 

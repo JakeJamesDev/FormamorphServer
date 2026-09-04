@@ -114,12 +114,12 @@ exports.login = async (req, res, next) => {
     // Signing in is how a pending deletion is taken back, and the only way there is. Nothing was hidden
     // while the request stood, so clearing the stamp restores the account whole. The flag goes back so the
     // client can say so — the user may not remember asking.
-    let deletionCancelled = false;
-    if (user.deletion_requested_at) deletionCancelled = User.cancelDeletion(user.id);
+    let deletionCanceled = false;
+    if (user.deletion_requested_at) deletionCanceled = User.cancelDeletion(user.id);
 
-    if (deletionCancelled) {
+    if (deletionCanceled) {
       AuditLog.tryRecord({
-        action: 'account_deletion_cancelled',
+        action: 'account_deletion_canceled',
         actor: user,
         targetKind: 'account',
         targetName: user.username
@@ -131,7 +131,7 @@ exports.login = async (req, res, next) => {
     res.status(200).json({
       success: true,
       token,
-      ...(deletionCancelled ? { deletionCancelled: true } : {}),
+      ...(deletionCanceled ? { deletionCanceled: true } : {}),
       user: {
         id: user.id,
         username: user.username,

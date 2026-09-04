@@ -69,7 +69,7 @@ Open your profile and choose **Delete account**. You re-enter your password, so 
 
 You choose once **whether your published worlds and comments go too**. If you keep them, they stay under a fixed **[deleted user]** name with no profile behind it. Your name is gone even where your work stays. Contest placements keep the listing's name and drop yours.
 
-A **seven-day Grace Period** follows. Nothing is hidden during it. **Logging back in cancels the deletion**, and the app tells you that it cancelled. After seven days we erase the account and everything attached to it, Signals included. You do not have to come back to finish it.
+A **seven-day Grace Period** follows. Nothing is hidden during it. **Logging back in cancels the deletion**, and the app tells you that it canceled. After seven days we erase the account and everything attached to it, Signals included. You do not have to come back to finish it.
 
 **Moderation records keep your username afterwards.** If staff acted on your account, the audit row that names you survives the deletion. Erasure is not total, and this policy will not pretend otherwise.
 

@@ -127,7 +127,7 @@ server/
 
 A user asks with their password and one choice: does their published work go too? Nothing changes for
 seven days — the listings, the comments and the profile all stay exactly where they are. **Signing in
-during that window cancels the whole thing**, and the login response carries `deletionCancelled: true` so
+during that window cancels the whole thing**, and the login response carries `deletionCanceled: true` so
 the client can say so.
 
 | | Content deleted | Content kept |

@@ -239,7 +239,7 @@ describe('the grace period', () => {
     const res = await login(user);
 
     expect(res.status).toBe(200);
-    expect(res.body.deletionCancelled).toBe(true);
+    expect(res.body.deletionCanceled).toBe(true);
     expect(userRow(user.id).deletion_requested_at).toBeNull();
     expect(userRow(user.id).deletion_removes_content).toBe(0);
   });
@@ -252,8 +252,8 @@ describe('the grace period', () => {
 
     const again = await login(user);
 
-    expect(again.body.deletionCancelled).toBeUndefined();
-    const cancelled = (await auditEntries(staff)).filter((e) => e.action === 'account_deletion_cancelled');
+    expect(again.body.deletionCanceled).toBeUndefined();
+    const cancelled = (await auditEntries(staff)).filter((e) => e.action === 'account_deletion_canceled');
     expect(cancelled).toHaveLength(1);
     expect(cancelled[0].actor.username).toBe('wren_hallow');
   });
@@ -261,7 +261,7 @@ describe('the grace period', () => {
   it('says nothing on a login by an account that never asked', async () => {
     const user = createUser({ username: 'wren_hallow' });
 
-    expect((await login(user)).body.deletionCancelled).toBeUndefined();
+    expect((await login(user)).body.deletionCanceled).toBeUndefined();
   });
 
   it('is not shortened by a failed sign-in', async () => {
@@ -288,7 +288,7 @@ describe('the grace period', () => {
     const { author, listing } = await seedAuthor();
 
     await askToDelete(author, { password: author.password, deleteContent: true });
-    expect((await login(author)).body.deletionCancelled).toBe(true);
+    expect((await login(author)).body.deletionCanceled).toBe(true);
     expect((await readListing(listing.id)).status).toBe(200);
 
     await askToDelete(author, { password: author.password, deleteContent: true });

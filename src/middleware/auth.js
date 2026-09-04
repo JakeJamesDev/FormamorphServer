@@ -141,6 +141,9 @@ exports.protectDeletionRequest = authenticate({ allowSuspended: true, allowUnacc
  * A bad or expired token is treated as no token rather than as an error. These routes serve signed-out
  * visitors anyway, so failing them would turn a stale token into an outage for browsing.
  *
+ * A caller who has not accepted the Privacy Policy is served as a visitor: browsing needs no account, but
+ * the account's privileges, an author's view of its own quarantined listing among them, wait on the answer.
+ *
  * @param {Object} req - Express request object
  * @param {Object} _res - Express response object
  * @param {Function} next - Express next function
@@ -160,6 +163,8 @@ exports.optionalAuth = async (req, _res, next) => {
   } catch {
     // Anonymous, exactly as if nothing had been sent.
   }
+
+  if (req.user && privacyRefusal(req.user)) delete req.user;
 
   return next();
 };
