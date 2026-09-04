@@ -13,7 +13,19 @@ const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
 const { recordSignal } = require('../utils/recordSignal');
+const Signal = require('../models/Signal');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+
+/** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
+const likerRow = (row) => ({
+  id: row.id,
+  username: row.username,
+  avatarUrl: avatarUrlFor(row.avatar_file),
+  status: row.status,
+  createdAt: row.created_at,
+  likedAt: row.liked_at,
+  accountAgeAtLikeSeconds: row.account_age_seconds
+});
 
 /** How long a quarantine runs by default, and the bounds an admin may set instead. */
 const DEFAULT_QUARANTINE_DAYS = 7;
@@ -587,18 +599,60 @@ exports.getLikers = async (req, res, next) => {
 
     const { total, rows } = World.likers(world.id);
 
+    res.status(200).json({ success: true, data: { total, rows: rows.map(likerRow) } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * The likes on a listing with the Signals behind them read across.
+ *
+ * The plain list already says how old each account was when it liked, which is half of what tells a
+ * popular listing from an inflated one. This is the other half: which of these accounts acted from the
+ * same address as each other, and which acted from the author's. Four accounts made minutes apart from
+ * one place, all liking one contest entry, is the shape this is for.
+ *
+ * A separate route rather than a field on the list, because reading it is written to the audit log and
+ * opening a like list to count it should not file a look at anybody. `models/Signal.sharedAddressGroups`
+ * explains what a group means. Nothing here acts — the removal route beside it is what staff act with.
+ *
+ * @desc    List the accounts that liked a listing, grouped by shared network address
+ * @route   GET /api/worlds/:id/likes/audit
+ * @access  Private/Staff
+ */
+exports.getLikersAudit = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    const { total, rows } = World.likers(world.id);
+    const { groupOf, linkedToTarget } = Signal.sharedAddressGroups(
+      rows.map((row) => row.id),
+      world.author_id
+    );
+
+    // Every call, not the first: the log answers "who looked at whom, and when", and a row written once
+    // would leave the second look — the one somebody went back for — unrecorded.
+    const author = world.author_id ? User.findById(world.author_id) : null;
+    AuditLog.tryRecord({
+      action: 'signals_viewed',
+      actor: req.user,
+      targetUser: author && author.id !== req.user.id ? author : null,
+      targetKind: world.kind || 'world',
+      targetName: world.name
+    });
+
     res.status(200).json({
       success: true,
       data: {
         total,
         rows: rows.map((row) => ({
-          id: row.id,
-          username: row.username,
-          avatarUrl: avatarUrlFor(row.avatar_file),
-          status: row.status,
-          createdAt: row.created_at,
-          likedAt: row.liked_at,
-          accountAgeAtLikeSeconds: row.account_age_seconds
+          ...likerRow(row),
+          groupId: groupOf.get(row.id) ?? null,
+          linkedToAuthor: linkedToTarget.has(row.id)
         }))
       }
     });

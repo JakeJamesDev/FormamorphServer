@@ -1,6 +1,6 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, getLikers, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, getLikers, getLikersAudit, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
@@ -85,6 +85,11 @@ router.put('/:id/like', smallJson, protect, setLikeStatus);
 // more; the names behind it are the team's, for telling a popular listing from an inflated one.
 router.get('/:id/likes', protect, staff, getLikers);
 router.delete('/:id/likes/:userId', protect, staff, removeLike);
+
+// The same likes with the Signals behind them read across: who liked from the same address as whom, and
+// who from the author's. Its own route because every call is written to the audit log, and counting the
+// likes on a listing must not file a look at the people who gave them.
+router.get('/:id/likes/audit', protect, staff, getLikersAudit);
 
 // Delete world
 // Quarantine a listing, or lift one (staff only). Out of the catalog for everyone but its author, and
