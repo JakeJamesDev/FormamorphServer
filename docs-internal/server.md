@@ -152,6 +152,12 @@ rclone size r2:formamorph-files
 | Cloudflare DNS | $0 |
 | Domain formamorph.ai | about $70 to $100 per year |
 
+## Deploy log
+
+- **2026-09-04** — dropped `worlds.preview_data` (commit `cd2cbcb`). Pre-deploy backup `pre-drop-preview-data` in
+  `backups/`; it is the only restore point that works with older code. Boot step took under a second; a manual
+  `VACUUM` with the service stopped shrank the database from 602 MB to 3.3 MB.
+
 ## Known gaps
 
 - No fail2ban. SSH is key-only, so this is low priority.
