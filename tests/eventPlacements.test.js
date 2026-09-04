@@ -118,8 +118,8 @@ const seedPodiumTargets = (eventId, worldIds) => {
 
   for (const worldId of worldIds) {
     db.prepare(`
-      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file)
-      VALUES (?, ?, 'd', 'u-constraint', 't.png', '{}', 'c.json')
+      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file)
+      VALUES (?, ?, 'd', 'u-constraint', 't.png', 'c.json')
     `).run(worldId, worldId);
   }
 

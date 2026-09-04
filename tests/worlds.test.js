@@ -72,12 +72,90 @@ describe('GET /api/worlds', () => {
     expect(res.body.data.map((w) => w.name)).toEqual(['Alice World']);
   });
 
-  it('never exposes preview_data in the list (it carries the megabyte thumbnail)', async () => {
+  it('never exposes preview_data in the list', async () => {
     const user = createUser();
     await create(user, { name: 'Heavy' });
 
     const res = await request(app).get('/api/worlds');
     expect(res.body.data[0].preview_data).toBeUndefined();
+  });
+});
+
+describe('the retired preview field', () => {
+  // The column is gone and the client that still sends it deploys days later, so both halves are pinned:
+  // a body without the field publishes, and a body with it publishes too and leaves no trace of it.
+  it('publishes without it, and the listing reads back whole', async () => {
+    const user = createUser({ username: 'no-preview' });
+    const created = await create(user, { name: 'Lean Publish', description: 'Sent without the field' });
+
+    expect(created.status).toBe(201);
+
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(detail.body.data.name).toBe('Lean Publish');
+    expect(detail.body.data.description).toBe('Sent without the field');
+    expect(detail.body.data.thumbnailUrl).toMatch(/^\/api\/thumbnails\//);
+
+    const thumbnail = await request(app).get(detail.body.data.thumbnailUrl);
+    expect(thumbnail.status).toBe(200);
+  });
+
+  it('accepts a publish that still sends it, and keeps no trace of it', async () => {
+    const user = createUser({ username: 'old-client' });
+    const created = await create(user, {
+      name: 'Old Client Publish',
+      previewData: { name: 'Old Client Publish', thumbnail: TINY_PNG }
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.preview_data).toBeUndefined();
+    expect(created.body.data.previewData).toBeUndefined();
+
+    const list = await request(app).get('/api/worlds');
+    const listed = list.body.data.find((world) => world.name === 'Old Client Publish');
+    expect(listed.preview_data).toBeUndefined();
+    expect(listed.previewData).toBeUndefined();
+
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(detail.body.data.preview_data).toBeUndefined();
+    expect(detail.body.data.previewData).toBeUndefined();
+  });
+
+  it('accepts an update that still sends it, and changes only what the update names', async () => {
+    const user = createUser({ username: 'old-client-edit' });
+    const created = await create(user, { name: 'Before', description: 'Original wording' });
+
+    const res = await request(app)
+      .put(`/api/worlds/${created.body.data.id}`)
+      .set(authHeader(user))
+      .send({ name: 'After', previewData: { name: 'After', thumbnail: TINY_PNG } });
+
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(detail.body.data.name).toBe('After');
+    expect(detail.body.data.description).toBe('Original wording');
+    expect(detail.body.data.preview_data).toBeUndefined();
+    expect(detail.body.data.previewData).toBeUndefined();
+  });
+
+  it('accepts an update that sends nothing but it, and leaves the listing alone', async () => {
+    // The old client's thinnest edit: the field was the only thing it changed. Nothing is left to write,
+    // so the update has to be a no-op rather than an error or an empty write.
+    const user = createUser({ username: 'old-client-only' });
+    const created = await create(user, { name: 'Untouched', description: 'Still the original' });
+
+    const res = await request(app)
+      .put(`/api/worlds/${created.body.data.id}`)
+      .set(authHeader(user))
+      .send({ previewData: { name: 'Untouched', thumbnail: TINY_PNG } });
+
+    expect(res.status).toBe(200);
+
+    const detail = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(detail.body.data.name).toBe('Untouched');
+    expect(detail.body.data.description).toBe('Still the original');
+    expect(detail.body.data.preview_data).toBeUndefined();
+    expect(detail.body.data.previewData).toBeUndefined();
   });
 });
 

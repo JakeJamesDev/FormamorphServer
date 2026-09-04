@@ -32,6 +32,7 @@ const STEPS = [
   require('./steps/privacyPolicy'),
   require('./steps/accountDeletion'),
   require('./steps/placeholderUser'),
+  require('./steps/dropPreviewData'),
   require('./indexes')
 ];
 

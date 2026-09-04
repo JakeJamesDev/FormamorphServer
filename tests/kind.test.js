@@ -22,7 +22,6 @@ function legacyDb() {
       description TEXT NOT NULL,
       author_id TEXT NOT NULL,
       thumbnail_file TEXT NOT NULL,
-      preview_data TEXT NOT NULL,
       content_file TEXT NOT NULL,
       downloads INTEGER DEFAULT 0,
       comment_count INTEGER DEFAULT 0,
@@ -34,8 +33,8 @@ function legacyDb() {
   `);
   legacy
     .prepare(
-      `INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file)
-       VALUES ('w-old', 'Existing World', 'published before kind existed', 'u1', 't.png', '{}', 'w-old.json')`,
+      `INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file)
+       VALUES ('w-old', 'Existing World', 'published before kind existed', 'u1', 't.png', 'w-old.json')`,
     )
     .run();
   return legacy;

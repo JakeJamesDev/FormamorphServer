@@ -82,18 +82,13 @@ const World = {
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
     
-    // Don't include preview_data as it contains megabytes due to thumbnail
-    
-    // Return world with author but without preview_data
-    const { preview_data, ...worldWithoutPreviewData } = world;
-    
     // Add thumbnail URL - ensure we're using the correct path
     // The thumbnail_file might contain a full path, so we need to extract just the filename
     const thumbnailFilename = world.thumbnail_file.split('/').pop();
     const thumbnailUrl = `/api/thumbnails/${thumbnailFilename}`;
-    
+
     return {
-      ...worldWithoutPreviewData,
+      ...world,
       thumbnailUrl,
       author
     };
@@ -259,8 +254,7 @@ const World = {
         delete world.author_avatar_file;
         delete world.author_account_type;
         delete world.content_file;
-        delete world.preview_data; // Don't include preview_data as it contains megabytes due to thumbnail
-        
+
         // Add thumbnail URL - ensure we're using the correct path
         // The thumbnail_file might contain a full path, so we need to extract just the filename
         const thumbnailFilename = world.thumbnail_file.split('/').pop();
@@ -333,11 +327,6 @@ const World = {
       const tagsString = JSON.stringify(tags);
       console.log('World.create - Final tags string for storage:', tagsString);
       
-      // Parse preview data if it's a string
-      const previewData = typeof worldData.preview_data === 'string'
-        ? worldData.preview_data
-        : JSON.stringify(worldData.preview_data || {});
-      
       // The two timestamps are written rather than left to the column default. `CURRENT_TIMESTAMP` is
       // whole seconds in SQLite's own format, while every update writes ISO with milliseconds — one
       // column in two formats, which orders by where a space sorts against a `T` rather than by time.
@@ -348,17 +337,16 @@ const World = {
       db.prepare(`
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
-          preview_data, content_file, tags, comment_count, spoiler, kind,
+          content_file, tags, comment_count, spoiler, kind,
           contest_event_id, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
         worldData.description,
         worldData.author_id,
         thumbnailFile,
-        previewData,
         contentFile,
         tagsString,
         0, // Initialize comment_count to 0
@@ -414,11 +402,6 @@ const World = {
         // Stringify the tags array for storage
         worldData.tags = JSON.stringify(tags);
         console.log('World.update - Final tags string for storage:', worldData.tags);
-      }
-      
-      // Parse preview data if it's an object
-      if (worldData.preview_data && typeof worldData.preview_data === 'object') {
-        worldData.preview_data = JSON.stringify(worldData.preview_data);
       }
       
       // Build update query

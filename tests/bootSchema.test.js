@@ -313,6 +313,21 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('drops the preview column from an old database, and reports nothing the second time', () => {
+    // The column held a base64 copy of the thumbnail already on disk, and nothing ever read it back. The
+    // step is the only thing between a live database that still carries it and the fresh shape that does
+    // not, so it has to fire once and then be a no-op forever after.
+    const legacy = oldestDatabase();
+    expect(columnNames(legacy, 'worlds')).toContain('preview_data');
+
+    expect(migrate(legacy)).toContain('dropPreviewData');
+
+    expect(columnNames(legacy, 'worlds')).not.toContain('preview_data');
+    expect(migrate(legacy)).toEqual([]);
+
+    legacy.close();
+  });
+
   it('runs the podium rebuild before the framing column, or the rebuild would drop it', () => {
     // The one pair of steps with an order between them: the podium step rebuilds `events` from a fixed
     // column list, so a column added to that table before it goes with the old table.

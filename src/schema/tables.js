@@ -57,7 +57,6 @@ const apply = (database) => {
       description TEXT NOT NULL,
       author_id TEXT NOT NULL,
       thumbnail_file TEXT NOT NULL,
-      preview_data TEXT NOT NULL,
       content_file TEXT NOT NULL,
       downloads INTEGER DEFAULT 0,
       comment_count INTEGER DEFAULT 0,

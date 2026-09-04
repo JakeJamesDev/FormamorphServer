@@ -92,7 +92,6 @@ export function worldPayload(overrides = {}) {
     name,
     description: 'A world for testing',
     thumbnail: TINY_PNG,
-    previewData: { name, description: 'A world for testing', thumbnail: TINY_PNG },
     contentData: { worldOverview: { name }, stats: [], locations: [], entities: [], traits: [], statUpdates: [] },
     ...overrides,
   };

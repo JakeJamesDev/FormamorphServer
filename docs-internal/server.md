@@ -57,7 +57,41 @@ cd /srv/formamorph/app && git pull && npm ci --omit=dev && sudo systemctl restar
 3. Wait 6 s, then check `systemctl is-active formamorph-api` and the journal.
 
 `npm ci` takes about 4 minutes because `better-sqlite3` compiles from source. Rollback is `git checkout <old sha>`
-and the same `npm ci` + restart. Migrations are additive, so old code runs on a newer schema.
+and the same `npm ci` + restart.
+
+⚠️ Migrations were additive until the `preview_data` drop (2026-09-04), so old code ran on a newer schema.
+That no longer holds. Code from before that deploy names the dropped column and fails on every publish.
+**Rolling back past it means restoring the database too** — see [One-time reclaim](#one-time-reclaim-2026-09-04).
+
+### One-time reclaim (2026-09-04)
+
+The `dropPreviewData` schema step removes `worlds.preview_data` on boot. SQLite does not return the freed
+pages to the file, so the disk only shrinks after a `VACUUM`. A vacuum rewrites the whole file and cannot
+run inside a transaction, so it is **not** part of the boot step. Run it once, with the service stopped:
+
+```bash
+sudo systemctl stop formamorph-api
+ls -l /srv/formamorph/data/exotic-dangerous.db
+sqlite3 /srv/formamorph/data/exotic-dangerous.db 'VACUUM;'
+ls -l /srv/formamorph/data/exotic-dangerous.db
+sudo systemctl start formamorph-api
+```
+
+If `sqlite3` is not installed, the app's own driver does the same job:
+
+```bash
+cd /srv/formamorph/app && node -e "new (require('better-sqlite3'))('/srv/formamorph/data/exotic-dangerous.db').exec('VACUUM')"
+```
+
+Expect about **574 MB before and a few MB after**: the column held ~500 MB of base64 text across 661
+listings, against ~2 MB for everything else, and a `zstd -9` snapshot went from ~430 MB to a fraction of a
+few MB. That was ~6 GB of the ~12 GB in R2, which is what put the bucket over its free tier.
+
+The vacuum needs free disk equal to the current file, because it writes a full copy before swapping it in.
+The two `ls -l` lines above give the real figures. Record them here in place of the estimate once it has run.
+
+The restore point for this deploy is the nightly R2 snapshot from the morning it ran,
+`r2:formamorph-backups/db-history/2026-09-04.db.zst`. It is the last copy that still has the column.
 
 ## Changing configuration
 
@@ -83,7 +117,7 @@ The script does, in order:
 1. `npm run backup` — full local backup (DB, worlds, thumbnails, avatars) into `backups/backup-<timestamp>/`.
    Format and restore details: [BACKUP_RESTORE_DOCUMENTATION.md](../BACKUP_RESTORE_DOCUMENTATION.md).
 2. `npm run cleanup-backups -- 1` — keeps only the newest local backup. Peak use is two backups (~13 GB) during the run.
-3. Compresses the DB copy with `zstd -9` (about 25% smaller; `preview_data` is mostly base64 and does not compress well).
+3. Compresses the DB copy with `zstd -9`. A snapshot is a fraction of a few MB since the `preview_data` drop.
 4. `rclone -v copyto` the `.zst` to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db.zst`.
 5. Prunes that folder with `--min-age 14d` — 14 daily DB snapshots retained, long enough to revert after a two-week absence.
 6. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
@@ -114,14 +148,12 @@ rclone size r2:formamorph-files
 | Item | Per month |
 |---|---|
 | Hetzner CX22 (Helsinki, IPv4 and 20 TB traffic included) | €3.79 before VAT |
-| Cloudflare R2 | $0 under 10 GB, then $0.015/GB. Expected use ~12 GB, so about $0.03 |
+| Cloudflare R2 | $0 under 10 GB, then $0.015/GB. Back under the free tier since the `preview_data` drop |
 | Cloudflare DNS | $0 |
 | Domain formamorph.ai | about $70 to $100 per year |
 
 ## Known gaps
 
 - No fail2ban. SSH is key-only, so this is low priority.
-- R2 sits just over the free tier because the `worlds.preview_data` column holds ~500 MB of base64 text.
-  Moving previews to files (like thumbnails) would shrink every DB copy by 80% and bring R2 to $0.
 - No alerting. Nothing notifies anyone if the unit or the cron job fails.
 - The pre-edit backup script is kept at `/usr/local/bin/formamorph-backup.bak`.

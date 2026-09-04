@@ -402,11 +402,6 @@ async function uploadWorld(worldData) {
       name: worldData.worldOverview.name,
       description: worldData.worldOverview.description,
       thumbnail: worldData.worldOverview.thumbnail,
-      previewData: {
-        name: worldData.worldOverview.name,
-        description: worldData.worldOverview.description,
-        thumbnail: worldData.worldOverview.thumbnail
-      },
       contentData: worldData,
       tags: worldData.worldOverview.tags || [],
       spoiler: worldData.worldOverview.spoiler || false

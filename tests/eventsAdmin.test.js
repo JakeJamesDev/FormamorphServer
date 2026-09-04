@@ -371,9 +371,9 @@ describe('cancelling an event', () => {
     const world = (name, eventId) => {
       const id = `world-${name}`;
       db.prepare(`
-        INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file, contest_event_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, 'entered', owner.id, `${id}.png`, '{}', `${id}.json`, eventId);
+        INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file, contest_event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, 'entered', owner.id, `${id}.png`, `${id}.json`, eventId);
       return id;
     };
     const entered = world('entered', contest.id);

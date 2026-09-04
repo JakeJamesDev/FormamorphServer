@@ -257,7 +257,7 @@ exports.createWorld = async (req, res, next) => {
     // Extract data from request body. `contestEventId` rides top level rather than inside `contentData`:
     // entering is what the publisher is doing, not part of the world they are publishing, and putting it
     // in the content would change the shape of every exported file for a flag the game never reads.
-    const { name, description, thumbnail, previewData, contentData, contestEventId } = req.body;
+    const { name, description, thumbnail, contentData, contestEventId } = req.body;
 
     if (contestEventId) {
       const refusal = contestEntryRefusal(contestEventId, req.user);
@@ -311,7 +311,6 @@ exports.createWorld = async (req, res, next) => {
           // which avoids a table rebuild on a live database just to relax the constraint.
           description: description || '',
           author_id: req.user.id,
-          preview_data: previewData,
           tags,
           kind,
           contest_event_id: contestEventId || null
@@ -406,7 +405,7 @@ exports.updateWorld = async (req, res, next) => {
     const quarantinedBefore = world.quarantined_at ? world : null;
 
     // Extract data from request body
-    const { name, description, thumbnail, previewData, contentData } = req.body;
+    const { name, description, thumbnail, contentData } = req.body;
 
     // The stored row's kind is authoritative and immutable — a listing cannot turn from a world into a
     // character. Without this, a PUT naming someone's world writes character content into it while the row
@@ -440,7 +439,6 @@ exports.updateWorld = async (req, res, next) => {
     const updateData = {};
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
-    if (previewData) updateData.preview_data = previewData;
     if (tags !== undefined) updateData.tags = tags; // Include tags if provided
 
     try {
