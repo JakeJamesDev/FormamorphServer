@@ -1,9 +1,7 @@
+const { hourly } = require('./hourly');
 const User = require('../models/User');
 const { eraseUser } = require('./eraseUser');
 const { graceCutoff } = require('../config/accountDeletion');
-
-/** How often the timer runs. The grace period is seven days, so hourly is far finer than it needs to be. */
-const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Erase every account whose grace period has run out.
@@ -39,16 +37,6 @@ const sweepDeletions = async (now = undefined) => {
   return erased;
 };
 
-/**
- * Start the hourly timer. Unref'd so it never holds the process open on its own — a pending sweep must not
- * be the reason a shutdown hangs.
- *
- * @returns {Object} The interval handle, so a caller can stop it
- */
-const startDeletionSweeper = () => {
-  const timer = setInterval(() => { void sweepDeletions(); }, SWEEP_INTERVAL_MS);
-  if (typeof timer.unref === 'function') timer.unref();
-  return timer;
-};
+const startDeletionSweeper = () => hourly(sweepDeletions);
 
-module.exports = { sweepDeletions, startDeletionSweeper, SWEEP_INTERVAL_MS };
+module.exports = { sweepDeletions, startDeletionSweeper };

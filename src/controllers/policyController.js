@@ -2,24 +2,10 @@ const Policy = require('../models/Policy');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
+const { BODY_MAX } = require('../config/policies');
 
-/** Mirrors the message composer's caps so both authored surfaces accept the same size of text. */
+/** Mirrors the message composer's cap so both authored surfaces accept the same size of title. */
 const TITLE_MAX = 120;
-const BODY_MAX = 4000;
-
-/**
- * The Privacy Policy's own ceiling. A popup is a paragraph and a button, but this one is a legal document
- * the server seeds at over six thousand characters — the shared cap would refuse the very row this server
- * wrote, and the owner could never save an edit to it.
- */
-const PRIVACY_BODY_MAX = 20000;
-
-/**
- * How long a policy's body may be.
- * @param {string} id - Policy ID
- * @returns {number} The cap in characters
- */
-const bodyMaxFor = (id) => (id === Policy.PRIVACY_POLICY ? PRIVACY_BODY_MAX : BODY_MAX);
 
 /** Ceiling on the tag notice's list, keeping the match set small enough to compare on every publish. */
 const MAX_TAGS = 100;
@@ -52,7 +38,7 @@ const parsePolicyBody = (id, body) => {
   const text = typeof body.body === 'string' ? body.body.trim() : '';
   const enabled = body.enabled === true;
   const tags = Array.isArray(body.tags) ? body.tags : [];
-  const bodyMax = bodyMaxFor(id);
+  const bodyMax = BODY_MAX[id];
 
   if (title.length > TITLE_MAX) return { error: `Title must be ${TITLE_MAX} characters or fewer` };
   if (text.length > bodyMax) return { error: `Body must be ${bodyMax} characters or fewer` };

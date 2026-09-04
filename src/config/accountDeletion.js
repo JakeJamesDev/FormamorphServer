@@ -7,10 +7,10 @@
  * window another enforces cannot drift apart.
  */
 
+const { DAY_MS } = require('./time');
+
 /** How long a request waits before it is carried out. Logging in during it cancels the whole thing. */
 const GRACE_PERIOD_DAYS = 7;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The whole of the window, in milliseconds, so the two helpers below cannot measure it differently. */
 const GRACE_PERIOD_MS = GRACE_PERIOD_DAYS * DAY_MS;

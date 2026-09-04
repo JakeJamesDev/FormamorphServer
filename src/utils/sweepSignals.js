@@ -1,9 +1,6 @@
+const { hourly } = require('./hourly');
 const Signal = require('../models/Signal');
-
-/** How often the timer runs. Retention is 90 days, so hourly is far finer than it needs to be. */
-const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+const { DAY_MS } = require('../config/time');
 
 /**
  * Delete every Signal past its retention.
@@ -30,16 +27,6 @@ const sweepSignals = (now = undefined) => {
   }
 };
 
-/**
- * Start the hourly timer. Unref'd so it never holds the process open on its own — a pending sweep must not
- * be the reason a shutdown hangs.
- *
- * @returns {Object} The interval handle, so a caller can stop it
- */
-const startSignalSweeper = () => {
-  const timer = setInterval(() => { sweepSignals(); }, SWEEP_INTERVAL_MS);
-  if (typeof timer.unref === 'function') timer.unref();
-  return timer;
-};
+const startSignalSweeper = () => hourly(sweepSignals);
 
-module.exports = { sweepSignals, startSignalSweeper, SWEEP_INTERVAL_MS };
+module.exports = { sweepSignals, startSignalSweeper };

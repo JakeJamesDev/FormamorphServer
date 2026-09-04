@@ -1,9 +1,7 @@
+const { hourly } = require('./hourly');
 const Event = require('../models/Event');
 const Message = require('../models/Message');
 const { startBroadcast, endBroadcast, cancelBroadcast, podiumBroadcast } = require('./eventBroadcasts');
-
-/** How often the timer runs. Windows are set to the hour at finest, so hourly is finer than it needs. */
-const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Post one of an event's notices as the event's creator, from the team.
@@ -147,16 +145,6 @@ const sweepEvents = async (now = undefined) => {
   return moved;
 };
 
-/**
- * Start the hourly timer. Unref'd so it never holds the process open on its own — a pending sweep must
- * not be the reason a shutdown hangs.
- *
- * @returns {Object} The interval handle, so a caller can stop it
- */
-const startEventSweeper = () => {
-  const timer = setInterval(() => { void sweepEvents(); }, SWEEP_INTERVAL_MS);
-  if (typeof timer.unref === 'function') timer.unref();
-  return timer;
-};
+const startEventSweeper = () => hourly(sweepEvents);
 
-module.exports = { sweepEvents, startEventSweeper, startEvent, endEvent, cancelEvent, announceResults, SWEEP_INTERVAL_MS };
+module.exports = { sweepEvents, startEventSweeper, startEvent, endEvent, cancelEvent, announceResults };

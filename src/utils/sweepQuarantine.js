@@ -1,9 +1,7 @@
+const { hourly } = require('./hourly');
 const World = require('../models/World');
 const AuditLog = require('../models/AuditLog');
 const { deleteWorldContent, deleteThumbnail } = require('./fileStorage');
-
-/** How often the timer runs. The deadline is a date, so checking hourly is far finer than it needs. */
-const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Delete every quarantined listing whose deadline has passed.
@@ -55,16 +53,6 @@ const sweepQuarantine = async (now = undefined) => {
   return deleted;
 };
 
-/**
- * Start the hourly timer. Unref'd so it never holds the process open on its own — a pending sweep must
- * not be the reason a shutdown hangs.
- *
- * @returns {Object} The interval handle, so a caller can stop it
- */
-const startQuarantineSweeper = () => {
-  const timer = setInterval(() => { void sweepQuarantine(); }, SWEEP_INTERVAL_MS);
-  if (typeof timer.unref === 'function') timer.unref();
-  return timer;
-};
+const startQuarantineSweeper = () => hourly(sweepQuarantine);
 
-module.exports = { sweepQuarantine, startQuarantineSweeper, SWEEP_INTERVAL_MS };
+module.exports = { sweepQuarantine, startQuarantineSweeper };

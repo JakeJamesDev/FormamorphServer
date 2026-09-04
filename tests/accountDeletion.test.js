@@ -23,7 +23,7 @@ const {
  * behind still has work behind them.
  */
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const { DAY_MS } = require('../src/config/time');
 
 /** A 1x1 lossless WebP, which is the shape the crop step produces. */
 const TINY_WEBP = 'data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==';
@@ -552,9 +552,7 @@ describe('the command-line tool', () => {
 
 describe('a file that cannot be removed', () => {
   it('still leaves the account wholly erased', async () => {
-    // The hazard this replaced: the old tool awaited an unlink inside an open transaction, so a removal
-    // that threw rolled the rows back *after* the files were gone — a listing left pointing at nothing.
-    // Rows commit first now, and a failed unlink costs an orphaned file and nothing else.
+    // Rows commit before any file is touched, so a failed unlink costs an orphaned file and nothing else.
     const staff = createUser({ username: 'root-admin', accountType: 'admin' });
     const { author, listing } = await seedAuthor();
     const stored = worldRow(listing.id);

@@ -5,8 +5,8 @@ const { eraseUser } = require('./eraseUser');
  * Erase an account from a shell, by name.
  *
  * A thin caller of the erasure module, which the deletion sweeper also calls: an account ends one way
- * whether a grace period ran out or an operator typed the name. Content goes by default, which is what
- * this tool always did; `--keep-content` takes the other path, leaving the work behind the placeholder.
+ * whether a grace period ran out or an operator typed the name. Content goes by default; `--keep-content`
+ * leaves the work behind the placeholder.
  *
  * @param {string} username - Username to erase
  * @param {Object} [options]

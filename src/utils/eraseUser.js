@@ -92,10 +92,8 @@ const removeQuietly = async (remove, files, username) => {
  * from a shell, so an account ends the same way whoever ends it.
  *
  * Rows change in a single transaction and files are removed only after it commits. The order is the point:
- * an `await` between `BEGIN` and `COMMIT` lets anything else on the connection run inside the open
- * transaction, and a file removal that threw part-way rolled the rows back after the files were already
- * gone — a listing left pointing at nothing. Now the database is either wholly erased or untouched, and the
- * worst a failed unlink leaves behind is a file nothing points at.
+ * the database is either wholly erased or untouched, and the worst a failed unlink leaves behind is a file
+ * nothing points at.
  *
  * @param {Object} user - The whole user row; `id`, `username` and `avatar_file` are read
  * @param {Object} [options]

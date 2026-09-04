@@ -7,6 +7,7 @@ import { createUser, authHeader, worldPayload } from './helpers.js';
 const require = createRequire(import.meta.url);
 const { browserFamily } = require('../src/utils/browserFamily');
 const { sweepSignals } = require('../src/utils/sweepSignals');
+const { DAY_MS } = require('../src/config/time');
 const deleteUser = require('../src/utils/deleteUser');
 
 /**
@@ -67,7 +68,7 @@ const seed = async () => {
 
 /** Put a row this many days behind a reference instant, without waiting for the days. */
 const age = (user, days, now) => {
-  const at = new Date(new Date(now).getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  const at = new Date(new Date(now).getTime() - days * DAY_MS).toISOString();
   db.prepare(`
     INSERT INTO signals (user_id, event, address_hash, browser_family, created_at)
     VALUES (?, 'login', 'a-hash', 'Other/Other', ?)
@@ -292,6 +293,45 @@ describe('when a Signal cannot be written', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.user.username).toBe('unrecorded');
+  });
+
+  it('still signs the user in', async () => {
+    const { reader } = await seed();
+    breakTheTable();
+
+    const res = await login(reader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeTruthy();
+  });
+
+  it('still publishes the listing', async () => {
+    const { author } = await seed();
+    breakTheTable();
+
+    const res = await publish(author);
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.id).toBeTruthy();
+  });
+
+  it('still posts the comment', async () => {
+    const { reader, id } = await seed();
+    breakTheTable();
+
+    const res = await comment(reader, id);
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.content).toBe('Lovely work');
+  });
+
+  it('still follows the account', async () => {
+    const { reader, author } = await seed();
+    breakTheTable();
+
+    const res = await follow(reader, author.id);
+
+    expect(res.status).toBe(200);
   });
 });
 

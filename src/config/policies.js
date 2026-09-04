@@ -17,6 +17,16 @@ const PRIVACY_POLICY = 'privacy_policy';
 /** The heading the seeded row ships with; the owner may rename it from the Policies tab. */
 const PRIVACY_TITLE = 'Privacy Policy';
 
+/**
+ * How long each body may be. The popups mirror the message composer's cap; the Privacy Policy is a legal
+ * document the server seeds at over six thousand characters, so it gets its own.
+ */
+const BODY_MAX = {
+  [UPLOAD_GATE]: 4000,
+  [TAG_NOTICE]: 4000,
+  [PRIVACY_POLICY]: 20000
+};
+
 /** Every policy an admin may author. */
 const POLICY_IDS = [UPLOAD_GATE, TAG_NOTICE, PRIVACY_POLICY];
 
@@ -31,6 +41,7 @@ module.exports = {
   TAG_NOTICE,
   PRIVACY_POLICY,
   PRIVACY_TITLE,
+  BODY_MAX,
   POLICY_IDS,
   ANSWERED_POLICY_IDS
 };
