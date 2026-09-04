@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
+const { recordSignal } = require('../utils/recordSignal');
 const { validationResult } = require('express-validator');
 
 /**
@@ -36,6 +37,10 @@ exports.register = async (req, res, next) => {
       password,
       email
     });
+
+    // The account exists now, so this is the first place a Signal can name it. Four accounts made from one
+    // address in two minutes is the pattern this whole table is here to make visible.
+    recordSignal(req, user.id, 'signup');
 
     // Generate token
     const token = generateToken(user);
@@ -89,6 +94,11 @@ exports.login = async (req, res, next) => {
     // allow when signed out. Refusing the login instead denied them nothing but the sight of their own
     // account, including the message explaining the suspension. The response carries `status` so the
     // client can show the account as suspended rather than as an ordinary session.
+    //
+    // The credentials have checked out, so the account really is acting from here. This is also the only
+    // event an account that predates the table can acquire without doing anything else.
+    recordSignal(req, user.id, 'login');
+
     const token = generateToken(user);
 
     res.status(200).json({

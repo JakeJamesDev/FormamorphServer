@@ -7,6 +7,7 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const Follow = require('../models/Follow');
+const { recordSignal } = require('../utils/recordSignal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
 
 /**
@@ -526,6 +527,8 @@ exports.followUser = async (req, res, next) => {
     }
 
     Follow.follow(req.user.id, target.id);
+
+    recordSignal(req, req.user.id, 'follow');
 
     res.status(200).json({
       success: true,

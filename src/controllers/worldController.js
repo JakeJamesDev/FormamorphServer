@@ -12,6 +12,7 @@ const { flagDeletedListing } = require('./reportController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
+const { recordSignal } = require('../utils/recordSignal');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 
 /** How long a quarantine runs by default, and the bounds an admin may set instead. */
@@ -319,6 +320,8 @@ exports.createWorld = async (req, res, next) => {
         thumbnailFile
       );
 
+      recordSignal(req, req.user.id, 'publish');
+
       // Get full world data for response
       const fullWorld = await World.getContent(worldId);
 
@@ -484,6 +487,10 @@ exports.updateWorld = async (req, res, next) => {
         });
       }
 
+      // An edit is filed under `publish` rather than an event of its own: both are the author putting work
+      // in front of the room, and a vocabulary that splits them buys nothing a ring could be caught by.
+      recordSignal(req, req.user.id, 'publish');
+
       // Get full world data for response
       const fullWorld = await World.getContent(req.params.id);
 
@@ -547,6 +554,10 @@ exports.setLikeStatus = async (req, res, next) => {
     }
 
     World.setLike(world.id, req.user.id, liked);
+
+    // Recorded whichever way the heart went. The Signal is about the account acting from an address, and a
+    // ring that could clear its trail by unliking would be a ring this table could not see.
+    recordSignal(req, req.user.id, 'like');
 
     res.status(200).json({
       success: true,

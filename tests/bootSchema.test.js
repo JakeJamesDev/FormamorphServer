@@ -31,7 +31,8 @@ const TABLES = [
   'audit_log', 'follows', 'world_likes',
   'events', 'event_placements',
   'world_changelog',
-  'reports'
+  'reports',
+  'signals'
 ];
 
 /**
@@ -200,11 +201,22 @@ const shapeOf = (database) => Object.fromEntries(tableNames(database).sort().map
   ).all(table).map((row) => row.name).sort()
 }]));
 
-/** Run one of the two callers as its own process, the way an operator does, and collect what it printed. */
-const runScript = (script, env, { until } = {}) => new Promise((resolve, reject) => {
-  const child = spawn(process.execPath, [script], {
-    cwd: ROOT,
-    env: { ...process.env, ...env },
+/**
+ * Run one of the two callers as its own process, the way an operator does, and collect what it printed.
+ *
+ * A key given as `undefined` is *removed* from the environment rather than passed as the string
+ * "undefined", so a test can run the server with something the worker has but a deploy might not. `cwd`
+ * moves the process off the repo root, which is the only way to keep `dotenv` from putting a developer's
+ * own `.env` back — every path the server resolves comes from `__dirname` or an environment variable, so
+ * running it from elsewhere changes nothing else.
+ */
+const runScript = (script, env, { until, cwd = ROOT } = {}) => new Promise((resolve, reject) => {
+  const childEnv = { ...process.env, ...env };
+  for (const [key, value] of Object.entries(childEnv)) if (value === undefined) delete childEnv[key];
+
+  const child = spawn(process.execPath, [path.resolve(ROOT, script)], {
+    cwd,
+    env: childEnv,
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let output = '';
@@ -360,6 +372,45 @@ describe('the schema step', () => {
     // Serving never invents an owner: the seed belongs to init-db alone.
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
     migrated.close();
+  }, 20000);
+
+  it('refuses to start at all without the Signal salt, before it touches the database', async () => {
+    // The one environment check the server makes, and the only one worth stopping for: an unsalted hash of
+    // an address is a lookup table away from the address, so a deploy that forgets the salt must not write
+    // one row. Run from a scratch directory so the repo's own `.env` cannot hand the salt back.
+    const { dir, file } = oldestOnDisk();
+
+    const { code, output } = await runScript('src/server.js', {
+      SIGNAL_SALT: undefined,
+      DB_PATH: file,
+      STORAGE_ROOT: path.join(dir, 'storage'),
+      PORT: '0',
+      NODE_ENV: 'test'
+    }, { cwd: dir });
+
+    expect(code).toBe(1);
+    expect(output).toContain('SIGNAL_SALT is not set');
+    expect(output).not.toContain('Server running');
+    // Nothing ran: the schema step is after the check, so the oldest database is still the oldest.
+    const untouched = openDatabase(file);
+    expect(tableNames(untouched)).not.toContain('signals');
+    expect(columnNames(untouched, 'worlds')).not.toContain('kind');
+    untouched.close();
+  }, 20000);
+
+  it('starts with the salt set', async () => {
+    // The other half of the guard: it refuses for the one reason and not because it refuses.
+    const { dir, file } = oldestOnDisk();
+
+    const { output } = await runScript('src/server.js', {
+      SIGNAL_SALT: 'a-boot-salt',
+      DB_PATH: file,
+      STORAGE_ROOT: path.join(dir, 'storage'),
+      PORT: '0',
+      NODE_ENV: 'test'
+    }, { until: 'Server running', cwd: dir });
+
+    expect(output).toContain('Server running');
   }, 20000);
 
   it('is what init-db runs, ahead of the admin seed', async () => {

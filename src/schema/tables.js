@@ -444,6 +444,30 @@ const apply = (database) => {
     )
   `);
 
+  // One row per account action that a ring of accounts would have to repeat: a salted hash of the client
+  // address and a coarse browser family, kept for 90 days and then swept. Append-only, and inert on its
+  // own — nothing reads it automatically and nothing acts on it. Staff read it to see whether two accounts
+  // came from one place; the decision stays theirs.
+  //
+  // The address is never stored, only `sha256(salt + address)`, so the table links accounts to each other
+  // without holding an address anyone could read back. Rotating the salt in the environment unlinks every
+  // row at once, which is the emergency lever.
+  //
+  // The browser family is stored plain because it is a tiebreaker, not an identifier: a household on two
+  // browsers reads as two people. Cascades, so erasing an account erases what it left here.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS signals (
+      -- Plain rowid alias, like the audit log's: rows only ever arrive and expire, never move.
+      id INTEGER PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      event TEXT NOT NULL CHECK (event IN ('signup', 'login', 'like', 'publish', 'comment', 'follow')),
+      address_hash TEXT NOT NULL,
+      browser_family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

@@ -1,9 +1,20 @@
 require('dotenv').config();
+
+// Before anything opens a database or serves a request: a Signal's whole protection is that the address is
+// salted before it is hashed, and an unsalted hash of an address is a lookup table away from the address.
+// A deploy that forgets the salt must not write one row, so this is fatal rather than loud — the only
+// environment check this server makes, and the one where carrying on is worse than not starting.
+if (!process.env.SIGNAL_SALT) {
+  console.error('SIGNAL_SALT is not set — refusing to start rather than write unsalted address hashes.');
+  process.exit(1);
+}
+
 const db = require('./config/db');
 const { migrate } = require('./schema');
 const { initStorage } = require('./utils/fileStorage');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
+const { sweepSignals, startSignalSweeper } = require('./utils/sweepSignals');
 const app = require('./app');
 
 // Bring the schema up to date before serving, so a deploy that adds a table or a column needs nothing run
@@ -33,6 +44,11 @@ startQuarantineSweeper();
 // for something that is over.
 void sweepEvents();
 startEventSweeper();
+
+// And for the Signals: purge whatever passed its 90 days while the server was down, then keep purging.
+// Retention is a promise the privacy policy makes in writing, so nothing here waits for a reader.
+sweepSignals();
+startSignalSweeper();
 
 // Set port
 const PORT = process.env.PORT || 8797;

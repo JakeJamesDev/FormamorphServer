@@ -4,6 +4,7 @@ const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedTarget } = require('./reportController');
+const { recordSignal } = require('../utils/recordSignal');
 const { validationResult } = require('express-validator');
 
 /**
@@ -122,6 +123,8 @@ exports.createComment = async (req, res, next) => {
       world_id: req.params.worldId,
       author_id: req.user.id
     });
+
+    recordSignal(req, req.user.id, 'comment');
 
     res.status(201).json({
       success: true,

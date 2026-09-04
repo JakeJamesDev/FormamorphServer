@@ -14,6 +14,9 @@ export default defineConfig({
       NODE_ENV: 'test',
       DB_PATH: ':memory:',
       JWT_SECRET: 'test-secret',
+      // The server refuses to boot without this, so the suite supplies one the way it supplies the token
+      // secret. Fixed rather than random, so a hash is the same value across a run.
+      SIGNAL_SALT: 'test-salt',
     },
     coverage: {
       provider: 'v8',

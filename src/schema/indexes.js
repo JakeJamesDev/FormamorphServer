@@ -80,6 +80,14 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, id);
   `);
 
+  // Three questions are asked of the signals table and no others: which accounts share a hash, what one
+  // account left behind, and which rows are past retention.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_signals_hash ON signals(address_hash);
+    CREATE INDEX IF NOT EXISTS idx_signals_user ON signals(user_id);
+    CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);
+  `);
+
   // The queue reads open reports grouped by target. The unique one is the duplicate guard itself, and it
   // is partial so re-filing after a resolution stays allowed.
   database.exec(`
