@@ -4,6 +4,9 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const { errorHandler } = require('./middleware/error');
+const { readClient, requireClientVersion } = require('./middleware/clientVersion');
+const { CLIENT_HEADER_NAME } = require('./config/clientVersion');
+const { SETTINGS_PATH } = require('./config/settings');
 const { clientIpKeyGenerator } = require('./utils/rateLimitKey');
 
 // Import routes
@@ -20,6 +23,7 @@ const auditRoutes = require('./routes/audit');
 const reportRoutes = require('./routes/reports');
 const eventRoutes = require('./routes/events');
 const eventPosterRoutes = require('./routes/eventPosters');
+const settingsRoutes = require('./routes/settings');
 
 const app = express();
 
@@ -45,14 +49,26 @@ app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   // If-None-Match so a browser can ask the catalog whether its copy is still current; ETag so it can
-  // read the answer back. A preflight refuses a header it was not told to allow, and a cross-origin
-  // fetch cannot see a response header it was not told to expose.
-  allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match'],
+  // read the answer back; the client header so a browser build can say which version it is. A preflight
+  // refuses a header it was not told to allow, and a cross-origin fetch cannot see a response header it
+  // was not told to expose.
+  allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match', CLIENT_HEADER_NAME],
   exposedHeaders: ['ETag']
 }));
 // urlencoded only acts on form posts (world uploads are JSON), so a tight cap here is safe
 app.use(express.urlencoded({ extended: false, limit: '100kb' }));
-app.use(morgan('dev'));
+
+// Which build is asking, read before the logger so every line carries it, and before the routes so the
+// gate below can compare it. Both are cheap and neither refuses anything on its own.
+app.use(readClient);
+morgan.token('client', (req) => `${req.client.platform}/${req.client.version}`);
+// Morgan's own `dev` format cannot be extended, so this is that format written out with the build on the
+// end. What it loses is the status coloring, which is escape codes in a journal nobody reads in a tty.
+app.use(morgan(':method :url :status :response-time ms - :res[content-length] :client'));
+
+// Refuse a build below the minimum its route carries. The map is empty until staff write one, so this
+// changes nothing on a server nobody has configured.
+app.use(requireClientVersion);
 
 // JSON bodies are parsed per route-group: only world create/update accept the large
 // 200MB payload (see routes/worlds.js); everything else is capped tight to blunt payload DoS.
@@ -73,6 +89,7 @@ app.use('/api/reports', smallJson, reportRoutes);
 // Events mount their own parsers per route: an event's poster arrives as a base64 image, which is
 // larger than the 100kb everything else here is capped at (see routes/events.js).
 app.use('/api/events', eventRoutes);
+app.use(SETTINGS_PATH, smallJson, settingsRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
 app.use('/api/avatars', avatarRoutes);
 app.use('/api/event-posters', eventPosterRoutes);

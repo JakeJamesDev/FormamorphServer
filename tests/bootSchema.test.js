@@ -32,7 +32,8 @@ const TABLES = [
   'events', 'event_placements',
   'world_changelog',
   'reports',
-  'signals'
+  'signals',
+  'settings'
 ];
 
 /**

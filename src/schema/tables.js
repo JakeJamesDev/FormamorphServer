@@ -472,6 +472,17 @@ const apply = (database) => {
     )
   `);
 
+  // What staff can change without a deploy, one JSON value per key. No row is seeded: a key nobody has
+  // written reads as the default declared in `config/settings`, which is what lets a setting be empty by
+  // default without a seeded row to keep in step with the code.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

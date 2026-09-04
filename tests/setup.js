@@ -17,6 +17,6 @@ afterEach(() => {
   //
   // The reserved `[deleted user]` row stays, as it does on a real server: the schema seeds it once and
   // erasure reassigns to it, so a test that ran second would otherwise find it gone.
-  db.exec('DELETE FROM reports; DELETE FROM events; DELETE FROM audit_log; DELETE FROM follows; DELETE FROM feedback; DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds;');
+  db.exec('DELETE FROM settings; DELETE FROM reports; DELETE FROM events; DELETE FROM audit_log; DELETE FROM follows; DELETE FROM feedback; DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds;');
   db.prepare('DELETE FROM users WHERE id <> ?').run(PLACEHOLDER_ID);
 });

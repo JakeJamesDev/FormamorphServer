@@ -102,6 +102,24 @@ The restore point for this deploy is the nightly R2 snapshot from the morning it
 | Unit settings | `/etc/systemd/system/formamorph-api.service` | `sudo systemctl daemon-reload && sudo systemctl restart formamorph-api` |
 | Backup schedule or steps | `crontab -e` as `formamorph`, script at `/usr/local/bin/formamorph-backup` | nothing, cron reads it live |
 | R2 credentials for rclone | `~/.config/rclone/rclone.conf` (remote `r2:`) | test with `rclone lsd r2:` |
+| Minimum client version per route | `PUT /api/settings/client_minimums` as staff | nothing, the next request reads it |
+
+### Requiring a newer client on one route
+
+Raising a minimum needs no deploy and no restart. Send the whole map, because a write replaces it:
+
+```bash
+curl -X PUT https://api.formamorph.ai/api/settings/client_minimums \
+  -H "Authorization: Bearer $STAFF_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"value":{"POST /api/reports":{"minVersion":"2.17.0","feature":"Reporting"}}}'
+```
+
+A key is a method, a space, and a path, and it covers everything under that path. Below the minimum the
+server answers `426` with `{ code: "CLIENT_UPDATE_REQUIRED", minVersion, feature }`, which every client
+turns into one update dialog naming the feature. `{"value":{}}` gates nothing, which is the default.
+
+⚠️ Gate a route the staff screens themselves need and staff on an older build lose it too. `/api/settings`
+is exempt in code, so the lever that raised a minimum can always be reached to lower it again.
 
 Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_BACKUP_BUCKET`, `R2_ENDPOINT`,
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL`, `API_HOSTNAME`, `SSH_KEY_NAME`, `SERVER_IP`, `SSH_USER`,

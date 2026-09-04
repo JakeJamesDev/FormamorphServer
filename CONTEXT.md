@@ -43,6 +43,22 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Poster** | An event's presentation band: a color, an image, and a placement that says where the image is framed. |
 | **Notice** | A message from the team to one account or to everyone: composed by hand, or generated when a report resolves or an event opens, closes, or announces its podium. |
 
+## Clients
+
+| Term | Meaning |
+|---|---|
+| **Build** | Which version of Formamorph is asking, and on what: the `X-Formamorph-Client` header, read into a version and one of `web`, `windows`, `linux`, `mac`, `android`. Logged on every request line. |
+| **Version zero** | What a request with no readable build counts as. It is below every minimum, so a build too old to send the header is refused exactly like a build too old for the feature. |
+| **Minimum** | The version a route needs, with the feature name to show the player. Below it the server answers `426` with `CLIENT_UPDATE_REQUIRED`; a route with no minimum is untouched. |
+| **Route key** | How a minimum names its route: a method, a space, and a path, as in `POST /api/reports`. It covers that path and everything under it, so one entry gates a feature rather than each endpoint. |
+
+## Settings
+
+| Term | Meaning |
+|---|---|
+| **Setting** | A value staff change without a deploy, stored as JSON in the `settings` table and read live. Every key is declared in `src/config/settings.js` with its default and the check its writes must pass. |
+| **Default** | What a key reads as while no one has written it. There is no seeded row, so a setting is empty by default without a row to keep in step with the code. |
+
 ## Schema
 
 | Term | Meaning |
