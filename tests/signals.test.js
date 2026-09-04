@@ -7,6 +7,7 @@ import { createUser, authHeader, worldPayload } from './helpers.js';
 const require = createRequire(import.meta.url);
 const { browserFamily } = require('../src/utils/browserFamily');
 const { sweepSignals } = require('../src/utils/sweepSignals');
+const Signal = require('../src/models/Signal');
 const { DAY_MS } = require('../src/config/time');
 const deleteUser = require('../src/utils/deleteUser');
 
@@ -23,12 +24,12 @@ const deleteUser = require('../src/utils/deleteUser');
  */
 
 /**
- * Read an account's Signals.
+ * Rows on the table itself.
  *
- * A test-only read of the table. The staff linked-accounts endpoint is a later ticket; when it lands this
- * becomes a request to it, because that is what a staff member actually observes.
+ * Only for the two things no endpoint can show: that a row is actually gone, and that the address was
+ * never readable off it. Everything a staff member can observe is read through the endpoint below.
  */
-const signalsFor = (user) =>
+const rowsFor = (user) =>
   db.prepare('SELECT * FROM signals WHERE user_id = ? ORDER BY id').all(user.id);
 
 /** Every request in a test carries an address, so a test can put two accounts in one place or two places. */
@@ -54,6 +55,51 @@ const comment = (user, id, address = '203.0.113.10') =>
 
 const follow = (user, targetId, address = '203.0.113.10') =>
   from(address, request(app).put(`/api/users/${targetId}/follow`).set(authHeader(user))).send();
+
+/** Names are unique per test, and several helpers make an account of their own. */
+let made = 0;
+
+/** Staff to read the moderation endpoint with. It never acts, so it never turns up in its own answer. */
+const staffViewer = () => createUser({ username: `signal-staff-${++made}`, accountType: 'admin' });
+
+/** Ask the staff endpoint which accounts share an address with this one. */
+const linked = (viewer, userId) =>
+  request(app).get(`/api/users/${userId}/linked`).set(authHeader(viewer));
+
+/** The accounts the endpoint links to this one, by name, newest match first. */
+const linksOf = async (subject) =>
+  (await linked(staffViewer(), subject.id)).body.data.accounts.map((row) => row.username);
+
+/**
+ * Somebody else recorded at the same address, so the subject's own moments have something to surface
+ * through. Follows rather than signs in: the credential routes are rate limited per address, and the
+ * tests that are actually about signing in need that budget.
+ */
+const witnessAt = async (subject, address) => {
+  const witness = createUser({ username: `signal-witness-${++made}` });
+  await follow(witness, subject.id, address);
+
+  return witness;
+};
+
+/**
+ * The moments one account is recorded as having acted in, as staff read them.
+ *
+ * Read through the endpoint rather than off the table, because that is what a staff member observes —
+ * and there is deliberately no view of an account's Signals on their own. The record exists to link
+ * accounts, so it only ever surfaces through another account it links to; a witness at the same address
+ * is what makes the subject's own moments visible. Newest first, as the endpoint orders them.
+ *
+ * @param subject - The account to read
+ * @param address - Where the witness acts from, which is where the subject acted too
+ */
+const signalsFor = async (subject, address = '203.0.113.10') => {
+  const witness = await witnessAt(subject, address);
+  const match = (await linked(staffViewer(), subject.id)).body.data.accounts
+    .find((row) => row.id === witness.id);
+
+  return match ? match.subjectEvents : [];
+};
 
 /** An author with one published listing, and somebody else to act on it. */
 const seed = async () => {
@@ -122,7 +168,7 @@ describe('recording a Signal', () => {
     const res = await register('fresh-signer');
 
     expect(res.status).toBe(201);
-    expect(signalsFor(res.body.user).map((row) => row.event)).toEqual(['signup']);
+    expect((await signalsFor(res.body.user)).map((row) => row.event)).toEqual(['signup']);
   });
 
   it('records the login', async () => {
@@ -131,7 +177,7 @@ describe('recording a Signal', () => {
     const res = await login(user);
 
     expect(res.status).toBe(200);
-    expect(signalsFor(user).map((row) => row.event)).toEqual(['login']);
+    expect((await signalsFor(user)).map((row) => row.event)).toEqual(['login']);
   });
 
   it('records the publish', async () => {
@@ -140,7 +186,7 @@ describe('recording a Signal', () => {
     const res = await publish(author);
 
     expect(res.status).toBe(201);
-    expect(signalsFor(author).map((row) => row.event)).toEqual(['publish']);
+    expect((await signalsFor(author)).map((row) => row.event)).toEqual(['publish']);
   });
 
   it('records an edit as a publish too', async () => {
@@ -149,7 +195,7 @@ describe('recording a Signal', () => {
     const res = await update(author, id);
 
     expect(res.status).toBe(200);
-    expect(signalsFor(author).map((row) => row.event)).toEqual(['publish']);
+    expect((await signalsFor(author)).map((row) => row.event)).toEqual(['publish']);
   });
 
   it('records the like — the event a vote ring cannot avoid', async () => {
@@ -158,7 +204,7 @@ describe('recording a Signal', () => {
     const res = await like(reader, id);
 
     expect(res.status).toBe(200);
-    expect(signalsFor(reader).map((row) => row.event)).toEqual(['like']);
+    expect((await signalsFor(reader)).map((row) => row.event)).toEqual(['like']);
   });
 
   it('records the comment', async () => {
@@ -167,7 +213,7 @@ describe('recording a Signal', () => {
     const res = await comment(reader, id);
 
     expect(res.status).toBe(201);
-    expect(signalsFor(reader).map((row) => row.event)).toEqual(['comment']);
+    expect((await signalsFor(reader)).map((row) => row.event)).toEqual(['comment']);
   });
 
   it('records the follow', async () => {
@@ -176,7 +222,7 @@ describe('recording a Signal', () => {
     const res = await follow(reader, author.id);
 
     expect(res.status).toBe(200);
-    expect(signalsFor(reader).map((row) => row.event)).toEqual(['follow']);
+    expect((await signalsFor(reader)).map((row) => row.event)).toEqual(['follow']);
   });
 
   it('records it against the account that acted, not the one acted on', async () => {
@@ -184,8 +230,8 @@ describe('recording a Signal', () => {
 
     await like(reader, id);
 
-    expect(signalsFor(author)).toEqual([]);
-    expect(signalsFor(reader)).toHaveLength(1);
+    expect(await signalsFor(author)).toEqual([]);
+    expect(await signalsFor(reader)).toHaveLength(1);
   });
 
   it('stores the browser family the request arrived with', async () => {
@@ -195,38 +241,41 @@ describe('recording a Signal', () => {
       .set('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1')
       .send({ username: user.username, password: user.password });
 
-    expect(signalsFor(user)[0].browser_family).toBe('Safari/iOS');
+    expect((await signalsFor(user))[0].browserFamily).toBe('Safari/iOS');
   });
 });
 
 describe('what a Signal stores about an address', () => {
-  it('links two accounts that acted from one address', async () => {
-    // The whole point: staff can see that two accounts came from one place.
+  it('links two accounts that acted from one address, from either side', async () => {
+    // The whole point: staff can see that two accounts came from one place, whichever one they opened.
     const one = createUser({ username: 'ring-one' });
     const two = createUser({ username: 'ring-two' });
 
     await login(one, '198.51.100.7');
     await login(two, '198.51.100.7');
 
-    expect(signalsFor(one)[0].address_hash).toBe(signalsFor(two)[0].address_hash);
+    expect(await linksOf(one)).toEqual(['ring-two']);
+    expect(await linksOf(two)).toEqual(['ring-one']);
   });
 
   it('does not link two accounts that acted from different addresses', async () => {
     const one = createUser({ username: 'here' });
     const two = createUser({ username: 'elsewhere' });
 
-    await login(one, '198.51.100.7');
+    await login(one, '198.51.100.8');
     await login(two, '203.0.113.99');
 
-    expect(signalsFor(one)[0].address_hash).not.toBe(signalsFor(two)[0].address_hash);
+    expect(await linksOf(one)).toEqual([]);
   });
 
   it('keeps no readable trace of the address itself', async () => {
+    // Read off the table on purpose. Every other property here is what staff observe; this one is about
+    // what is written down, and a response that happens to omit the address would prove nothing.
     const user = createUser({ username: 'private' });
 
-    await login(user, '198.51.100.7');
+    await login(user, '198.51.100.9');
 
-    const [row] = signalsFor(user);
+    const [row] = rowsFor(user);
     expect(row.address_hash).not.toContain('198.51.100');
     expect(JSON.stringify(row)).not.toContain('198.51.100');
   });
@@ -238,15 +287,15 @@ describe('what a Signal stores about an address', () => {
     const after = createUser({ username: 'after-rotation' });
     const salt = process.env.SIGNAL_SALT;
 
-    await login(before, '198.51.100.7');
+    await login(before, '198.51.100.11');
     process.env.SIGNAL_SALT = 'a-rotated-salt';
     try {
-      await login(after, '198.51.100.7');
+      await login(after, '198.51.100.11');
     } finally {
       process.env.SIGNAL_SALT = salt;
     }
 
-    expect(signalsFor(after)[0].address_hash).not.toBe(signalsFor(before)[0].address_hash);
+    expect(await linksOf(before)).toEqual([]);
   });
 
   it('reads the address the rate limiter reads, so the tunnel is handled once', async () => {
@@ -255,10 +304,10 @@ describe('what a Signal stores about an address', () => {
     const one = createUser({ username: 'tunnelled-one' });
     const two = createUser({ username: 'tunnelled-two' });
 
-    await login(one, '198.51.100.7');
+    await login(one, '198.51.100.12');
     await request(app).post('/api/auth/login').send({ username: two.username, password: two.password });
 
-    expect(signalsFor(two)[0].address_hash).not.toBe(signalsFor(one)[0].address_hash);
+    expect(await linksOf(one)).toEqual([]);
   });
 });
 
@@ -335,6 +384,131 @@ describe('when a Signal cannot be written', () => {
   });
 });
 
+describe('reading the accounts one account is linked to', () => {
+  /** The audit log, filtered to the action this endpoint writes. */
+  const viewings = async (viewer) =>
+    (await request(app).get('/api/audit?action=signals_viewed').set(authHeader(viewer))).body.data;
+
+  it('leaves out a match that fell outside retention', async () => {
+    // Ninety days is a promise in writing, so the read cuts at the edge itself. The sweeper runs hourly;
+    // a row an hour past its ninety days must not still be linking two accounts on a staff screen.
+    const subject = createUser({ username: 'still-here' });
+    const recent = createUser({ username: 'shared-last-month' });
+    const longAgo = createUser({ username: 'shared-last-year' });
+    const now = new Date().toISOString();
+    age(subject, 1, now);
+    age(recent, 89, now);
+    age(longAgo, 91, now);
+
+    expect(await linksOf(subject)).toEqual(['shared-last-month']);
+  });
+
+  it('names the moments that made the link, on both sides', async () => {
+    // A link reads as two stories or not at all. What each account did from the shared address is what
+    // separates a ring from two people in one house, and that judgment stays a person's.
+    const { author, reader, id } = await seed();
+    await like(reader, id, true, '198.51.100.21');
+    await comment(reader, id, '198.51.100.21');
+    await follow(author, reader.id, '198.51.100.21');
+
+    const [match] = (await linked(staffViewer(), author.id)).body.data.accounts;
+
+    expect(match.events.map((row) => row.event)).toEqual(['comment', 'like']);
+    expect(match.subjectEvents.map((row) => row.event)).toEqual(['follow']);
+    expect(match.events[0].at).toBeTruthy();
+  });
+
+  it('says what the other account is and when it was made', async () => {
+    // Enough to judge the account without leaving the row: a suspended account and a signup an hour
+    // before the likes started are both the shape somebody is looking for.
+    const subject = createUser({ username: 'subject' });
+    const other = createUser({
+      username: 'brand-new', status: 'suspended', createdAt: '2026-01-02T03:04:05.000Z'
+    });
+    const now = new Date().toISOString();
+    age(subject, 1, now);
+    age(other, 2, now);
+
+    const [match] = (await linked(staffViewer(), subject.id)).body.data.accounts;
+
+    expect(match).toMatchObject({
+      id: other.id,
+      username: 'brand-new',
+      status: 'suspended',
+      createdAt: '2026-01-02T03:04:05.000Z'
+    });
+  });
+
+  it('answers zero for an account nobody shares an address with', async () => {
+    const alone = createUser({ username: 'alone' });
+    await follow(alone, createUser({ username: 'never-acted' }).id, '198.51.100.23');
+
+    const res = await linked(staffViewer(), alone.id);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ accounts: [] });
+  });
+
+  it('caps the moments it lists and still says how many there are', async () => {
+    // Two accounts on one address for three months have hundreds of them. Staff read the first few and
+    // decide, so the true count travels beside the rows rather than the rows growing without limit.
+    const subject = createUser({ username: 'busy-one' });
+    const other = createUser({ username: 'busy-two' });
+    const now = new Date().toISOString();
+    age(subject, 1, now);
+    for (let i = 0; i < Signal.MATCH_EVENT_LIMIT + 3; i++) age(other, 2, now);
+
+    const [match] = (await linked(staffViewer(), subject.id)).body.data.accounts;
+
+    expect(match.events).toHaveLength(Signal.MATCH_EVENT_LIMIT);
+    expect(match.eventsTotal).toBe(Signal.MATCH_EVENT_LIMIT + 3);
+  });
+
+  it('writes an audit row every time it is opened, not only the first', async () => {
+    // Reading linkage data is the one act in here that says where a person was, so it is accountable
+    // itself. A row written once per account would leave the second look — the one somebody went back
+    // for — unrecorded.
+    const root = createUser({ username: 'root-admin', accountType: 'admin' });
+    const subject = createUser({ username: 'looked-at' });
+
+    await linked(root, subject.id);
+    await linked(root, subject.id);
+
+    const entries = await viewings(root);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      action: 'signals_viewed',
+      actor: { username: 'root-admin' },
+      targetUser: { username: 'looked-at' }
+    });
+  });
+
+  it('writes the row even when the account is linked to nobody', async () => {
+    // The record is of the look, not of what it found. A search that came back empty is still a search.
+    const root = createUser({ username: 'root-admin', accountType: 'admin' });
+
+    await linked(root, createUser({ username: 'unremarkable' }).id);
+
+    expect(await viewings(root)).toHaveLength(1);
+  });
+
+  it('is refused to an ordinary account', async () => {
+    const subject = createUser({ username: 'subject' });
+
+    expect((await linked(createUser({ username: 'nosy' }), subject.id)).status).toBe(403);
+  });
+
+  it('is refused to a signed-out visitor', async () => {
+    const subject = createUser({ username: 'subject' });
+
+    expect((await request(app).get(`/api/users/${subject.id}/linked`)).status).toBe(401);
+  });
+
+  it('answers 404 for an account that is not there', async () => {
+    expect((await linked(staffViewer(), 'no-such-account')).status).toBe(404);
+  });
+});
+
 describe('purging Signals after ninety days', () => {
   const NOW = '2026-09-03T12:00:00.000Z';
 
@@ -349,8 +523,8 @@ describe('purging Signals after ninety days', () => {
     const deleted = sweepSignals(NOW);
 
     expect(deleted).toBe(1);
-    expect(signalsFor(old)).toEqual([]);
-    expect(signalsFor(recent)).toHaveLength(1);
+    expect(rowsFor(old)).toEqual([]);
+    expect(rowsFor(recent)).toHaveLength(1);
   });
 
   it('leaves a row written today alone', async () => {
@@ -359,7 +533,7 @@ describe('purging Signals after ninety days', () => {
 
     sweepSignals();
 
-    expect(signalsFor(user)).toHaveLength(1);
+    expect(rowsFor(user)).toHaveLength(1);
   });
 });
 

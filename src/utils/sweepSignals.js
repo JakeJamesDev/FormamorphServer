@@ -1,6 +1,5 @@
 const { hourly } = require('./hourly');
 const Signal = require('../models/Signal');
-const { DAY_MS } = require('../config/time');
 
 /**
  * Delete every Signal past its retention.
@@ -17,10 +16,7 @@ const { DAY_MS } = require('../config/time');
  */
 const sweepSignals = (now = undefined) => {
   try {
-    const at = now ? new Date(now).getTime() : Date.now();
-    const cutoff = new Date(at - Signal.RETENTION_DAYS * DAY_MS).toISOString();
-
-    return Signal.deleteBefore(cutoff);
+    return Signal.deleteBefore(Signal.cutoff(now));
   } catch (error) {
     console.error('Signal sweep failed:', error);
     return 0;

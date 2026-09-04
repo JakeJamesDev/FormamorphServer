@@ -41,7 +41,10 @@ const ACTIONS = [
   // which is the one row where keeping the username is the entire point.
   'account_deletion_requested',
   'account_deletion_canceled',
-  'account_deleted'
+  'account_deleted',
+  // Somebody read the accounts a Signal links to another account. Logged because linkage data is the
+  // one thing in here that says where a person was, so looking at it is itself an act with a name on it.
+  'signals_viewed'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

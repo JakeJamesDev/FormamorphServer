@@ -8,6 +8,7 @@ const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const Follow = require('../models/Follow');
 const { recordSignal } = require('../utils/recordSignal');
+const Signal = require('../models/Signal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
 
@@ -475,6 +476,42 @@ exports.getUserLikes = async (req, res, next) => {
         }))
       }
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Every other account that has acted from one of this account's addresses.
+ *
+ * The moderation surface the Signal record exists for; `models/Signal.linkedAccounts` explains what the
+ * answer means and why both sides of a link come back. Nothing here acts — this is evidence for the
+ * suspension and like-removal tools that already exist.
+ *
+ * @desc    Accounts linked to this one by a shared address
+ * @route   GET /api/users/:id/linked
+ * @access  Private/Staff
+ */
+exports.getLinkedAccounts = async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const accounts = Signal.linkedAccounts(user.id);
+
+    // Every call, not the first. The log answers "who looked at whom, and when", and a row written once
+    // per account would make the second look — the one somebody went back for — the unrecorded one.
+    AuditLog.tryRecord({
+      action: 'signals_viewed',
+      actor: req.user,
+      targetUser: user.id === req.user.id ? null : user,
+      targetKind: 'account',
+      targetName: user.username
+    });
+
+    res.status(200).json({ success: true, data: { accounts } });
   } catch (error) {
     next(error);
   }

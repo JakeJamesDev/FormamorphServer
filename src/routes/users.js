@@ -3,7 +3,7 @@ const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
   setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile,
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
-  getUserLikes, clearUserLikes
+  getUserLikes, clearUserLikes, getLinkedAccounts
 } = require('../controllers/userController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
@@ -53,6 +53,10 @@ router.delete('/:id/avatar', protect, staff, removeUserAvatar);
 // from one author is the shape a throwaway account leaves, and this is where it shows.
 router.get('/:id/likes', protect, staff, getUserLikes);
 router.delete('/:id/likes', protect, staff, clearUserLikes);
+
+// Which other accounts share an address with this one (staff only). Every call is written to the audit
+// log: linkage data is the one record that says where a person was, so reading it is accountable too.
+router.get('/:id/linked', protect, staff, getLinkedAccounts);
 
 // Suspend or reinstate an account (staff only). The same route also changes what somebody *is*, which
 // is an administrator's alone — enforced in the controller, since one body can carry both.
