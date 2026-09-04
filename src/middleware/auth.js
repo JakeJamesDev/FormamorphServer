@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const { isAdmin, isStaff } = require('../config/roles');
+const { privacyRefusal } = require('./policy');
 
 /**
  * Whether a token was minted under the account's current session generation.
@@ -17,11 +18,14 @@ const sameGeneration = (decoded, user) => (decoded.tv || 0) === (user.token_vers
 /**
  * Build an authentication middleware.
  *
- * @param {Object} [options] - `{ allowSuspended }` — when true, a suspended account may also make
- *   write requests. Only for routes that write nothing but the caller's own read/dismiss state.
+ * @param {Object} [options]
+ *   `allowSuspended` — when true, a suspended account may also make write requests. Only for routes that
+ *   write nothing but the caller's own read/dismiss state.
+ *   `allowUnacceptedPolicy` — when true, the Privacy Policy gate is not applied. Only for the routes a
+ *   refused account needs to stop being refused.
  * @returns {Function} Express middleware
  */
-const authenticate = ({ allowSuspended = false } = {}) => async (req, res, next) => {
+const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } = {}) => async (req, res, next) => {
   let token;
 
   // Check if token exists in Authorization header
@@ -65,6 +69,17 @@ const authenticate = ({ allowSuspended = false } = {}) => async (req, res, next)
       });
     }
 
+    // Add user to request object
+    req.user = user;
+
+    // The Privacy Policy answers before the suspension does. It applies to every account, suspended
+    // included, and a suspended user who has not accepted would otherwise be sent to the wrong dialog on
+    // a write and refused nothing at all on a read.
+    const refusal = allowUnacceptedPolicy ? null : privacyRefusal(user);
+    if (refusal) {
+      return res.status(403).json(refusal);
+    }
+
     // Check if user is suspended
     if (!allowSuspended && user.status === 'suspended' && req.method !== 'GET') {
       return res.status(403).json({
@@ -73,8 +88,6 @@ const authenticate = ({ allowSuspended = false } = {}) => async (req, res, next)
       });
     }
 
-    // Add user to request object
-    req.user = user;
     next();
   } catch (error) {
     return res.status(401).json({
@@ -97,6 +110,16 @@ exports.protect = authenticate();
  * Restricted to routes touching only the caller's own `message_states` row.
  */
 exports.protectAllowSuspended = authenticate({ allowSuspended: true });
+
+/**
+ * Authentication for the routes that must work before the Privacy Policy has been accepted.
+ *
+ * The gate refuses everything else, so a route it applies to cannot be part of getting past it. That is
+ * the whole exemption list: changing a password, and the policy routes — reading the policy, answering it,
+ * and the admin screens that authored it, since the admin who switches it on has not accepted it either.
+ * Registration and login authenticate nobody and so never reach the gate at all.
+ */
+exports.protectBeforePolicy = authenticate({ allowUnacceptedPolicy: true });
 
 /**
  * Authentication for a route that is open to everyone but behaves differently for a signed-in caller.

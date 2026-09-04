@@ -2,7 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
 const { register, login, getMe, changePassword } = require('../controllers/authController');
-const { protect } = require('../middleware/auth');
+const { protect, protectBeforePolicy } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
@@ -44,7 +44,8 @@ router.post(
 // Get current user
 router.get('/me', protect, getMe);
 
-// Change password
+// Change password. Exempt from the Privacy Policy gate: securing an account you suspect is compromised
+// must not wait on reading a policy.
 router.post(
   '/change-password',
   authLimiter,
@@ -52,7 +53,7 @@ router.post(
     check('currentPassword', 'Current password is required').not().isEmpty(),
     check('newPassword', 'New password must be at least 6 characters long').isLength({ min: 6 })
   ],
-  protect,
+  protectBeforePolicy,
   changePassword
 );
 

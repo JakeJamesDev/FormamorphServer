@@ -253,6 +253,16 @@ Node's own `require` for that reason; take `app` and `db` from there.
 - `GET /api/users` - Get all users (admin only)
 - `PUT /api/users/:id/status` - Update user status and account type (admin only)
 
+### Policies
+
+- `GET /api/policies` - The popups that apply to the caller: the upload gate, the tag notice, and the Privacy Policy
+- `GET /api/policies/privacy-policy` - **Public.** The Privacy Policy's title and body, for the signup screen, which runs before an account exists. 404 while the policy is disabled
+- `GET /api/policies/manage` - Every policy for editing, drafts included (admin only)
+- `PUT /api/policies/:id` - Write a policy (admin only). `requireReaccept: true` asks everyone to answer again
+- `POST /api/policies/upload-gate/accept` · `/decline` · `/reset` - Answer the upload gate, or reset it (reset is staff)
+- `POST /api/policies/privacy-policy/accept` · `/decline` · `/reset` - The same three for the Privacy Policy
+- `POST /api/policies/tag-notice/match` - Which of a publish's tags the tag notice covers
+
 ## Authentication
 
 All protected routes require a JWT token in the Authorization header:
@@ -260,6 +270,21 @@ All protected routes require a JWT token in the Authorization header:
 ```
 Authorization: Bearer <your_jwt_token>
 ```
+
+### Refusals a client acts on
+
+Most failures carry only `error`, a sentence to show the user. These two also carry a `code`, because the
+client has a screen to open rather than a message to print. An older build that knows neither shows the
+`error` verbatim, so both read as an instruction.
+
+| Code | Status | When | What the client does |
+|---|---|---|---|
+| `TERMS_REQUIRED` | 403 | Publishing or updating a listing while the upload gate is enabled and unaccepted | Opens the contributor terms, then retries |
+| `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
+
+`PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,
+change-password, and everything under `/api/policies`. It applies to suspended accounts like anyone else.
+The policy row ships **disabled**, so nothing is refused until an admin enables it in the Policies tab.
 
 ## Client Integration
 

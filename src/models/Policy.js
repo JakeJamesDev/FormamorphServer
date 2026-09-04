@@ -1,13 +1,11 @@
 const db = require('../config/db');
-
-/** The blocking gate shown before a user may publish anything. */
-const UPLOAD_GATE = 'upload_gate';
-
-/** The advisory notice shown whenever a publish carries one of its tags. */
-const TAG_NOTICE = 'tag_notice';
-
-/** The only two policies that exist; both are optional and absent until an admin writes one. */
-const POLICY_IDS = [UPLOAD_GATE, TAG_NOTICE];
+const {
+  UPLOAD_GATE,
+  TAG_NOTICE,
+  PRIVACY_POLICY,
+  POLICY_IDS,
+  ANSWERED_POLICY_IDS
+} = require('../config/policies');
 
 /**
  * Normalize a tag for storage and comparison.
@@ -21,12 +19,14 @@ const POLICY_IDS = [UPLOAD_GATE, TAG_NOTICE];
 const normalizeTag = (tag) => String(tag).trim().toLowerCase();
 
 /**
- * Authored publish-time popups: the upload gate, and the tag notice.
+ * Authored popups: the upload gate, the tag notice, and the Privacy Policy.
  */
 const Policy = {
   UPLOAD_GATE,
   TAG_NOTICE,
+  PRIVACY_POLICY,
   POLICY_IDS,
+  ANSWERED_POLICY_IDS,
   normalizeTag,
 
   /**

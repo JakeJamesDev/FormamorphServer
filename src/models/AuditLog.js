@@ -10,6 +10,8 @@ const ACTIONS = [
   'user_unsuspended',
   'terms_reset_user',
   'terms_reset_all',
+  'privacy_reset_user',
+  'privacy_reset_all',
   'listing_deleted',
   'comment_deleted',
   'feedback_deleted',

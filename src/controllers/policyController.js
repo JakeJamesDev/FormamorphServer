@@ -7,6 +7,20 @@ const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
 const TITLE_MAX = 120;
 const BODY_MAX = 4000;
 
+/**
+ * The Privacy Policy's own ceiling. A popup is a paragraph and a button, but this one is a legal document
+ * the server seeds at over six thousand characters — the shared cap would refuse the very row this server
+ * wrote, and the owner could never save an edit to it.
+ */
+const PRIVACY_BODY_MAX = 20000;
+
+/**
+ * How long a policy's body may be.
+ * @param {string} id - Policy ID
+ * @returns {number} The cap in characters
+ */
+const bodyMaxFor = (id) => (id === Policy.PRIVACY_POLICY ? PRIVACY_BODY_MAX : BODY_MAX);
+
 /** Ceiling on the tag notice's list, keeping the match set small enough to compare on every publish. */
 const MAX_TAGS = 100;
 
@@ -29,17 +43,19 @@ const toAdminDto = (policy) => (policy
 
 /**
  * Validate an authored policy.
+ * @param {string} id - Policy ID, which decides how long a body may be
  * @param {Object} body - Request body
  * @returns {Object} `{ error }` on rejection, otherwise the normalized fields
  */
-const parsePolicyBody = (body) => {
+const parsePolicyBody = (id, body) => {
   const title = typeof body.title === 'string' ? body.title.trim() : '';
   const text = typeof body.body === 'string' ? body.body.trim() : '';
   const enabled = body.enabled === true;
   const tags = Array.isArray(body.tags) ? body.tags : [];
+  const bodyMax = bodyMaxFor(id);
 
   if (title.length > TITLE_MAX) return { error: `Title must be ${TITLE_MAX} characters or fewer` };
-  if (text.length > BODY_MAX) return { error: `Body must be ${BODY_MAX} characters or fewer` };
+  if (text.length > bodyMax) return { error: `Body must be ${bodyMax} characters or fewer` };
   if (tags.length > MAX_TAGS) return { error: `A policy is limited to ${MAX_TAGS} tags` };
 
   // Switching it on is what makes it a wall, so that is where the content requirement bites — a draft
@@ -58,18 +74,21 @@ const parsePolicyBody = (body) => {
  */
 exports.getPolicies = async (req, res, next) => {
   try {
-    const gate = Policy.findById(Policy.UPLOAD_GATE);
-    const notice = Policy.findById(Policy.TAG_NOTICE);
-    const gateDto = toPublicDto(gate);
+    /** A popup the user answers, carrying whether this user already has. */
+    const answerable = (id) => {
+      const dto = toPublicDto(Policy.findById(id));
+      return dto ? { ...dto, accepted: Policy.hasAccepted(id, req.user.id) } : null;
+    };
 
     res.status(200).json({
       success: true,
       // `accepted` is true whenever the gate cannot block this user — including when there is no gate —
       // so a client can treat it as "may publish" without repeating the activity rules.
-      uploadGate: gateDto
-        ? { ...gateDto, accepted: Policy.hasAccepted(Policy.UPLOAD_GATE, req.user.id) }
-        : null,
-      tagNotice: toPublicDto(notice)
+      uploadGate: answerable(Policy.UPLOAD_GATE),
+      tagNotice: toPublicDto(Policy.findById(Policy.TAG_NOTICE)),
+      // Null while the policy is off, which is how it ships: a client that finds nothing here prompts for
+      // nothing, and the server refuses nothing either.
+      privacyPolicy: answerable(Policy.PRIVACY_POLICY)
     });
   } catch (error) {
     next(error);
@@ -77,7 +96,32 @@ exports.getPolicies = async (req, res, next) => {
 };
 
 /**
- * @desc    Get both policies for editing, including disabled drafts
+ * @desc    Read the Privacy Policy without signing in
+ * @route   GET /api/policies/privacy-policy
+ * @access  Public
+ *
+ * The one policy a stranger may read, because registration shows it before the account exists and that
+ * screen has no token. The same text is published on the public site, so this discloses nothing new — but
+ * the row here is the canonical copy, and a client that read the website instead could show stale wording.
+ *
+ * Carries no acceptance: a signed-out reader is nobody, and there is no answer to report.
+ */
+exports.getPrivacyPolicy = async (req, res, next) => {
+  try {
+    const policy = toPublicDto(Policy.findById(Policy.PRIVACY_POLICY));
+
+    if (!policy) {
+      return res.status(404).json({ success: false, error: 'There is no privacy policy' });
+    }
+
+    res.status(200).json({ success: true, privacyPolicy: { title: policy.title, body: policy.body } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get every policy for editing, including disabled drafts
  * @route   GET /api/policies/manage
  * @access  Private/Admin
  */
@@ -86,7 +130,8 @@ exports.getPoliciesForAdmin = async (req, res, next) => {
     res.status(200).json({
       success: true,
       uploadGate: toAdminDto(Policy.findById(Policy.UPLOAD_GATE)),
-      tagNotice: toAdminDto(Policy.findById(Policy.TAG_NOTICE))
+      tagNotice: toAdminDto(Policy.findById(Policy.TAG_NOTICE)),
+      privacyPolicy: toAdminDto(Policy.findById(Policy.PRIVACY_POLICY))
     });
   } catch (error) {
     next(error);
@@ -104,13 +149,14 @@ exports.savePolicy = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Unknown policy' });
     }
 
-    const parsed = parsePolicyBody(req.body);
+    const parsed = parsePolicyBody(req.params.id, req.body);
     if (parsed.error) {
       return res.status(400).json({ success: false, error: parsed.error });
     }
 
-    // Only the gate is accepted, so only the gate can require re-acceptance.
-    const requireReaccept = req.params.id === Policy.UPLOAD_GATE && req.body.requireReaccept === true;
+    // Only a policy somebody answers can be asked for again; the tag notice is told, never agreed to.
+    const requireReaccept =
+      Policy.ANSWERED_POLICY_IDS.includes(req.params.id) && req.body.requireReaccept === true;
     const saved = Policy.save(req.params.id, parsed, requireReaccept);
 
     res.status(200).json({ success: true, data: toAdminDto(saved) });
@@ -120,55 +166,49 @@ exports.savePolicy = async (req, res, next) => {
 };
 
 /**
- * @desc    Accept the upload gate
- * @route   POST /api/policies/upload-gate/accept
- * @access  Private
- */
-exports.acceptUploadGate = async (req, res, next) => {
-  try {
-    if (!Policy.isActive(Policy.UPLOAD_GATE)) {
-      return res.status(404).json({ success: false, error: 'There is nothing to accept' });
-    }
-
-    Policy.accept(Policy.UPLOAD_GATE, req.user.id);
-
-    res.status(200).json({ success: true, accepted: true });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * @desc    Record that the user declined the upload gate
- * @route   POST /api/policies/upload-gate/decline
- * @access  Private
+ * Build the handler that records one answer to one policy.
  *
- * Nothing is enforced by this — an unanswered gate already blocks publishing. It exists so an admin can
- * tell someone who was asked and said no from someone who has simply never tried to publish.
+ * The two answers differ only in what is stored and what a missing policy is called, and the two policies
+ * that take an answer differ only in which row they write. One shape rather than four copies of it.
+ *
+ * A decline enforces nothing by itself: an unanswered policy already refuses whatever it governs. It
+ * exists so an admin can tell someone who was asked and said no from someone who was never asked.
+ *
+ * @param {string} policyId - Which policy is being answered
+ * @param {string} response - `'accepted'` or `'declined'`
+ * @returns {Function} Express handler
  */
-exports.declineUploadGate = async (req, res, next) => {
-  try {
-    if (!Policy.isActive(Policy.UPLOAD_GATE)) {
-      return res.status(404).json({ success: false, error: 'There is nothing to decline' });
+const answerHandler = (policyId, response) => {
+  const accepted = response === 'accepted';
+  const missing = `There is nothing to ${accepted ? 'accept' : 'decline'}`;
+
+  return async (req, res, next) => {
+    try {
+      if (!Policy.isActive(policyId)) {
+        return res.status(404).json({ success: false, error: missing });
+      }
+
+      Policy.accept(policyId, req.user.id, response);
+
+      res.status(200).json({ success: true, accepted });
+    } catch (error) {
+      next(error);
     }
-
-    Policy.accept(Policy.UPLOAD_GATE, req.user.id, 'declined');
-
-    res.status(200).json({ success: true, accepted: false });
-  } catch (error) {
-    next(error);
-  }
+  };
 };
 
 /**
- * @desc    Require the gate to be accepted again, by one user or by everyone
- * @route   POST /api/policies/upload-gate/reset
- * @access  Private/Admin
+ * Build the handler that asks for a policy to be answered again — by one user, or by everyone.
+ *
+ * @param {string} policyId - Which policy to reset
+ * @param {Object} copy - `{ missing, notAdmin, userAction, allAction }`: the two refusals, and the audit
+ *   actions the two scopes are recorded under
+ * @returns {Function} Express handler
  */
-exports.resetUploadGate = async (req, res, next) => {
+const resetHandler = (policyId, copy) => async (req, res, next) => {
   try {
-    if (!Policy.findById(Policy.UPLOAD_GATE)) {
-      return res.status(404).json({ success: false, error: 'There is no upload gate to reset' });
+    if (!Policy.findById(policyId)) {
+      return res.status(404).json({ success: false, error: copy.missing });
     }
 
     const { userId } = req.body;
@@ -185,9 +225,9 @@ exports.resetUploadGate = async (req, res, next) => {
         return res.status(403).json({ success: false, error: STAFF_PROTECTED });
       }
 
-      Policy.resetForUser(Policy.UPLOAD_GATE, userId);
+      Policy.resetForUser(policyId, userId);
       AuditLog.tryRecord({
-        action: 'terms_reset_user',
+        action: copy.userAction,
         actor: req.user,
         targetUser: target,
         targetKind: 'account',
@@ -200,21 +240,70 @@ exports.resetUploadGate = async (req, res, next) => {
     // Asking the entire userbase to agree again is a change to what the site requires, not a moderation
     // action against anybody, so it stays with the administrators.
     if (!isAdmin(req.user)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Only an administrator can reset the terms for everyone'
-      });
+      return res.status(403).json({ success: false, error: copy.notAdmin });
     }
 
     // No user named means everyone: one version bump invalidates every acceptance at once. One entry
     // covers it rather than one per account — it was one action, however many people it reached.
-    Policy.resetForEveryone(Policy.UPLOAD_GATE);
-    AuditLog.tryRecord({ action: 'terms_reset_all', actor: req.user });
+    Policy.resetForEveryone(policyId);
+    AuditLog.tryRecord({ action: copy.allAction, actor: req.user });
     res.status(200).json({ success: true, scope: 'all' });
   } catch (error) {
     next(error);
   }
 };
+
+/**
+ * @desc    Accept the upload gate
+ * @route   POST /api/policies/upload-gate/accept
+ * @access  Private
+ */
+exports.acceptUploadGate = answerHandler(Policy.UPLOAD_GATE, 'accepted');
+
+/**
+ * @desc    Record that the user declined the upload gate
+ * @route   POST /api/policies/upload-gate/decline
+ * @access  Private
+ */
+exports.declineUploadGate = answerHandler(Policy.UPLOAD_GATE, 'declined');
+
+/**
+ * @desc    Require the gate to be accepted again, by one user or by everyone
+ * @route   POST /api/policies/upload-gate/reset
+ * @access  Private/Admin
+ */
+exports.resetUploadGate = resetHandler(Policy.UPLOAD_GATE, {
+  missing: 'There is no upload gate to reset',
+  notAdmin: 'Only an administrator can reset the terms for everyone',
+  userAction: 'terms_reset_user',
+  allAction: 'terms_reset_all'
+});
+
+/**
+ * @desc    Accept the Privacy Policy
+ * @route   POST /api/policies/privacy-policy/accept
+ * @access  Private
+ */
+exports.acceptPrivacyPolicy = answerHandler(Policy.PRIVACY_POLICY, 'accepted');
+
+/**
+ * @desc    Record that the user declined the Privacy Policy
+ * @route   POST /api/policies/privacy-policy/decline
+ * @access  Private
+ */
+exports.declinePrivacyPolicy = answerHandler(Policy.PRIVACY_POLICY, 'declined');
+
+/**
+ * @desc    Require the Privacy Policy to be accepted again, by one user or by everyone
+ * @route   POST /api/policies/privacy-policy/reset
+ * @access  Private/Admin
+ */
+exports.resetPrivacyPolicy = resetHandler(Policy.PRIVACY_POLICY, {
+  missing: 'There is no privacy policy to reset',
+  notAdmin: 'Only an administrator can reset the privacy policy for everyone',
+  userAction: 'privacy_reset_user',
+  allAction: 'privacy_reset_all'
+});
 
 /**
  * @desc    Which of a publish's tags the tag notice covers

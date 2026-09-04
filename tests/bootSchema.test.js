@@ -253,11 +253,31 @@ describe('the schema step', () => {
     for (const table of TABLES) expect(names).toContain(table);
   });
 
-  it('applies the tables and the indexes to a fresh database, and nothing to it twice', () => {
+  it('applies the tables, the seeded policy and the indexes to a fresh database, and nothing to it twice', () => {
     const fresh = openDatabase();
 
-    expect(migrate(fresh)).toEqual(['tables', 'indexes']);
+    expect(migrate(fresh)).toEqual(['tables', 'privacyPolicy', 'indexes']);
     expect(migrate(fresh)).toEqual([]);
+
+    fresh.close();
+  });
+
+  it('seeds the Privacy Policy switched off, and never overwrites it afterwards', () => {
+    // The row ships disabled so this server can deploy ahead of the client that answers it; enabling it is
+    // the cutover. A boot that overwrote an edited row would undo the owner's wording, or the cutover.
+    const fresh = openDatabase();
+    migrate(fresh);
+
+    const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'privacy_policy'").get();
+    expect(seeded.enabled).toBe(0);
+    expect(seeded.acceptance_version).toBe(1);
+    expect(seeded.body).toMatch(/Signal/);
+
+    fresh.prepare("UPDATE policies SET enabled = 1, body = 'The owner rewrote this.' WHERE id = 'privacy_policy'").run();
+    expect(migrate(fresh)).toEqual([]);
+
+    const edited = fresh.prepare("SELECT enabled, body FROM policies WHERE id = 'privacy_policy'").get();
+    expect(edited).toEqual({ enabled: 1, body: 'The owner rewrote this.' });
 
     fresh.close();
   });
@@ -294,7 +314,9 @@ describe('the schema step', () => {
   });
 
   it('leaves existing rows alone when it runs again', () => {
-    // Every boot after the first re-runs this, so it has to be a no-op over real data.
+    // Every boot after the first re-runs this, so it has to be a no-op over real data. `setup.js` clears
+    // the seeded policy after each test, so put the database back to current before asking for nothing.
+    migrate(db);
     db.prepare("INSERT INTO users (id, username, password) VALUES ('u-keep', 'keeper', 'x')").run();
 
     expect(migrate(db)).toEqual([]);
@@ -369,6 +391,8 @@ describe('the schema step', () => {
     const migrated = openDatabase(file);
     expect(columnNames(migrated, 'worlds')).toContain('kind');
     expect(tableNames(migrated)).toContain('reports');
+    // The seeded policy reaches a real deploy, not only the suite's own migrate.
+    expect(migrated.prepare("SELECT enabled FROM policies WHERE id = 'privacy_policy'").get().enabled).toBe(0);
     // Serving never invents an owner: the seed belongs to init-db alone.
     expect(migrated.prepare('SELECT COUNT(*) AS count FROM users').get().count).toBe(0);
     migrated.close();
