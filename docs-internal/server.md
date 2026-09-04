@@ -83,12 +83,13 @@ The script does, in order:
 1. `npm run backup` — full local backup (DB, worlds, thumbnails, avatars) into `backups/backup-<timestamp>/`.
    Format and restore details: [BACKUP_RESTORE_DOCUMENTATION.md](../BACKUP_RESTORE_DOCUMENTATION.md).
 2. `npm run cleanup-backups -- 1` — keeps only the newest local backup. Peak use is two backups (~13 GB) during the run.
-3. `rclone -v copyto` the new DB file to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db`.
-4. Prunes that folder with `--min-age 30d` — 30 daily DB snapshots retained.
-5. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
-6. `rclone -v sync /srv/formamorph/storage r2:formamorph-files` — mirror of all uploads. Removals propagate.
+3. Compresses the DB copy with `zstd -9` (about 25% smaller; `preview_data` is mostly base64 and does not compress well).
+4. `rclone -v copyto` the `.zst` to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db.zst`.
+5. Prunes that folder with `--min-age 14d` — 14 daily DB snapshots retained, long enough to revert after a two-week absence.
+6. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
+7. `rclone -v sync /srv/formamorph/storage r2:formamorph-files` — mirror of all uploads. Removals propagate.
 
-So there are three layers: local full backup (yesterday only), offsite DB history (30 days), offsite file mirror (current only).
+So there are three layers: local full backup (yesterday only), offsite DB history (14 days), offsite file mirror (current only).
 
 ### Checking backups
 
@@ -102,13 +103,25 @@ rclone size r2:formamorph-files
 ### Restoring
 
 - **Whole server, recent**: stop the unit, `npm run restore <backup-name>` (it snapshots current data first), start the unit.
-- **Database from a specific day**: stop the unit, `rclone copyto r2:formamorph-backups/db-history/<date>.db /srv/formamorph/data/exotic-dangerous.db`, start the unit.
+- **Database from a specific day**: stop the unit, `rclone copyto r2:formamorph-backups/db-history/<date>.db.zst /tmp/db.zst`,
+  `zstd -d /tmp/db.zst -o /srv/formamorph/data/exotic-dangerous.db -f`, start the unit.
 - **Lost upload files**: `rclone sync r2:formamorph-files /srv/formamorph/storage`. Note the direction.
 - **Lost host**: new box, install Node 24 + Caddy + rclone, recreate the unit and Caddyfile above, restore the env
   file from `.env.production`, restore the rclone config, then run the two rclone restores.
 
+## Cost
+
+| Item | Per month |
+|---|---|
+| Hetzner CX22 (Helsinki, IPv4 and 20 TB traffic included) | €3.79 before VAT |
+| Cloudflare R2 | $0 under 10 GB, then $0.015/GB. Expected use ~12 GB, so about $0.03 |
+| Cloudflare DNS | $0 |
+| Domain formamorph.ai | about $70 to $100 per year |
+
 ## Known gaps
 
 - No fail2ban. SSH is key-only, so this is low priority.
+- R2 sits just over the free tier because the `worlds.preview_data` column holds ~500 MB of base64 text.
+  Moving previews to files (like thumbnails) would shrink every DB copy by 80% and bring R2 to $0.
 - No alerting. Nothing notifies anyone if the unit or the cron job fails.
 - The pre-edit backup script is kept at `/usr/local/bin/formamorph-backup.bak`.
