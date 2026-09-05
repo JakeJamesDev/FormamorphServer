@@ -52,6 +52,33 @@ const User = {
   },
 
   /**
+   * Every account whose name matches this one once the capitals are folded away, oldest first.
+   *
+   * Plural because the unique constraint on `username` compares byte for byte: `wren` and `Wren` are two
+   * accounts, and a lookup that returned one row would have to decide which — a choice that depends on
+   * whether the caller may show a suspended account, which the model does not know. So it hands back the
+   * candidates and the caller picks.
+   *
+   * One query rather than an exact lookup and a folded fallback: the same work runs whoever is asked
+   * about, so the cost of the answer never says whether a name was taken.
+   *
+   * Same-second signups tie on `created_at` and settle on the id. That only makes the order stable — the
+   * same link keeps reaching the same account — and the id itself means nothing.
+   *
+   * NOCASE folds ASCII only, which is the same folding the email index applies.
+   *
+   * @param {*} username - Whatever arrived in the name position of a URL
+   * @returns {Array<Object>} Matching user rows, oldest first; empty when the field is not a name
+   */
+  findAllByUsernameFolded: (username) => {
+    if (typeof username !== 'string' || !username) return [];
+
+    return db
+      .prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE ORDER BY created_at, id')
+      .all(username);
+  },
+
+  /**
    * Find a user by email address, however either side spells the capitals.
    *
    * `COLLATE NOCASE` here is what lets the unique index on `email` answer the query, and it is the same

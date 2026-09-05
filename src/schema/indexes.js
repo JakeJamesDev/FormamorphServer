@@ -80,6 +80,13 @@ const apply = (database) => {
       ON users(email COLLATE NOCASE) WHERE email IS NOT NULL;
   `);
 
+  // A shared profile link carries a name rather than an id, and a name gets retyped with different
+  // capitals on the way into an address bar. Not unique: the constraint on `username` compares byte for
+  // byte, so two casings of one name are two accounts and this index only has to find them quickly.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE);
+  `);
+
   // A link arrives as a token and is looked up by its hash; re-issuing one first deletes what the same
   // account already holds for the same purpose. Nothing asks anything else of this table.
   database.exec(`

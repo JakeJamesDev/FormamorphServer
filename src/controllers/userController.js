@@ -120,6 +120,33 @@ exports.getMyWorlds = async (req, res, next) => {
 
 
 /**
+ * The public face of an account, as a stranger sees it.
+ *
+ * Built here rather than inline so the id route and the username route answer with one shape. A second
+ * copy would drift, and the site and the in-app dialog would slowly stop showing the same profile.
+ *
+ * @param {Object} user - The account being read
+ * @param {Object} [viewer] - Who is asking, when a token said so
+ * @returns {Object} The profile DTO
+ */
+const publicProfile = (user, viewer) => ({
+  id: user.id,
+  username: user.username,
+  avatarUrl: avatarUrlFor(user.avatar_file),
+  createdAt: user.created_at,
+  // Public on purpose: being on the team is not a private fact, and a reader who can see the badge
+  // on a comment should see the same badge on the profile that comment links to.
+  role: badgeRole(roleOf(user)),
+  // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
+  // one rather than false — a signed-out visitor is not somebody who has decided not to.
+  followers: Follow.followerCount(user.id),
+  following: viewer ? Follow.isFollowing(viewer.id, user.id) : undefined,
+  // What their published work has earned, counted over the catalog rather than over what this
+  // reader may see — see `World.authorTotals`.
+  ...World.authorTotals(user.id)
+});
+
+/**
  * The public face of an account.
  *
  * Deliberately a separate route rather than a wider author DTO: every listing, comment and reply already
@@ -140,25 +167,56 @@ exports.getUserProfile = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: {
-        id: user.id,
-        username: user.username,
-        avatarUrl: avatarUrlFor(user.avatar_file),
-        createdAt: user.created_at,
-        // Public on purpose: being on the team is not a private fact, and a reader who can see the badge
-        // on a comment should see the same badge on the profile that comment links to.
-        role: badgeRole(roleOf(user)),
-        // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
-        // one rather than false — a signed-out visitor is not somebody who has decided not to.
-        followers: Follow.followerCount(user.id),
-        following: req.user ? Follow.isFollowing(req.user.id, user.id) : undefined,
-        // What their published work has earned, counted over the catalog rather than over what this
-        // reader may see — see `World.authorTotals`.
-        ...World.authorTotals(user.id)
-      }
-    });
+    res.status(200).json({ success: true, data: publicProfile(user, req.user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Whether a name may lead a stranger to this account at all.
+ *
+ * Only the by-username route asks. `/:id/profile` shows a suspended account to anyone holding the id,
+ * and this does not change that — a UUID is not something a visitor types, while a name is, and a name
+ * is also the thing somebody guesses to find out what happened to a creator.
+ *
+ * @param {Object} user - A candidate the name matched
+ * @returns {boolean} Whether the profile is shown
+ */
+const shownByName = (user) => user.status !== 'suspended' && user.id !== PLACEHOLDER_ID;
+
+/**
+ * The same profile, found by the name in a shared link.
+ *
+ * `formamorph.ai/u/<username>` is what a creator hands somebody, so the site holds a name where every
+ * other profile route holds an id. Separate from `/:id/profile` rather than folded into it: an id and a
+ * name are looked up differently and refuse differently, and the in-app dialog already has an id and
+ * must not change. The id rides along in the answer, which is what the caller reads creations with.
+ *
+ * Two accounts can hold one name in different capitals, so the pick is in two parts. Asked for a name
+ * byte for byte, that account answers, shown or refused on its own status — a suspended account is not
+ * reachable by spelling it differently. Asked for a spelling nobody holds, the oldest account still
+ * shown answers, so a live creator's link keeps working even when a suspended namesake is older.
+ *
+ * One refusal covers three cases — a name nobody has, a suspended account, and the reserved
+ * `[deleted user]` row — and reads identically, so the 404 cannot be used to ask which names were acted
+ * on.
+ *
+ * @desc    A user's public profile, by username
+ * @route   GET /api/users/by-username/:username/profile
+ * @access  Public
+ */
+exports.getUserProfileByUsername = async (req, res, next) => {
+  try {
+    const named = req.params.username;
+    const candidates = User.findAllByUsernameFolded(named);
+    const user = candidates.find((row) => row.username === named) || candidates.find(shownByName);
+
+    if (!user || !shownByName(user)) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    res.status(200).json({ success: true, data: publicProfile(user, req.user) });
   } catch (error) {
     next(error);
   }

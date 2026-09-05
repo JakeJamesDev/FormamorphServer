@@ -1,7 +1,7 @@
 const express = require('express');
 const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
-  setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile,
+  setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile, getUserProfileByUsername,
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
   getUserLikes, clearUserLikes, getLinkedAccounts
 } = require('../controllers/userController');
@@ -33,6 +33,10 @@ router.get('/me/notifications/unread-count', protect, getNotificationCount);
 // somebody's ID.
 router.put('/me/avatar', avatarJson, protect, setMyAvatar);
 router.delete('/me/avatar', protect, removeMyAvatar);
+
+// The same profile, found by the name a shared `formamorph.ai/u/<username>` link carries. Grouped with
+// the literal-prefix routes above so a later `/:id/by-username/...` cannot swallow it.
+router.get('/by-username/:username/profile', optionalAuth, getUserProfileByUsername);
 
 // A user's public face: what a stranger sees when they click a name in a thread or on a listing.
 // `optionalAuth` so a signed-in reader also learns whether they already follow them.
