@@ -29,4 +29,20 @@ const SITE_URL = (process.env.SITE_URL || 'https://formamorph.ai').replace(/\/+$
 const MAIL_LIMIT = 5;
 const MAIL_WINDOW_MS = HOUR_MS;
 
-module.exports = { MAIL_FROM, SITE_URL, MAIL_LIMIT, MAIL_WINDOW_MS };
+/**
+ * How much reset mail one name may cause, and over what window.
+ *
+ * This budget cannot follow the account the way the one above does: the reset request is public, so all
+ * the limiter has to key on is the email or username the request typed. That is deliberate rather than a
+ * shortcut — resolving the name to an account first would put a request naming a member and a request
+ * naming a stranger in different buckets, and the fourth try would then answer differently depending on
+ * whether the name is real. The identical answers exist to deny exactly that, so the bucket is the name
+ * as typed, and an account reachable by two names is worth two buckets.
+ *
+ * Three is well past what somebody who lost the mail needs, and the window is the life of the link, so a
+ * budget can never bury an inbox in links that all still work.
+ */
+const RESET_LIMIT = 3;
+const RESET_WINDOW_MS = HOUR_MS;
+
+module.exports = { MAIL_FROM, SITE_URL, MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS };

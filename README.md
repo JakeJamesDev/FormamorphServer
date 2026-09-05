@@ -132,6 +132,8 @@ server/
 - `POST /api/auth/verify-email` - Prove an email address. Body: the `token` out of the mailed link
 - `POST /api/auth/email` - Set or replace the address on the signed-in account. Body: `email`. A taken one is refused with `EMAIL_TAKEN`
 - `POST /api/auth/resend-verification` - Ask for the verification mail again. No body
+- `POST /api/auth/request-password-reset` - Ask for a reset link. Body: `account`, an email address or a username. Always answers the same
+- `POST /api/auth/reset-password` - Set a new password. Body: the `token` out of the mailed link and `newPassword`
 - `GET /api/auth/me` - Get current user profile, including `email` and `emailVerified`
 
 #### Email and verification
@@ -157,6 +159,30 @@ not cost somebody the mail they were trying to get.
 The budget follows the account rather than the address it names. An address can only be mailed by the one
 account holding it, so bounding the account already bounds the inbox — while bounding the address would
 let anyone drain a stranger's budget by repeatedly trying to claim their address.
+
+#### Password reset
+
+A player who cannot sign in asks at `POST /api/auth/request-password-reset` with whichever they remember,
+their address or their username. **Every request answers `200 {"success": true}`** — a verified account,
+an account that never proved its address, and a name nobody has all get the same body, and the answer goes
+out before any mail is attempted so the wait cannot tell them apart either. There is no way to ask this
+server whether somebody has an account here.
+
+Mail goes only to a **verified** address. An unproven one belongs to whoever really owns it until they
+prove it, and a reset link is the account. An account that cannot be mailed has no token minted for it,
+so nothing sits in the table that nobody was sent.
+
+The link points at `SITE_URL/reset-password?token=…`, works once, and **expires after an hour** — a fifth
+of the day a verification link gets, because this one hands over an account. Completing it at
+`POST /api/auth/reset-password` applies the same minimum as change-password and **ends every session on
+the account**, which is the point: whoever knew the old password is out. The password is judged before the
+token is spent, so a rejected password leaves the link usable. No session comes back — the client sends
+the player to sign in, and the response carries `username` so the form can fill itself in.
+
+Two budgets apply: the per-address credential limiter every auth route carries, and under it **three
+reset requests per hour per name typed**, counted in memory and nowhere else. The second follows the name
+rather than the account it resolves to, so a made-up name fills a bucket exactly as a real one does — a
+budget that only real names could spend would answer the fourth try differently and rebuild the oracle.
 
 #### Deleting an account
 

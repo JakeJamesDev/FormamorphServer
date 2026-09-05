@@ -4,10 +4,11 @@ const AuditLog = require('../models/AuditLog');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { recordSignal } = require('../utils/recordSignal');
-const { sendVerificationEmail } = require('../utils/accountMail');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/accountMail');
 const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
-const { VERIFY } = require('../config/accountTokens');
+const { VERIFY, RESET } = require('../config/accountTokens');
+const { PASSWORD_MIN_LENGTH, PASSWORD_RULE } = require('../config/password');
 const { validationResult } = require('express-validator');
 
 /**
@@ -49,6 +50,26 @@ const tryVerificationMail = async ({ userId, email }) => {
   } catch (error) {
     console.error(`Could not send the verification mail for ${userId}:`, error.message);
     return false;
+  }
+};
+
+/**
+ * Mail the reset link, and swallow whatever delivery does.
+ *
+ * Nothing is reported back because nothing may be: the caller has already answered, and it answered the
+ * same way for an account that does not exist. A failure that reached the client would be the one thing
+ * in the exchange that told an outsider a real account was named.
+ *
+ * @param {Object} params - Who to write to
+ * @param {string} params.userId - The account the link resets
+ * @param {string} params.email - The verified address the link goes to
+ * @returns {Promise<void>} Resolves once the transport has taken the message or refused it
+ */
+const tryResetMail = async ({ userId, email }) => {
+  try {
+    await sendPasswordResetEmail({ userId, email });
+  } catch (error) {
+    console.error(`Could not send the reset mail for ${userId}:`, error.message);
   }
 };
 
@@ -410,6 +431,104 @@ exports.verifyEmail = async (req, res, next) => {
 };
 
 /**
+ * @desc    Ask for a reset link, by email address or by username
+ * @route   POST /api/auth/request-password-reset
+ * @access  Public
+ */
+exports.requestPasswordReset = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    // Either kind of name, because the player has forgotten a password and may well have forgotten which
+    // address they used. A name that is somebody's username and somebody else's address cannot happen:
+    // the address column holds addresses, and no username is one.
+    const typed = addressGiven(req.body.account);
+
+    // Both lookups run whichever one hits, so the two branches cost the same. Skipping the second on a
+    // match would make an address that resolves measurably cheaper than a name nobody holds.
+    const byAddress = User.findByEmail(typed);
+    const byName = User.findByUsername(typed);
+    const user = byAddress || byName;
+
+    // Answered before anything is mailed, and with the same body whatever was found. This is what keeps
+    // the route from being a way to ask whether somebody has an account here: minting a token and handing
+    // a message to Resend takes far longer than finding nothing, so a response that waited for it would
+    // time the answer even while wording it identically.
+    res.status(200).json({ success: true });
+
+    // Only a proven address. An unverified one is a stranger's until it is proven, and a reset link is
+    // the account — so this is the line that keeps a typo at registration from giving it away.
+    if (user && user.email_verified_at) await tryResetMail({ userId: user.id, email: user.email });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Set a new password with a mailed reset token
+ * @route   POST /api/auth/reset-password
+ * @access  Public
+ */
+exports.resetPassword = async (req, res, next) => {
+  try {
+    // Judged before the token is spent. A password the form should have caught must not cost somebody
+    // their link, or one typo means waiting for another mail.
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    // Public and unauthenticated, for the reason `verifyEmail` gives: the link is opened wherever the
+    // mail was read. The token is the credential, and it is the only one — whoever holds it has proven
+    // they read mail sent to the verified address, which is the whole basis of the reset.
+    const userId = AccountToken.consume({ token: req.body.token, purpose: RESET });
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        code: 'TOKEN_INVALID',
+        error: 'That reset link has expired or has already been used'
+      });
+    }
+
+    // A token can outlive the account it names by the width of this handler: erasure runs on its own
+    // schedule and cascades the token rows away, so a link opened at that moment finds nothing to write.
+    // Answered as a dead link, which is what it now is.
+    const written = await User.setPassword(userId, req.body.newPassword);
+
+    if (!written) {
+      return res.status(400).json({
+        success: false,
+        code: 'TOKEN_INVALID',
+        error: 'That reset link has expired or has already been used'
+      });
+    }
+
+    // No session comes back. Somebody resetting a password usually suspects another person had it, and
+    // the point of the version bump is that every session on the account is now gone — handing one back
+    // here would make this route the exception to the rule it exists to enforce. The name goes back
+    // instead: somebody who asked by address may not remember the username the sign-in form wants.
+    const user = User.findById(userId);
+
+    res.status(200).json({
+      success: true,
+      username: user.username
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Change password
  * @route   POST /api/auth/change-password
  * @access  Private
@@ -426,10 +545,10 @@ exports.changePassword = async (req, res, next) => {
       });
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       return res.status(400).json({
         success: false,
-        error: 'New password must be at least 6 characters long'
+        error: PASSWORD_RULE
       });
     }
 

@@ -1,10 +1,11 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { register, login, getMe, changePassword, requestAccountDeletion, verifyEmail, setEmail, resendVerification } = require('../controllers/authController');
+const { register, login, getMe, changePassword, requestAccountDeletion, verifyEmail, setEmail, resendVerification, requestPasswordReset, resetPassword } = require('../controllers/authController');
 const { protect, protectBeforePolicy, protectDeletionRequest } = require('../middleware/auth');
-const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
-const { MAIL_LIMIT, MAIL_WINDOW_MS } = require('../config/mail');
+const { clientIpKeyGenerator, resetAccountKeyGenerator } = require('../utils/rateLimitKey');
+const { MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS } = require('../config/mail');
+const { PASSWORD_MIN_LENGTH, PASSWORD_RULE } = require('../config/password');
 
 const router = express.Router();
 
@@ -32,6 +33,19 @@ const mailLimiter = rateLimit({
   skipFailedRequests: true,
   keyGenerator: (req) => `user:${req.user.id}`,
   message: { success: false, error: 'Too many verification mails asked for. Try again later.' }
+});
+
+// The second budget on the reset request, under the per-address one above it. It counts the name the
+// request typed rather than the account that name resolves to — see `config/mail` for why. Refusals are
+// refunded, so a form submitted blank does not spend a budget.
+const resetRequestLimiter = rateLimit({
+  windowMs: RESET_WINDOW_MS,
+  limit: RESET_LIMIT,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true,
+  keyGenerator: resetAccountKeyGenerator,
+  message: { success: false, error: 'Too many reset requests. Try again later.' }
 });
 
 // Register user
@@ -68,6 +82,26 @@ router.post(
 // Ask for the verification mail again, for a mail that never arrived or was lost.
 router.post('/resend-verification', authLimiter, protect, mailLimiter, resendVerification);
 
+// Ask for a reset link. Public and unauthenticated: somebody who can still sign in has change-password,
+// and somebody who cannot is the only person this route is for. `authLimiter` is the per-address budget
+// and `resetRequestLimiter` the per-name one.
+router.post(
+  '/request-password-reset',
+  authLimiter,
+  resetRequestLimiter,
+  [check('account', 'Enter your email address or username').trim().not().isEmpty()],
+  requestPasswordReset
+);
+
+// Set a new password with the token out of the mail. Public, because the link is opened wherever the
+// mail was read. Under the credential limiter: it takes a token, so it is a place to guess one.
+router.post(
+  '/reset-password',
+  authLimiter,
+  [check('newPassword', PASSWORD_RULE).isLength({ min: PASSWORD_MIN_LENGTH })],
+  resetPassword
+);
+
 // Login user
 router.post(
   '/login',
@@ -89,7 +123,7 @@ router.post(
   authLimiter,
   [
     check('currentPassword', 'Current password is required').not().isEmpty(),
-    check('newPassword', 'New password must be at least 6 characters long').isLength({ min: 6 })
+    check('newPassword', PASSWORD_RULE).isLength({ min: PASSWORD_MIN_LENGTH })
   ],
   protectBeforePolicy,
   changePassword

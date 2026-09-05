@@ -1,7 +1,7 @@
 const AccountToken = require('../models/AccountToken');
 const { sendMail } = require('./mail');
 const { SITE_URL } = require('../config/mail');
-const { VERIFY } = require('../config/accountTokens');
+const { VERIFY, RESET } = require('../config/accountTokens');
 
 /**
  * The account mails this server sends, written once so every caller sends the same thing.
@@ -49,4 +49,39 @@ const sendVerificationEmail = async ({ userId, email }) => {
   });
 };
 
-module.exports = { sendVerificationEmail };
+/**
+ * Mint a reset link for an account and mail it to the verified address on file.
+ *
+ * Only a caller that has checked the address is verified may call this. An unproven address is somebody
+ * else's until it is proven, and mailing a reset link to it hands them the account.
+ *
+ * @param {Object} params - Who to write to
+ * @param {string} params.userId - The account the link resets
+ * @param {string} params.email - The verified address, which is where the link goes
+ * @returns {Promise<void>} Resolves when the transport has taken the message
+ */
+const sendPasswordResetEmail = async ({ userId, email }) => {
+  const token = AccountToken.issue({ userId, purpose: RESET });
+  const link = `${SITE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+  await sendMail({
+    to: email,
+    subject: 'Reset your Formamorph password',
+    text: [
+      'Set a new password for your account:',
+      '',
+      link,
+      '',
+      'The link works once and expires in an hour. If you did not ask for it, nothing happens when you',
+      'ignore it — your password stays as it is.'
+    ].join('\n'),
+    html: [
+      '<p>Set a new password for your account:</p>',
+      `<p><a href="${escapeHtml(link)}">Set a new password</a></p>`,
+      `<p>${escapeHtml(link)}</p>`,
+      '<p>The link works once and expires in an hour. If you did not ask for it, nothing happens when you ignore it — your password stays as it is.</p>'
+    ].join('\n')
+  });
+};
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail };

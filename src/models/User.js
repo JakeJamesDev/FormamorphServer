@@ -2,6 +2,7 @@ const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
+const { foldedAddress } = require('../utils/emailAddress');
 
 /**
  * User model
@@ -48,6 +49,23 @@ const User = {
    */
   findByUsername: (username) => {
     return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  },
+
+  /**
+   * Find a user by email address, however either side spells the capitals.
+   *
+   * `COLLATE NOCASE` here is what lets the unique index on `email` answer the query, and it is the same
+   * folding that index applies — so a lookup can never disagree with the constraint about which two
+   * spellings are one address.
+   *
+   * @param {*} email - Whatever arrived in an email field
+   * @returns {Object|null} User object, or null when the field carries no address or nobody holds it
+   */
+  findByEmail: (email) => {
+    const address = foldedAddress(email);
+    if (!address) return null;
+
+    return db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(address) || null;
   },
 
   /**
@@ -153,22 +171,33 @@ const User = {
         throw new Error('Current password is incorrect');
       }
       
-      // Hash new password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(newPassword, salt);
-      
-      // The version bump goes in the same statement as the new hash: changing a password has to end the
-      // sessions it protected, or the thief who prompted the change keeps the one they already hold.
-      db.prepare(`
-        UPDATE users
-        SET password = ?, token_version = token_version + 1, updated_at = ?
-        WHERE id = ?
-      `).run(hashedPassword, new Date().toISOString(), id);
-
-      return true;
+      return User.setPassword(id, newPassword);
     } catch (error) {
       throw error;
     }
+  },
+
+  /**
+   * Write a new password, whoever proved they may.
+   *
+   * The proof lives in the caller: the old password for a change, a mailed token for a reset. What is
+   * shared is the write, and the version bump goes in the same statement as the new hash — a password
+   * replaced has to end the sessions it protected, or whoever prompted the replacement keeps the session
+   * they already hold.
+   *
+   * @param {string} id - User ID
+   * @param {string} newPassword - The password to store
+   * @returns {Promise<boolean>} Whether a row was written
+   */
+  setPassword: async (id, newPassword) => {
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    return db.prepare(`
+      UPDATE users
+      SET password = ?, token_version = token_version + 1, updated_at = ?
+      WHERE id = ?
+    `).run(hashedPassword, new Date().toISOString(), id).changes > 0;
   },
 
   /**
