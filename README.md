@@ -130,6 +130,8 @@ server/
 - `POST /api/auth/change-password` - Change password
 - `POST /api/auth/delete-account` - Ask for this account to be erased after a seven-day Grace Period. Body: `password` and `deleteContent` (no default). Answers `deletionScheduledFor`
 - `POST /api/auth/verify-email` - Prove an email address. Body: the `token` out of the mailed link
+- `POST /api/auth/email` - Set or replace the address on the signed-in account. Body: `email`. A taken one is refused with `EMAIL_TAKEN`
+- `POST /api/auth/resend-verification` - Ask for the verification mail again. No body
 - `GET /api/auth/me` - Get current user profile, including `email` and `emailVerified`
 
 #### Email and verification
@@ -142,6 +144,19 @@ database hands out no working links.
 
 One address belongs to one account, case-insensitively, enforced by a unique index rather than by a check
 some route has to remember. Verification is what password reset needs; signing in never asks for it.
+
+A signed-in user sets or replaces their address at `POST /api/auth/email`, and asks for the mail again at
+`POST /api/auth/resend-verification`. A new address arrives unverified, whatever the old one was; saving
+the address already on file changes nothing and keeps the stamp. Both answer `mailSent`, so a client can
+offer another try when delivery failed. Asking again once the address is verified sends nothing.
+
+Both routes carry a second rate limit on top of the per-IP credential one: **five verification mails per
+hour per account**, counted in memory and nowhere else. Refusals are refunded, so a mistyped address does
+not cost somebody the mail they were trying to get.
+
+The budget follows the account rather than the address it names. An address can only be mailed by the one
+account holding it, so bounding the account already bounds the inbox — while bounding the address would
+let anyone drain a stranger's budget by repeatedly trying to claim their address.
 
 #### Deleting an account
 
@@ -334,7 +349,7 @@ client has a screen to open rather than a message to print. An older build that 
 |---|---|---|---|
 | `TERMS_REQUIRED` | 403 | Publishing or updating a listing while the upload gate is enabled and unaccepted | Opens the contributor terms, then retries |
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
-| `EMAIL_TAKEN` | 409 | Registering with an address another account already holds | Points at sign-in and password reset, rather than at the email box |
+| `EMAIL_TAKEN` | 409 | Registering with, or setting, an address another account already holds | Points at sign-in and password reset, rather than at the email box |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
 `PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,

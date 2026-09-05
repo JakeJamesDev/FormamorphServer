@@ -5,6 +5,7 @@ const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { recordSignal } = require('../utils/recordSignal');
 const { sendVerificationEmail } = require('../utils/accountMail');
+const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
 const { VERIFY } = require('../config/accountTokens');
 const { validationResult } = require('express-validator');
@@ -30,6 +31,28 @@ const accountSummary = (user) => ({
 });
 
 /**
+ * Mail the verification link, and say whether it went.
+ *
+ * Delivery is somebody else's service, so an outage there is not the caller's fault and must never cost
+ * them the thing they actually did — the address is on file either way. The outcome comes back instead
+ * of being thrown, so a route that has one can tell the client to offer another try.
+ *
+ * @param {Object} params - Who to write to
+ * @param {string} params.userId - The account whose address is being verified
+ * @param {string} params.email - The address the link goes to
+ * @returns {Promise<boolean>} Whether the transport took the message
+ */
+const tryVerificationMail = async ({ userId, email }) => {
+  try {
+    await sendVerificationEmail({ userId, email });
+    return true;
+  } catch (error) {
+    console.error(`Could not send the verification mail for ${userId}:`, error.message);
+    return false;
+  }
+};
+
+/**
  * @desc    Register a new user
  * @route   POST /api/auth/register
  * @access  Public
@@ -46,7 +69,7 @@ exports.register = async (req, res, next) => {
     }
 
     const { username, password, email } = req.body;
-    const address = typeof email === 'string' && email.trim() ? email.trim() : null;
+    const address = addressGiven(email);
 
     // Create user. Both a taken name and a taken address are refused by the unique constraint rather than
     // by a lookup first: a lookup would still have to be backed by this branch, because two registrations
@@ -77,15 +100,9 @@ exports.register = async (req, res, next) => {
     }
 
     // Unverified, and the account is already usable — verification is what password reset needs, not what
-    // signing in needs. Delivery is somebody else's service, so a failure here is logged and dropped: an
-    // outage at Resend must not cost a player the registration they just completed.
-    if (address) {
-      try {
-        await sendVerificationEmail({ userId: user.id, email: address });
-      } catch (error) {
-        console.error(`Could not send the verification mail for ${user.id}:`, error.message);
-      }
-    }
+    // signing in needs. The outcome is dropped here rather than reported: what registering answers with
+    // is the session and the account, and the player can ask for the mail again from the account page.
+    if (address) await tryVerificationMail({ userId: user.id, email: address });
 
     // The account exists now, so this is the first place a Signal can name it. Four accounts made from one
     // address in two minutes is the pattern this whole table is here to make visible.
@@ -256,6 +273,102 @@ exports.getMe = async (req, res, next) => {
     res.status(200).json({
       success: true,
       user: { ...accountSummary(user), createdAt: user.created_at }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Set or replace the email address on the signed-in account
+ * @route   POST /api/auth/email
+ * @access  Private
+ */
+exports.setEmail = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        errors: errors.array()
+      });
+    }
+
+    const address = addressGiven(req.body.email);
+    const current = User.findById(req.user.id);
+
+    // Saving the address already on file is not a change of address, so a stamp on it stands. Without
+    // this, opening the account page and pressing Save would quietly undo a verification the player had
+    // already done. An account with no address folds to null, which no real address matches.
+    const unchanged = foldedAddress(current.email) === foldedAddress(address);
+
+    let user = current;
+    if (!unchanged) {
+      // A new address is unproven, whatever the old one was. Both columns move in one statement, so no
+      // moment exists where the row carries the new address under the old address's stamp.
+      //
+      // Taken addresses are refused by the unique index rather than by a lookup first, for the reason
+      // register gives. This statement writes one unique column, so a collision can only be the email.
+      try {
+        user = User.update(req.user.id, { email: address, email_verified_at: null });
+      } catch (error) {
+        if (error.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
+
+        return res.status(409).json({
+          success: false,
+          code: 'EMAIL_TAKEN',
+          error: 'That email address is already registered'
+        });
+      }
+    }
+
+    // Nothing to prove about an address already proven, which is only reachable on the unchanged branch.
+    const mailSent = user.email_verified_at
+      ? false
+      : await tryVerificationMail({ userId: user.id, email: user.email });
+
+    res.status(200).json({
+      success: true,
+      user: accountSummary(user),
+      mailSent
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Ask for the verification mail again
+ * @route   POST /api/auth/resend-verification
+ * @access  Private
+ */
+exports.resendVerification = async (req, res, next) => {
+  try {
+    const user = User.findById(req.user.id);
+
+    if (!user.email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Add an email address before asking for the verification mail'
+      });
+    }
+
+    // Answered as success, because the state the caller wanted is the state they are already in. A
+    // refusal would only invite them to try again, and each try costs somebody a mail.
+    if (user.email_verified_at) {
+      return res.status(200).json({
+        success: true,
+        emailVerified: true,
+        mailSent: false
+      });
+    }
+
+    const mailSent = await tryVerificationMail({ userId: user.id, email: user.email });
+
+    res.status(200).json({
+      success: true,
+      emailVerified: false,
+      mailSent
     });
   } catch (error) {
     next(error);
