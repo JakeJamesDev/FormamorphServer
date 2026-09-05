@@ -33,7 +33,8 @@ const TABLES = [
   'world_changelog',
   'reports',
   'signals',
-  'settings'
+  'settings',
+  'account_tokens'
 ];
 
 /**
@@ -384,6 +385,46 @@ describe('the schema step', () => {
     expect(events).toContain('winner_message_id'); // its rename is rolled back
     expect(events).not.toContain('results_announced_at'); // its column is rolled back
     expect(legacy.pragma('foreign_keys', { simple: true })).toBe(1); // enforcement is restored
+
+    legacy.close();
+  });
+
+  it('gives an existing database the verification column, the token table and the unique address', () => {
+    // The one migration in this feature that could fail on the live database: it constrains a column that
+    // has been there, unconstrained, since the first release. Nothing ever wrote to it, so the index goes
+    // on without a data pass — and once it is on, the constraint is the database's rather than a check
+    // some route has to remember to make.
+    const legacy = oldestDatabase();
+
+    expect(migrate(legacy)).toContain('emailVerification');
+
+    expect(columnNames(legacy, 'users')).toContain('email_verified_at');
+    expect(tableNames(legacy)).toContain('account_tokens');
+    legacy.prepare("INSERT INTO users (id, username, password, email) VALUES ('u-1', 'first', 'x', 'One@Example.test')").run();
+    expect(() => legacy
+      .prepare("INSERT INTO users (id, username, password, email) VALUES ('u-2', 'second', 'x', 'one@example.TEST')")
+      .run()).toThrow(/UNIQUE/);
+    // Most accounts have no address at all, and the index must not make the second of them a duplicate.
+    legacy.prepare("INSERT INTO users (id, username, password) VALUES ('u-3', 'third', 'x')").run();
+    legacy.prepare("INSERT INTO users (id, username, password) VALUES ('u-4', 'fourth', 'x')").run();
+
+    legacy.close();
+  });
+
+  it('takes an outstanding link with the account it belongs to', () => {
+    // Erasure deletes the user row and leaves the rest to the cascades. A verification link that outlived
+    // its account would be a row pointing at nothing that an erased address could still be proven with.
+    const legacy = oldestDatabase();
+    migrate(legacy);
+    legacy.prepare("INSERT INTO users (id, username, password) VALUES ('u-1', 'first', 'x')").run();
+    legacy.prepare(`
+      INSERT INTO account_tokens (id, user_id, purpose, token_hash, expires_at, created_at)
+      VALUES ('t-1', 'u-1', 'verify', 'a-hash', '2099-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+    `).run();
+
+    legacy.prepare("DELETE FROM users WHERE id = 'u-1'").run();
+
+    expect(legacy.prepare('SELECT COUNT(*) AS count FROM account_tokens').get().count).toBe(0);
 
     legacy.close();
   });

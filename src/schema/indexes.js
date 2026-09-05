@@ -71,6 +71,22 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_users_deletion ON users(deletion_requested_at);
   `);
 
+  // One address, one account — the constraint itself rather than a check the routes remember to make.
+  // NOCASE because nobody thinks of their address as case-sensitive, and partial because an account
+  // without one is the normal case and SQLite would otherwise index every null. NOCASE folds ASCII only,
+  // so two addresses differing solely in the case of a non-ASCII letter still read as two addresses.
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+      ON users(email COLLATE NOCASE) WHERE email IS NOT NULL;
+  `);
+
+  // A link arrives as a token and is looked up by its hash; re-issuing one first deletes what the same
+  // account already holds for the same purpose. Nothing asks anything else of this table.
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_account_tokens_hash ON account_tokens(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_account_tokens_user ON account_tokens(user_id, purpose);
+  `);
+
   // Create indexes for policy acceptances
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_policy_acceptances_user ON policy_acceptances(user_id);

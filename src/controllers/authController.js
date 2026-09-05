@@ -1,10 +1,33 @@
 const User = require('../models/User');
+const AccountToken = require('../models/AccountToken');
 const AuditLog = require('../models/AuditLog');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { recordSignal } = require('../utils/recordSignal');
+const { sendVerificationEmail } = require('../utils/accountMail');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
+const { VERIFY } = require('../config/accountTokens');
 const { validationResult } = require('express-validator');
+
+/**
+ * The account, as its own owner is told it.
+ *
+ * Register, login and me all answer with this. Written once because the three had already drifted: a
+ * field added to one of them is a field the client cannot rely on from the other two, and which of the
+ * three a session came through is not something a client should have to remember.
+ *
+ * @param {Object} user - A users row
+ * @returns {Object} The fields an account's owner sees about themselves
+ */
+const accountSummary = (user) => ({
+  id: user.id,
+  username: user.username,
+  email: user.email,
+  emailVerified: Boolean(user.email_verified_at),
+  status: user.status,
+  accountType: user.account_type,
+  avatarUrl: avatarUrlFor(user.avatar_file)
+});
 
 /**
  * @desc    Register a new user
@@ -23,22 +46,46 @@ exports.register = async (req, res, next) => {
     }
 
     const { username, password, email } = req.body;
+    const address = typeof email === 'string' && email.trim() ? email.trim() : null;
 
-    // Check if user already exists
-    const existingUser = User.findByUsername(username);
-    if (existingUser) {
+    // Create user. Both a taken name and a taken address are refused by the unique constraint rather than
+    // by a lookup first: a lookup would still have to be backed by this branch, because two registrations
+    // racing for one name or one address both find it free, and then two places decide what "taken"
+    // means. Which of the two collided is read off the column SQLite names.
+    //
+    // The two refusals are separate because the fixes are: pick another name, or recover the account that
+    // already holds the address. One shared message would send half the people who hit this down the
+    // wrong one. The name keeps its original 400 and no code, because clients already read it that way.
+    let user;
+    try {
+      user = await User.create({ username, password, email: address });
+    } catch (error) {
+      if (error.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
+
+      if (/users\.email/.test(error.message)) {
+        return res.status(409).json({
+          success: false,
+          code: 'EMAIL_TAKEN',
+          error: 'That email address is already registered'
+        });
+      }
+
       return res.status(400).json({
         success: false,
         error: 'Username already exists'
       });
     }
 
-    // Create user
-    const user = await User.create({
-      username,
-      password,
-      email
-    });
+    // Unverified, and the account is already usable — verification is what password reset needs, not what
+    // signing in needs. Delivery is somebody else's service, so a failure here is logged and dropped: an
+    // outage at Resend must not cost a player the registration they just completed.
+    if (address) {
+      try {
+        await sendVerificationEmail({ userId: user.id, email: address });
+      } catch (error) {
+        console.error(`Could not send the verification mail for ${user.id}:`, error.message);
+      }
+    }
 
     // The account exists now, so this is the first place a Signal can name it. Four accounts made from one
     // address in two minutes is the pattern this whole table is here to make visible.
@@ -50,14 +97,7 @@ exports.register = async (req, res, next) => {
     res.status(201).json({
       success: true,
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        status: user.status,
-        accountType: user.account_type,
-        avatarUrl: avatarUrlFor(user.avatar_file)
-      }
+      user: accountSummary(user)
     });
   } catch (error) {
     next(error);
@@ -132,14 +172,7 @@ exports.login = async (req, res, next) => {
       success: true,
       token,
       ...(deletionCanceled ? { deletionCanceled: true } : {}),
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        status: user.status,
-        accountType: user.account_type,
-        avatarUrl: avatarUrlFor(user.avatar_file)
-      }
+      user: accountSummary(user)
     });
   } catch (error) {
     next(error);
@@ -222,15 +255,41 @@ exports.getMe = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        status: user.status,
-        accountType: user.account_type,
-        avatarUrl: avatarUrlFor(user.avatar_file),
-        createdAt: user.created_at
-      }
+      user: { ...accountSummary(user), createdAt: user.created_at }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Prove an email address by opening the link mailed to it
+ * @route   POST /api/auth/verify-email
+ * @access  Public
+ */
+exports.verifyEmail = async (req, res, next) => {
+  try {
+    const { token } = req.body;
+
+    // Public and unauthenticated: whoever opens the link may not be signed in on the device that opened
+    // it, and requiring a session would make the mail useless from a phone. The token is the credential.
+    const userId = AccountToken.consume({ token, purpose: VERIFY });
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        code: 'TOKEN_INVALID',
+        error: 'That verification link has expired or has already been used'
+      });
+    }
+
+    User.markEmailVerified(userId);
+    const user = User.findById(userId);
+
+    res.status(200).json({
+      success: true,
+      email: user.email,
+      emailVerified: true
     });
   } catch (error) {
     next(error);

@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { app, db, paths } from './context.js';
-import { createUser, authHeader, worldPayload } from './helpers.js';
+import { createUser, authHeader, worldPayload, fromItsOwnAddress } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const { sweepDeletions } = require('../src/utils/sweepDeletions');
@@ -27,14 +27,6 @@ const { DAY_MS } = require('../src/config/time');
 
 /** A 1x1 lossless WebP, which is the shape the crop step produces. */
 const TINY_WEBP = 'data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==';
-
-/**
- * The credential routes share one limiter of twenty attempts per address, and supertest sends every
- * request from the same one. Each call here declares an address of its own, exactly as a request through
- * Cloudflare arrives with one, so a file with thirty logins in it is not testing the rate limiter.
- */
-let caller = 0;
-const fromItsOwnAddress = (req) => req.set('CF-Connecting-IP', `203.0.113.${(caller += 1) % 250}`);
 
 const askToDelete = (user, body) => fromItsOwnAddress(
   request(app).post('/api/auth/delete-account').set(authHeader(user)).send(body)

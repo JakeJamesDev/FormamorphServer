@@ -33,6 +33,7 @@ const STEPS = [
   require('./steps/accountDeletion'),
   require('./steps/placeholderUser'),
   require('./steps/dropPreviewData'),
+  require('./steps/emailVerification'),
   require('./indexes')
 ];
 

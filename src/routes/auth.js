@@ -1,7 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { register, login, getMe, changePassword, requestAccountDeletion } = require('../controllers/authController');
+const { register, login, getMe, changePassword, requestAccountDeletion, verifyEmail } = require('../controllers/authController');
 const { protect, protectBeforePolicy, protectDeletionRequest } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
@@ -25,10 +25,16 @@ router.post(
     check('username', 'Username is required').not().isEmpty(),
     check('username', 'Username must be between 3 and 20 characters').isLength({ min: 3, max: 20 }),
     check('password', 'Password must be at least 6 characters long').isLength({ min: 6 }),
-    check('email', 'Please include a valid email').optional().isEmail()
+    // `values: 'falsy'` so a form that posts an empty box reads as no address rather than a bad one.
+    check('email', 'Please include a valid email').optional({ values: 'falsy' }).isEmail()
   ],
   register
 );
+
+// Prove an email address. Public, because the link is opened wherever the mail was read and that is
+// rarely the device holding the session. Under the credential limiter: it takes a token, so it is a
+// place to guess one.
+router.post('/verify-email', authLimiter, verifyEmail);
 
 // Login user
 router.post(

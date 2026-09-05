@@ -81,6 +81,16 @@ export function authHeader(user) {
   return { Authorization: `Bearer ${jwt.sign({ id: user.id, tv }, process.env.JWT_SECRET)}` };
 }
 
+/**
+ * Give a request an address of its own, exactly as a request through Cloudflare arrives with one.
+ *
+ * The credential routes share one limiter of twenty attempts per address, and supertest sends every
+ * request from the same one. Without this, a file with thirty logins in it is testing the rate limiter
+ * rather than whatever it meant to test.
+ */
+let caller = 0;
+export const fromItsOwnAddress = (req) => req.set('CF-Connecting-IP', `203.0.113.${(caller += 1) % 250}`);
+
 /** Smallest valid PNG data-URI: `saveThumbnail` requires a real base64 image of an allowed type. */
 export const TINY_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';

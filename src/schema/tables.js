@@ -44,6 +44,10 @@ const apply = (database) => {
       -- nothing is hidden or moved while the stamp stands, so cancelling has nothing to restore.
       deletion_requested_at TEXT,
       deletion_removes_content INTEGER NOT NULL DEFAULT 0,
+      -- When the address above was proven to belong to whoever holds this account, by opening the link
+      -- mailed to it. Null until then, and cleared again whenever the address changes. The account
+      -- works either way: verification is what password reset needs, not what signing in needs.
+      email_verified_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -467,6 +471,25 @@ const apply = (database) => {
       event TEXT NOT NULL CHECK (event IN ('signup', 'login', 'like', 'publish', 'comment', 'follow')),
       address_hash TEXT NOT NULL,
       browser_family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // One row per verification or reset link that has been mailed out. The token itself is never here:
+  // the row keeps `sha256(token)` and the mail keeps the token, so a leak of this table hands out no
+  // working links. A row is consumed rather than deleted, which is what makes a second use of the same
+  // link tell itself apart from a link that never existed.
+  //
+  // Cascades, so erasing an account takes its outstanding links with it.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS account_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset')),
+      token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )

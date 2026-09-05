@@ -38,7 +38,7 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, email, status, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, email, email_verified_at, status, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
 
   /**
@@ -49,6 +49,19 @@ const User = {
   findByUsername: (username) => {
     return db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   },
+
+  /**
+   * Stamp an account's email as proven, if it has not been already.
+   *
+   * The guard is in the statement rather than around it, so a second link opened at the same moment
+   * cannot move a stamp that already stands.
+   *
+   * @param {string} id - User ID
+   * @returns {boolean} Whether this call is the one that stamped it
+   */
+  markEmailVerified: (id) => db
+    .prepare('UPDATE users SET email_verified_at = @now, updated_at = @now WHERE id = @id AND email_verified_at IS NULL')
+    .run({ now: new Date().toISOString(), id }).changes > 0,
 
   /**
    * Create a new user
