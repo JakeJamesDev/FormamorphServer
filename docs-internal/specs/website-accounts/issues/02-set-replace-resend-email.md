@@ -1,18 +1,20 @@
 # 02 — Set, replace, and resend email
 
 Status: ready-for-human
-Spec: ../spec.md
+Spec: [website accounts](../spec.md)
 
 **What to build:** A signed-in player sets or replaces their email and gets a fresh verification mail. A player who lost the mail asks for it again. Abuse of these endpoints is bounded without storing an IP.
 
-**Blocked by:** 01.
+**Dependencies:** [01](01-register-with-email-and-verify.md), implemented. Human review remains.
 
-- [x] Authenticated set-email endpoint writes the address, clears the verified stamp, invalidates earlier verify tokens, sends verification. A taken address returns the conflict error.
+- [x] Authenticated set-email endpoint replaces a changed address, clears its verified stamp, invalidates earlier verify tokens, and sends verification. A case-insensitively unchanged address preserves verification. A taken address returns the conflict error.
 - [x] Authenticated resend endpoint sends again only while unverified.
-- [x] Both sit behind the auth limiter plus per-IP and per-email limiters using the existing express-rate-limit dependency in memory. Nothing persisted or logged.
+- [x] Both use the existing per-IP auth limiter and a shared per-account mail limiter (five per hour), using express-rate-limit in memory. Limiter keys are not persisted or logged; failed requests are refunded.
 - [x] Route tests cover: set, replace clears verified, resend, resend after verified is a no-op, limiter trips.
 
 ## Comments
+
+Implemented in `c245781`; reconciled September 6, 2026. The account-keyed five-per-hour mail budget was approved on September 6, 2026. The checked criteria describe the code; unchanged-address behavior and the `mailSent` addition remain documented implementation details for review.
 
 Built as `POST /api/auth/email` and `POST /api/auth/resend-verification`, both under `protect`.
 
@@ -36,5 +38,4 @@ a verification the player had already done. A resave, folded for case, is treate
 purpose is to send a mail has to say whether it did, so the client can offer another try. Register keeps
 its old shape and still swallows the outcome.
 
-Left alone, from ticket 01: the privacy policy still says the address is not mailed, and the pre-deploy
-duplicate-address check has not been run.
+Release follow-ups: [privacy policy](06-update-email-privacy-policy.md) and the [production duplicate-address preflight](04-deploy-mail-to-the-box.md).

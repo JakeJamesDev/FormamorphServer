@@ -1,23 +1,25 @@
 # 05 — Public profile by username
 
 Status: ready-for-human
-Spec: ../spec.md
-Client twin: `formamorph/docs-internal/specs/website-accounts/issues/04-public-profile.md`
+Spec: [website accounts](../spec.md)
+Client twin: [public profile](../../../../../formamorph/docs-internal/specs/website-accounts/issues/04-public-profile.md)
 
 **What to build:** The site's shareable profile link is `formamorph.ai/u/<username>`, so the site holds a name where every profile endpoint takes a UUID. One public endpoint resolves a name to the same profile DTO, and answers a suspended account the way it answers a name nobody has.
 
-**Blocked by:** None — can start immediately.
+**Dependencies:** None. Implemented in `36bd871`; human review and deployed client integration remain.
 
 **Why the existing route cannot do it:** `GET /api/users/:id/profile` reads `User.findById`, so a username misses and 404s. The DTO carries no `status`, so a client cannot tell a suspended account from an ordinary one either. The client ticket is blocked on both.
 
 - [x] `GET /api/users/by-username/:username/profile`, `optionalAuth`, returning the same DTO `getUserProfile` builds — id included, so the caller reads creations from the existing `/users/:id/worlds`.
-- [x] The lookup is case-insensitive, matching the registration uniqueness rule.
+- [x] Exact spelling selects its owner; otherwise a case-insensitive lookup selects the oldest visible account. Registration still permits differently cased names. Ownership rules approved September 6, 2026; see [08](08-username-case-ownership.md).
 - [x] A suspended account answers 404 with the same body an unknown name gets. Suspension must not be distinguishable from absence.
 - [x] Mounted above the `/:id` routes, so a username is never read as an id.
-- [x] The existing `/:id/profile` is left as it is. The in-app dialog opens profiles by id and its behavior does not change here.
+- [x] Existing `/:id/profile` behavior is preserved through a shared DTO helper. It still exposes suspended profiles; [ticket 07](07-profile-suspension-consistency.md) tracks that gap.
 - [x] Route tests: a known name resolves, a differently-cased name resolves, an unknown name 404s, a suspended account 404s with a body identical to the unknown one, and a signed-in caller still gets `following`.
 
 ## Comments
+
+Reconciled September 6, 2026. The endpoint now exists locally. The client twin's statement that the endpoint is unimplemented is stale; production availability remains unverified. [Ticket 04](04-deploy-mail-to-the-box.md) owns the live integration check. [Ticket 08](08-username-case-ownership.md) records the separate username-ownership decision.
 
 **The ticket's premise about case is wrong, and the fix is shaped around that.** "Matching the
 registration uniqueness rule" assumes names are already compared case-insensitively. They are not:
