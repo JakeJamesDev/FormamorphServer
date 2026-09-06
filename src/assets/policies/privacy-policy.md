@@ -1,4 +1,4 @@
-**Last updated: 4 September 2026**
+**Last updated: 6 September 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It does not cover your play. The game runs on your device, and nothing about a playthrough reaches us.
 
@@ -12,7 +12,7 @@ You must be **at least 18 years old**, and of legal age to view adult content wh
 
 **Your account.** Your username, a hash of your password, your email address if you gave one, and your avatar image if you uploaded one. We never store the password itself.
 
-**Your email address is used for nothing today.** We do not mail it, we do not share it, and no password reset uses it. It is stored only because the sign-up form offers it.
+**Your email address is optional.** If you add one, we use it to send you a verification link. Once verified, it can also receive password-reset links. We do not use it for marketing.
 
 **What you publish.** Every world you upload, with its description, tags, thumbnail, content file, and update history. Your comments. The listings you like. The accounts you follow. Your contest entries and their placements.
 
@@ -48,7 +48,9 @@ We also use your network address to **rate limit** requests, so no single source
 
 **Cloudflare** runs the domain's DNS, sits in front of the server as a proxy, and stores the published files. Cloudflare is the proxy, so **it handles every request you make**, including your network address.
 
-No one else receives your data. We do not sell it, and we do not use it for advertising.
+**Resend** delivers verification and password-reset email. When we send one, Resend receives your email address and the message.
+
+Except as described above, no one else receives your data. We do not sell it, and we do not use it for advertising.
 
 ## The AI is not ours
 

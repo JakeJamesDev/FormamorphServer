@@ -24,7 +24,7 @@ const apply = (database) => {
 
   database.prepare(`
     INSERT INTO policies (id, enabled, title, body, tags, acceptance_version, updated_at)
-    VALUES (?, 0, ?, ?, '[]', 1, ?)
+    VALUES (?, 0, ?, ?, '[]', 2, ?)
   `).run(PRIVACY_POLICY, PRIVACY_TITLE, body, new Date().toISOString());
 
   return true;

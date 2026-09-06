@@ -54,8 +54,9 @@ describe('the seeded row', () => {
 
     expect(manage.body.privacyPolicy.enabled).toBe(false);
     expect(manage.body.privacyPolicy.title).toBe('Privacy Policy');
-    expect(manage.body.privacyPolicy.acceptanceVersion).toBe(1);
-    expect(manage.body.privacyPolicy.body).toMatch(/Signal/);
+    expect(manage.body.privacyPolicy.acceptanceVersion).toBe(2);
+    expect(manage.body.privacyPolicy.body).toContain('**Your email address is optional.**');
+    expect(manage.body.privacyPolicy.body).toContain('**Resend** delivers verification and password-reset email.');
   });
 
   it('never overwrites an edited row', async () => {
@@ -299,14 +300,22 @@ describe('declining', () => {
 });
 
 describe('asking again', () => {
-  const seedAccepted = async () => {
+  const acceptVersionOnePolicy = async () => {
     const { root, user } = await enabledAndUnaccepted();
+    // These cases begin with the policy version that production users previously accepted.
+    db.prepare("UPDATE policies SET acceptance_version = 1 WHERE id = 'privacy_policy'").run();
     await accept(user);
     return { root, user };
   };
 
+  const readAcceptanceVersions = (userId) => db.prepare(`
+    SELECT a.accepted_version, p.acceptance_version
+    FROM policy_acceptances a JOIN policies p ON p.id = a.policy_id
+    WHERE a.policy_id = 'privacy_policy' AND a.user_id = ?
+  `).get(userId);
+
   it('survives an ordinary edit', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
 
     await enablePolicy(root, { body: 'A typo fixed.' });
 
@@ -314,17 +323,19 @@ describe('asking again', () => {
   });
 
   it('refuses the same user again after a version bump', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
+    expect(readAcceptanceVersions(user.id)).toEqual({ accepted_version: 1, acceptance_version: 1 });
 
     await enablePolicy(root, { body: 'Materially different.', requireReaccept: true });
 
+    expect(readAcceptanceVersions(user.id)).toEqual({ accepted_version: 1, acceptance_version: 2 });
     const res = await readProfile(user);
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('PRIVACY_REQUIRED');
   });
 
   it('lets them back in once they accept the new version', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
     await enablePolicy(root, { body: 'Materially different.', requireReaccept: true });
 
     await accept(user);
@@ -333,7 +344,7 @@ describe('asking again', () => {
   });
 
   it('blocks one named user without touching anyone else', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
     const other = createUser({ username: 'untouched' });
     await accept(other);
 
@@ -345,7 +356,7 @@ describe('asking again', () => {
   });
 
   it('blocks everyone at once without deleting an acceptance row', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
     const other = createUser({ username: 'also-accepted' });
     await accept(other);
     const before = db.prepare('SELECT COUNT(*) AS c FROM policy_acceptances').get().c;
@@ -358,7 +369,7 @@ describe('asking again', () => {
   });
 
   it('is written to the audit log, one entry per action however many it reached', async () => {
-    const { root, user } = await seedAccepted();
+    const { root, user } = await acceptVersionOnePolicy();
 
     await request(app).post('/api/policies/privacy-policy/reset').set(authHeader(root))
       .send({ userId: user.id });
@@ -376,7 +387,7 @@ describe('asking again', () => {
   });
 
   it('rejects a reset from an ordinary account', async () => {
-    const { user } = await seedAccepted();
+    const { user } = await acceptVersionOnePolicy();
 
     const res = await request(app).post('/api/policies/privacy-policy/reset').set(authHeader(user)).send({});
 
@@ -391,13 +402,19 @@ describe('reading it signed out', () => {
   // token to read `/api/policies` with. The text is published on the public site anyway.
   const readPublicly = () => request(app).get('/api/policies/privacy-policy');
 
-  it('hands a signed-out visitor the title and body', async () => {
-    await enablePolicy(admin(), { body: 'What we store about you.' });
+  it('hands a signed-out visitor the approved seeded title and body', async () => {
+    const root = admin();
+    seed();
+    const manage = await request(app).get('/api/policies/manage').set(authHeader(root));
+    const approved = manage.body.privacyPolicy;
+    await enablePolicy(root, { body: approved.body });
 
     const res = await readPublicly();
 
     expect(res.status).toBe(200);
-    expect(res.body.privacyPolicy).toEqual({ title: 'Privacy Policy', body: 'What we store about you.' });
+    expect(res.body.privacyPolicy).toEqual({ title: 'Privacy Policy', body: approved.body });
+    expect(res.body.privacyPolicy.body).toContain('Once verified, it can also receive password-reset links.');
+    expect(res.body.privacyPolicy.body).toContain('When we send one, Resend receives your email address and the message.');
   });
 
   it('says nothing about anyone accepting it', async () => {
