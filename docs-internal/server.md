@@ -172,6 +172,14 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-06** — deployed `bb348e1`: email-account schema, password-reset endpoints, username profile
+  lookup, and suspended-profile hiding. Removed the unused example administrator and promoted the owner's
+  account; the duplicate-email preflight then passed. SQLite backups before deployment, account changes,
+  and policy publication are in the server's `backups/` directory. Published the committed privacy text
+  at acceptance version 2, requiring renewed acceptance. All 1,371 tests passed in 15.06 s wall time;
+  production schema, database integrity, public responses, and service stability passed verification.
+  Real mail remains unconfigured. Dependency installation reported 15 vulnerabilities (1 low, 5 moderate,
+  9 high); dependency remediation was outside this deployment.
 - **2026-09-04** — dropped `worlds.preview_data` (commit `cd2cbcb`). Pre-deploy backup `pre-drop-preview-data` in
   `backups/`; it is the only restore point that works with older code. Boot step took under a second; a manual
   `VACUUM` with the service stopped shrank the database from 602 MB to 3.3 MB.
