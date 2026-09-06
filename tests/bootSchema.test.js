@@ -286,8 +286,11 @@ describe('the schema step', () => {
 
     const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'privacy_policy'").get();
     expect(seeded.enabled).toBe(0);
-    expect(seeded.acceptance_version).toBe(1);
-    expect(seeded.body).toMatch(/Signal/);
+    expect(seeded.acceptance_version).toBe(2);
+    expect(seeded.body).toContain('**Last updated: 6 September 2026**');
+    expect(seeded.body).toContain('**Your email address is optional.**');
+    expect(seeded.body).toContain('Once verified, it can also receive password-reset links.');
+    expect(seeded.body).toContain('**Resend** delivers verification and password-reset email.');
 
     fresh.prepare("UPDATE policies SET enabled = 1, body = 'The owner rewrote this.' WHERE id = 'privacy_policy'").run();
     expect(migrate(fresh)).toEqual([]);
