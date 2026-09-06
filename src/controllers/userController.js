@@ -146,6 +146,9 @@ const publicProfile = (user, viewer) => ({
   ...World.authorTotals(user.id)
 });
 
+/** Whether an account may be read through either public profile lookup. */
+const shownPublicly = (user) => Boolean(user) && user.status !== 'suspended';
+
 /**
  * The public face of an account.
  *
@@ -163,7 +166,7 @@ const publicProfile = (user, viewer) => ({
 exports.getUserProfile = async (req, res, next) => {
   try {
     const user = User.findById(req.params.id);
-    if (!user) {
+    if (!shownPublicly(user)) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
@@ -176,22 +179,18 @@ exports.getUserProfile = async (req, res, next) => {
 /**
  * Whether a name may lead a stranger to this account at all.
  *
- * Only the by-username route asks. `/:id/profile` shows a suspended account to anyone holding the id,
- * and this does not change that — a UUID is not something a visitor types, while a name is, and a name
- * is also the thing somebody guesses to find out what happened to a creator.
- *
  * @param {Object} user - A candidate the name matched
  * @returns {boolean} Whether the profile is shown
  */
-const shownByName = (user) => user.status !== 'suspended' && user.id !== PLACEHOLDER_ID;
+const shownByName = (user) => shownPublicly(user) && user.id !== PLACEHOLDER_ID;
 
 /**
  * The same profile, found by the name in a shared link.
  *
  * `formamorph.ai/u/<username>` is what a creator hands somebody, so the site holds a name where every
  * other profile route holds an id. Separate from `/:id/profile` rather than folded into it: an id and a
- * name are looked up differently and refuse differently, and the in-app dialog already has an id and
- * must not change. The id rides along in the answer, which is what the caller reads creations with.
+ * name are looked up differently, and the in-app dialog already has an id. The id rides along in the
+ * answer, which is what the caller reads creations with.
  *
  * Two accounts can hold one name in different capitals, so the pick is in two parts. Asked for a name
  * byte for byte, that account answers, shown or refused on its own status — a suspended account is not

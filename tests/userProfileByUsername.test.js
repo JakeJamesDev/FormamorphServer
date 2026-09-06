@@ -144,6 +144,13 @@ describe('a name the site cannot show', () => {
     expect(suspended.text).toBe(unknown.text);
   });
 
+  it('does not show a suspended account to an ordinary signed-in reader', async () => {
+    createUser({ username: 'held_aside', status: 'suspended' });
+    const reader = createUser();
+
+    expect((await byName('held_aside', reader)).status).toBe(404);
+  });
+
   it('404s the reserved [deleted user] row', async () => {
     // It owns other people's leftover work; there is no person behind it to show.
     const res = await byName('[deleted user]');

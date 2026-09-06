@@ -22,6 +22,20 @@ describe('GET /api/users access', () => {
     const res = await list(createUser({ username: 'plain' }));
     expect(res.status).toBe(403);
   });
+
+  it('shows a suspended account to an administrator', async () => {
+    const root = admin();
+    const user = createUser({ username: 'held-aside', status: 'suspended' });
+
+    const res = await list(root, '?search=held-aside');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toContainEqual(expect.objectContaining({
+      id: user.id,
+      username: 'held-aside',
+      status: 'suspended'
+    }));
+  });
 });
 
 describe('GET /api/users search', () => {

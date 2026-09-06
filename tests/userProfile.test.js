@@ -38,7 +38,7 @@ describe('reading somebody’s profile', () => {
   it('says nothing an account has not chosen to show', async () => {
     // The email and the status are the admin table's, not a stranger's. The role is not private — it is
     // the badge — but it is normalized, so nothing here leaks whether an ordinary account exists.
-    const user = createUser({ username: 'osk_tinder', email: 'osk@example.test', accountType: 'mod', status: 'suspended' });
+    const user = createUser({ username: 'osk_tinder', email: 'osk@example.test', accountType: 'mod', status: 'flagged' });
 
     const { data } = (await profile(user.id)).body;
 
@@ -97,6 +97,23 @@ describe('reading somebody’s profile', () => {
 
   it('404s an account that is not there', async () => {
     expect((await profile('no-such-user')).status).toBe(404);
+  });
+
+  it('answers a suspended account the way it answers an unknown id', async () => {
+    const user = createUser({ status: 'suspended' });
+
+    const suspended = await profile(user.id);
+    const unknown = await profile('no-such-user');
+
+    expect(suspended.status).toBe(unknown.status);
+    expect(suspended.text).toBe(unknown.text);
+  });
+
+  it('does not show a suspended account to an ordinary signed-in reader', async () => {
+    const user = createUser({ status: 'suspended' });
+    const reader = createUser();
+
+    expect((await profile(user.id, reader)).status).toBe(404);
   });
 });
 

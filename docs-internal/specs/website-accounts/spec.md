@@ -5,11 +5,11 @@ Client twin: [client spec](../../../../formamorph/docs-internal/specs/website-ac
 
 ## Current status — September 6, 2026
 
-Server tickets 01–03 and 05 are implemented and await human review. Production deployment and real mail delivery are unverified. The problem statement below records the original motivation, not the current implementation state.
+Server tickets 01–03, 05, and 07 are implemented and await human review. Production deployment and real mail delivery are unverified. The problem statement below records the original motivation, not the current implementation state.
 
 See the [remaining-work inventory](remaining-work.md) for evidence, client dependencies, release checks, and follow-up decisions. [Ticket 05](issues/05-public-profile-by-username.md) adds the public-profile endpoint beyond this spec's original email scope.
 
-Approved September 6, 2026: retain the implemented mail limits (five verification requests per account per hour; three reset requests per submitted identifier per hour, with separate email/username budgets) and current username ownership rules. Require existing users to accept the revised mail policy. Hide suspended profiles publicly through both lookup routes while preserving admin moderation access; ticket 07 owns that pending change.
+Approved September 6, 2026: retain the implemented mail limits (five verification requests per account per hour; three reset requests per submitted identifier per hour, with separate email/username budgets) and current username ownership rules. Require existing users to accept the revised mail policy. Suspended profiles are hidden publicly through both lookup routes while admin moderation access remains on the Manage Users route; ticket 07 records that implementation.
 
 Saving an unchanged email preserves verification; ticket 02 records this implementation detail for review. The rate-limit wording in the original requirements below is superseded by the approved limits above.
 

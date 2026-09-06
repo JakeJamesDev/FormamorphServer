@@ -14,7 +14,7 @@ Client twin: [public profile](../../../../../formamorph/docs-internal/specs/webs
 - [x] Exact spelling selects its owner; otherwise a case-insensitive lookup selects the oldest visible account. Registration still permits differently cased names. Ownership rules approved September 6, 2026; see [08](08-username-case-ownership.md).
 - [x] A suspended account answers 404 with the same body an unknown name gets. Suspension must not be distinguishable from absence.
 - [x] Mounted above the `/:id` routes, so a username is never read as an id.
-- [x] Existing `/:id/profile` behavior is preserved through a shared DTO helper. It still exposes suspended profiles; [ticket 07](07-profile-suspension-consistency.md) tracks that gap.
+- [x] Both lookup routes use the same profile DTO. [Ticket 07](07-profile-suspension-consistency.md) now hides suspended profiles through the UUID route too.
 - [x] Route tests: a known name resolves, a differently-cased name resolves, an unknown name 404s, a suspended account 404s with a body identical to the unknown one, and a signed-in caller still gets `following`.
 
 ## Comments
@@ -52,7 +52,6 @@ the two routes answer with `toEqual` rather than trusting the refactor.
 `/u/<name>` does not move when a newer account picks up another spelling. Say so if a different rule is
 wanted.
 
-**Named, not fixed:** `GET /:id/profile` still answers 200 for a suspended account, and ids are public on
-listings. So a name that 404s beside an id that 200s still confirms a suspension to anyone who checks
-both. Closing that means changing the id route, which this ticket explicitly ring-fences. It is a real
-gap and wants its own ticket.
+**Follow-up fixed:** [Ticket 07](07-profile-suspension-consistency.md) now makes `GET /:id/profile` answer
+the same 404 for a suspended account as for an unknown id. Admins continue to see suspended accounts
+through the separate Manage Users moderation route.

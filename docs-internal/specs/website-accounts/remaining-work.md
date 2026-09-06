@@ -10,6 +10,7 @@ Audited September 6, 2026 against local source and ticket files. Server implemen
 | [02 — Set and resend email](issues/02-set-replace-resend-email.md) | `c245781`; authenticated routes and shared five-per-hour account budget | Limits approved; unchanged-address behavior and `mailSent` remain documented for review |
 | [03 — Password reset](issues/03-password-reset-by-email.md) | `bca6cc3`; request and completion routes, one-hour tokens, session invalidation | Identifier budgets approved; timing validation remains |
 | [05 — Profile by username](issues/05-public-profile-by-username.md) | `36bd871`; exact spelling then oldest visible folded match | Ownership approved; live integration remains |
+| [07 — Profile suspension consistency](issues/07-profile-suspension-consistency.md) | Both public lookups hide suspended profiles; Manage Users retains moderation access | Human review |
 
 Checked implementation boxes do not establish deployment. Explicitly approved decisions are recorded separately from remaining review work.
 
@@ -17,7 +18,7 @@ Checked implementation boxes do not establish deployment. Explicitly approved de
 
 - **Policy:** existing users must accept the revision. Ticket 06 still needs wording, the version bump, and publication.
 - **Mail limits:** retain the implementation, including separate reset budgets for email and username.
-- **Suspension:** ticket 07 is ready to implement public hiding through both lookups while preserving admin access.
+- **Suspension:** ticket 07 implements public hiding through both lookups while preserving admin access through Manage Users.
 - **Username ownership:** retain current behavior; ticket 08 is closed without a code change.
 - **Still technical work:** reset timing validation, schema preflight, deployment, and real-mail verification. Client work below belongs to the separate project.
 
@@ -31,7 +32,7 @@ Checked implementation boxes do not establish deployment. Explicitly approved de
 
 ## Follow-up disposition
 
-- [Server 07 — Profile suspension consistency](issues/07-profile-suspension-consistency.md): approved and ready to implement. Hide publicly through both routes, preserving admin moderation access.
+- [Server 07 — Profile suspension consistency](issues/07-profile-suspension-consistency.md): implemented and awaiting human review. Both public routes hide suspended profiles; Manage Users retains moderation access.
 - [Server 08 — Username case ownership](issues/08-username-case-ownership.md): closed; retain exact spelling/oldest-visible selection and case-sensitive registration.
 - The client spec asks for light and dark themes, while [client 01](../../../../formamorph/docs-internal/specs/website-accounts/issues/01-site-entry-login-register.md) explicitly defers light mode until the landing page supports it. This remains a product deferral, not completed scope.
 
