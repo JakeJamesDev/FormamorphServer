@@ -172,6 +172,10 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-07** — deployed `73e3112` to persist content-warning acceptance per account. All 1,377 tests
+  passed in 22.80 s wall time. The pre-deploy SQLite backup passed its integrity check; startup applied
+  `ageGate` at version 1 and preserved privacy version 2. Verified database integrity, no foreign-key
+  errors, catalog availability, and authentication on both new routes. Service active with zero restarts.
 - **2026-09-06** — deployed `bb348e1`: email-account schema, password-reset endpoints, username profile
   lookup, and suspended-profile hiding. Removed the unused example administrator and promoted the owner's
   account; the duplicate-email preflight then passed. SQLite backups before deployment, account changes,
