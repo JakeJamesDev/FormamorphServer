@@ -258,7 +258,7 @@ describe('the schema step', () => {
   it('applies the tables, the seeded rows and the indexes to a fresh database, and nothing to it twice', () => {
     const fresh = openDatabase();
 
-    expect(migrate(fresh)).toEqual(['tables', 'privacyPolicy', 'placeholderUser', 'indexes']);
+    expect(migrate(fresh)).toEqual(['tables', 'ageGate', 'privacyPolicy', 'placeholderUser', 'indexes']);
     expect(migrate(fresh)).toEqual([]);
 
     fresh.close();
@@ -297,6 +297,19 @@ describe('the schema step', () => {
 
     const edited = fresh.prepare("SELECT enabled, body FROM policies WHERE id = 'privacy_policy'").get();
     expect(edited).toEqual({ enabled: 1, body: 'The owner rewrote this.' });
+
+    fresh.close();
+  });
+
+  it('seeds the fixed adult-content warning at version one', () => {
+    const fresh = openDatabase();
+    migrate(fresh);
+
+    const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'age_gate'").get();
+    expect(seeded.enabled).toBe(1);
+    expect(seeded.acceptance_version).toBe(1);
+    expect(seeded.title).toBe('Adult Content Ahead');
+    expect(seeded.body).toContain('at least 18 years old');
 
     fresh.close();
   });

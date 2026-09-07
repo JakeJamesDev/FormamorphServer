@@ -3,6 +3,7 @@ const {
   UPLOAD_GATE,
   TAG_NOTICE,
   PRIVACY_POLICY,
+  AGE_GATE,
   POLICY_IDS,
   ANSWERED_POLICY_IDS
 } = require('../config/policies');
@@ -19,12 +20,13 @@ const {
 const normalizeTag = (tag) => String(tag).trim().toLowerCase();
 
 /**
- * Authored popups: the upload gate, the tag notice, and the Privacy Policy.
+ * Authored policies and the fixed adult-content warning.
  */
 const Policy = {
   UPLOAD_GATE,
   TAG_NOTICE,
   PRIVACY_POLICY,
+  AGE_GATE,
   POLICY_IDS,
   ANSWERED_POLICY_IDS,
   normalizeTag,
@@ -107,6 +109,24 @@ const Policy = {
     `).get(id, userId);
 
     return Boolean(row && row.response === 'accepted' && row.accepted_version === row.acceptance_version);
+  },
+
+  /** Read the current acceptance state and the server-recorded time for one account. */
+  acceptanceState: (id, userId) => {
+    const row = db.prepare(`
+      SELECT p.acceptance_version, a.accepted_version, a.accepted_at, a.response
+      FROM policies p
+      LEFT JOIN policy_acceptances a ON a.policy_id = p.id AND a.user_id = ?
+      WHERE p.id = ?
+    `).get(userId, id);
+    if (!row) return undefined;
+
+    const accepted = row.response === 'accepted' && row.accepted_version === row.acceptance_version;
+    return {
+      accepted,
+      requiredVersion: row.acceptance_version,
+      acceptedAt: accepted ? row.accepted_at : null
+    };
   },
 
   /**

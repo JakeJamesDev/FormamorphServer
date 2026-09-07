@@ -2,6 +2,7 @@ const express = require('express');
 const {
   getPolicies,
   getPrivacyPolicy,
+  getAgeGate,
   getPoliciesForAdmin,
   savePolicy,
   acceptUploadGate,
@@ -10,6 +11,7 @@ const {
   acceptPrivacyPolicy,
   declinePrivacyPolicy,
   resetPrivacyPolicy,
+  acceptAgeGate,
   matchTags
 } = require('../controllers/policyController');
 // Every route here authenticates with `protectBeforePolicy` rather than `protect`, so the Privacy Policy
@@ -25,6 +27,9 @@ const router = express.Router();
 // The Privacy Policy on its own, for a visitor with no account yet. Registration shows it before the
 // account exists, so this one read cannot require a token. Nothing else here is public.
 router.get('/privacy-policy', getPrivacyPolicy);
+
+router.get('/age-gate', protectBeforePolicy, getAgeGate);
+router.post('/age-gate/accept', protectBeforePolicy, acceptAgeGate);
 
 // Every policy for editing, including disabled drafts (admin only)
 router.get('/manage', protectBeforePolicy, admin, getPoliciesForAdmin);

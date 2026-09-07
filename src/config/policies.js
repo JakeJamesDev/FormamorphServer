@@ -1,5 +1,5 @@
 /**
- * The three fixed policies this server hosts, named apart from the model that reads them.
+ * The fixed policy identifiers this server hosts, named apart from the model that reads them.
  *
  * The schema step that seeds the Privacy Policy needs the id and the title, and a migration must not have
  * to open the model — and through it a second database connection — to learn them.
@@ -13,6 +13,9 @@ const TAG_NOTICE = 'tag_notice';
 
 /** What the server stores about an account. Refuses every authenticated route until it is accepted. */
 const PRIVACY_POLICY = 'privacy_policy';
+
+/** The fixed adult-content attestation shared by the site and game. */
+const AGE_GATE = 'age_gate';
 
 /** The heading the seeded row ships with; the owner may rename it from the Policies tab. */
 const PRIVACY_TITLE = 'Privacy Policy';
@@ -40,6 +43,7 @@ module.exports = {
   UPLOAD_GATE,
   TAG_NOTICE,
   PRIVACY_POLICY,
+  AGE_GATE,
   PRIVACY_TITLE,
   BODY_MAX,
   POLICY_IDS,

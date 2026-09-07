@@ -29,6 +29,7 @@ const STEPS = [
   require('./steps/eventPlacements'),
   require('./steps/posterPlacement'),
   require('./steps/reportParent'),
+  require('./steps/ageGate'),
   require('./steps/privacyPolicy'),
   require('./steps/accountDeletion'),
   require('./steps/placeholderUser'),

@@ -106,6 +106,44 @@ exports.getPrivacyPolicy = async (req, res, next) => {
   }
 };
 
+/** Read the signed-in account's answer to the fixed adult-content warning. */
+exports.getAgeGate = async (req, res, next) => {
+  try {
+    const state = Policy.acceptanceState(Policy.AGE_GATE, req.user.id);
+    if (!state) return res.status(404).json({ success: false, error: 'There is no age gate' });
+
+    res.status(200).json({ success: true, ...state });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** Record the signed-in account's answer to the fixed adult-content warning. */
+exports.acceptAgeGate = async (req, res, next) => {
+  try {
+    const state = Policy.acceptanceState(Policy.AGE_GATE, req.user.id);
+    if (!state) {
+      return res.status(404).json({ success: false, error: 'There is no age gate' });
+    }
+
+    if (req.body.acceptanceVersion !== state.requiredVersion) {
+      return res.status(409).json({
+        success: false,
+        code: 'AGE_GATE_VERSION_REQUIRED',
+        error: 'Update Formamorph to review the current adult-content warning.',
+        requiredVersion: state.requiredVersion
+      });
+    }
+
+    if (state.accepted) return res.status(200).json({ success: true, ...state });
+
+    Policy.accept(Policy.AGE_GATE, req.user.id);
+    res.status(200).json({ success: true, ...Policy.acceptanceState(Policy.AGE_GATE, req.user.id) });
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * @desc    Get every policy for editing, including disabled drafts
  * @route   GET /api/policies/manage
