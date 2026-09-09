@@ -19,6 +19,8 @@ const load = (name) =>
 const PLACEHOLDER_THUMBNAILS = {
   entity: load('entity'),
   dictionary: load('dictionary'),
+  // Avatars have no art of their own yet; reuse the entity placeholder rather than commission new art.
+  model: load('entity'),
 };
 
 /** The stand-in for a kind, or null when the kind is expected to supply its own (worlds). */

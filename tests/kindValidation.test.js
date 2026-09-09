@@ -110,6 +110,7 @@ describe('placeholder thumbnails', () => {
   it('has stand-in art for the kinds that need it, and none for worlds', () => {
     expect(placeholderFor('entity')).toMatch(/^data:image\/png;base64,/);
     expect(placeholderFor('dictionary')).toMatch(/^data:image\/png;base64,/);
+    expect(placeholderFor('model')).toMatch(/^data:image\/png;base64,/);
     expect(placeholderFor('world')).toBeNull(); // worlds must bring their own
   });
 });

@@ -6,6 +6,7 @@ const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, ge
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
+const { readVrmLicenseMeta, licenseGate } = require('../utils/vrmLicenseGate');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedListing } = require('./reportController');
@@ -46,6 +47,28 @@ function contentSizeError(contentData, rules) {
   const bytes = Buffer.byteLength(JSON.stringify(contentData));
   if (bytes <= rules.maxContentBytes) return null;
   return `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`;
+}
+
+/**
+ * The Permissive License gate's refusal for an Avatar publish, or null when the file passes.
+ *
+ * This is the only kind whose content the server parses. `contentData.vrm` is a data URL of the file's own
+ * bytes; the client-sent `contentData.license` is never read here — it is stored verbatim for readers, but
+ * enforcement always re-derives the verdict from the file itself, so a client cannot claim a license the
+ * file does not carry.
+ */
+function modelContentError(contentData) {
+  if (!contentData) return null;
+
+  const dataUrl = contentData.vrm;
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:[^;,]*;base64,(.+)$/);
+  if (!match) return { error: 'Avatar content must include a vrm data URL' };
+
+  const bytes = Buffer.from(match[1], 'base64');
+  const { allowed, failedRequirements } = licenseGate(readVrmLicenseMeta(bytes));
+  if (allowed) return null;
+
+  return { error: 'That Avatar does not have a Permissive License', failedRequirements };
 }
 
 /**
@@ -302,6 +325,13 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: tooLarge });
     }
 
+    if (kind === 'model') {
+      const gateError = modelContentError(contentData);
+      if (gateError) {
+        return res.status(400).json({ success: false, ...gateError });
+      }
+    }
+
     // Generate UUID for the world
     const worldId = uuidv4();
 
@@ -435,6 +465,13 @@ exports.updateWorld = async (req, res, next) => {
     const tooLarge = contentSizeError(contentData, rulesFor(kind));
     if (tooLarge) {
       return res.status(400).json({ success: false, error: tooLarge });
+    }
+
+    if (kind === 'model' && contentData) {
+      const gateError = modelContentError(contentData);
+      if (gateError) {
+        return res.status(400).json({ success: false, ...gateError });
+      }
     }
 
     // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field

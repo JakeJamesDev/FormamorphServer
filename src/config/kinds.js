@@ -2,7 +2,7 @@
  * What a `worlds` row can hold. The table predates the others and keeps its name; `kind` is what
  * distinguishes them, so comments, downloads, tags, ownership, and search work the same for all three.
  */
-const KINDS = ['world', 'entity', 'dictionary'];
+const KINDS = ['world', 'entity', 'dictionary', 'model'];
 
 /**
  * The kind assumed when a request doesn't name one.
@@ -58,9 +58,38 @@ const KIND_RULES = {
     maxContentBytes: 5 * 1024 * 1024, // text entries only
     label: 'Dictionary',
   },
+  model: {
+    requiresDescription: false,
+    requiresThumbnail: false,
+    maxContentBytes: 64 * 1024 * 1024, // a VRM's mesh and textures, base64 inside the content
+    label: 'Avatar',
+  },
 };
 
 /** The rules for a kind, falling back to the default kind's for an unnamed one. */
 const rulesFor = (kind) => KIND_RULES[kind] || KIND_RULES[DEFAULT_KIND];
 
-module.exports = { KINDS, DEFAULT_KIND, ALL_KINDS, isValidKindQuery, KIND_RULES, rulesFor };
+/**
+ * The Permissive License gate's failure identifiers, stable across releases.
+ *
+ * This is the contract with the client's copy of the same gate: each name is what a failed requirement is
+ * reported as in a 400 body, and what the client's copy reports the same way from the file it read itself.
+ * Renaming one silently breaks whichever side has not redeployed yet, so treat these as append-only.
+ */
+const MODEL_LICENSE_REQUIREMENTS = [
+  'metaVersion',
+  'avatarPermission',
+  'allowRedistribution',
+  'modification',
+  'commercialUsage',
+];
+
+module.exports = {
+  KINDS,
+  DEFAULT_KIND,
+  ALL_KINDS,
+  isValidKindQuery,
+  KIND_RULES,
+  rulesFor,
+  MODEL_LICENSE_REQUIREMENTS,
+};
