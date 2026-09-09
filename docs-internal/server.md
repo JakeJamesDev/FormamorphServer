@@ -128,20 +128,27 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 ## Backups
 
 A cron job for the `formamorph` user runs `/usr/local/bin/formamorph-backup` daily at **04:17 UTC**.
-Output goes to `/var/log/formamorph-backup.log`.
+Output goes to `/var/log/formamorph-backup.log`. The script before the 2026-09-09 rewrite is kept at
+`/usr/local/bin/formamorph-backup.prev`.
 
 The script does, in order:
 
-1. `npm run backup` — full local backup (DB, worlds, thumbnails, avatars) into `backups/backup-<timestamp>/`.
-   Format and restore details: [BACKUP_RESTORE_DOCUMENTATION.md](../BACKUP_RESTORE_DOCUMENTATION.md).
-2. `npm run cleanup-backups -- 1` — keeps only the newest local backup. Peak use is two backups (~13 GB) during the run.
-3. Compresses the DB copy with `zstd -9`. A snapshot is a fraction of a few MB since the `preview_data` drop.
-4. `rclone -v copyto` the `.zst` to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db.zst`.
-5. Prunes that folder with `--min-age 14d` — 14 daily DB snapshots retained, long enough to revert after a two-week absence.
-6. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
-7. `rclone -v sync /srv/formamorph/storage r2:formamorph-files` — mirror of all uploads. Removals propagate.
+1. Copies the database with the driver's online backup API into `backups/db-<YYYY-MM-DD>.db` and runs
+   `integrity_check` on the copy. A bad check stops the run.
+2. Compresses it with `zstd -9` and removes the raw copy. A snapshot is about 1 MB.
+3. `rclone copyto` the `.zst` to `r2:formamorph-backups/db-history/<YYYY-MM-DD>.db.zst`, then prunes that
+   folder with `--min-age 14d`. Local `.zst` snapshots older than 14 days are pruned the same way.
+4. Refuses to continue if `/srv/formamorph/storage` is empty (guard against syncing an empty tree).
+5. `rclone sync /srv/formamorph/storage r2:formamorph-files` with
+   `--backup-dir r2:formamorph-backups/files-deleted/<YYYY-MM-DD>`. A file removed or overwritten on the
+   server moves into that day's folder instead of vanishing from R2.
+6. Purges `files-deleted/<date>` folders older than 14 days **by folder name**. Moved files keep their
+   original modification time, so `--min-age` would prune them on arrival.
 
-So there are three layers: local full backup (yesterday only), offsite DB history (14 days), offsite file mirror (current only).
+So there are three layers: DB history (local and offsite, 14 days), offsite file mirror (current), and
+offsite history of removed files (14 days). There is no local copy of uploads since 2026-09-09: it doubled
+disk use, peaked at three copies during the run, and only reached one day back. `npm run backup` still
+exists for a manual full copy; `npm run restore` only applies to a directory it made.
 
 ### Checking backups
 
@@ -149,12 +156,15 @@ So there are three layers: local full backup (yesterday only), offsite DB histor
 tail -40 /var/log/formamorph-backup.log
 ls -1 /srv/formamorph/app/backups
 rclone lsl r2:formamorph-backups/db-history
+rclone lsf r2:formamorph-backups/files-deleted --dirs-only
 rclone size r2:formamorph-files
 ```
 
 ### Restoring
 
-- **Whole server, recent**: stop the unit, `npm run restore <backup-name>` (it snapshots current data first), start the unit.
+- **Whole server, recent**: the database from `db-history` (next bullet) plus the upload mirror (the **Lost upload files** bullet).
+- **A file removed or overwritten in the last 14 days**: find it under `r2:formamorph-backups/files-deleted/<date>/`,
+  then `rclone copyto` it back to the same path under `/srv/formamorph/storage`. The next nightly sync re-mirrors it.
 - **Database from a specific day**: stop the unit, `rclone copyto r2:formamorph-backups/db-history/<date>.db.zst /tmp/db.zst`,
   `zstd -d /tmp/db.zst -o /srv/formamorph/data/exotic-dangerous.db -f`, start the unit.
 - **Lost upload files**: `rclone sync r2:formamorph-files /srv/formamorph/storage`. Note the direction.
@@ -172,6 +182,11 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-09** — rewrote the nightly backup script (no code deploy). The upload mirror now keeps removed and
+  overwritten files 14 days under `files-deleted/<date>`, the local full copy of uploads is gone, and the
+  database snapshot is a driver backup with an integrity check. The first manual run passed in 54 s and moved
+  one overwritten world file and one deleted thumbnail into the new folder. Disk was 17 GB of 38 GB with the
+  last `backup-*` directory (5.8 GB) still present; it is removed by hand, nothing prunes it now.
 - **2026-09-07** — deployed `73e3112` to persist content-warning acceptance per account. All 1,377 tests
   passed in 22.80 s wall time. The pre-deploy SQLite backup passed its integrity check; startup applied
   `ageGate` at version 1 and preserved privacy version 2. Verified database integrity, no foreign-key
@@ -192,4 +207,4 @@ rclone size r2:formamorph-files
 
 - No fail2ban. SSH is key-only, so this is low priority.
 - No alerting. Nothing notifies anyone if the unit or the cron job fails.
-- The pre-edit backup script is kept at `/usr/local/bin/formamorph-backup.bak`.
+- Older backup scripts are kept at `/usr/local/bin/formamorph-backup.bak` and `.prev` (before 2026-09-09).
