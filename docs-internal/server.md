@@ -182,6 +182,10 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-09** — deployed `2fd6196`: the model listing kind gated on the VRM's embedded license, an Avatar
+  listing's own license terms, and quarantined listings kept in the author's own list. All 1,437 tests passed in
+  15.5 s wall time. Pre-deploy backup `pre-deploy-73e3112-2026-09-09T16-44-58.498Z.db` in `backups/`, integrity
+  `ok`. Boot applied the additive `modelLicense` step. Service active with zero restarts, public route 200.
 - **2026-09-09** — rewrote the nightly backup script (no code deploy). The upload mirror now keeps removed and
   overwritten files 14 days under `files-deleted/<date>`, the local full copy of uploads is gone, and the
   database snapshot is a driver backup with an integrity check. The first manual run passed in 54 s and moved
