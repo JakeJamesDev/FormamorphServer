@@ -103,7 +103,9 @@ exports.getMyWorlds = async (req, res, next) => {
       return res.status(400).json({ success: false, error });
     }
 
-    const result = World.getByAuthor(req.user.id, kind);
+    // Asked as the author, so their own quarantined listings stay in the list: this is the only list the
+    // publish dialog offers as update targets, and updating is how a quarantine gets lifted.
+    const result = World.getByAuthor(req.user.id, kind, undefined, req.user);
 
     res.status(200).json({
       success: true,

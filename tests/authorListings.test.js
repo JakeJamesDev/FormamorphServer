@@ -67,6 +67,20 @@ describe('GET /api/users/me/worlds', () => {
     expect(res.body.data.map((w) => w.name)).toEqual(['Mine']);
   });
 
+  it('keeps the author’s quarantined listings in the list', async () => {
+    // This list is what the publish dialog offers as update targets, and an update is how a quarantined
+    // author is told to fix it. Hidden here, it could never be fixed.
+    const user = createUser();
+    const created = await create(user, { name: 'Under Review' });
+    World.quarantine(created.body.data.id, 7);
+
+    const res = await request(app).get('/api/users/me/worlds').set(authHeader(user));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((w) => w.name)).toEqual(['Under Review']);
+    expect(res.body.data[0].quarantined_at).toBeTruthy();
+  });
+
   it('rejects an unknown kind', async () => {
     const user = createUser();
     const res = await request(app).get('/api/users/me/worlds?kind=banana').set(authHeader(user));
