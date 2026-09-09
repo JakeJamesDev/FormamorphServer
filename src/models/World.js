@@ -2,6 +2,7 @@ const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
 const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
+const { DEFAULT_VISIBILITY, PUBLIC, UNLISTED } = require('../config/relationships');
 const Comment = require('./Comment');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { isStaff, badgeRole } = require('../config/roles');
@@ -185,16 +186,17 @@ const World = {
         params.push(kind);
       }
 
-      // Quarantine visibility. A quarantined listing is hidden from the room but stays visible to the
-      // person who published it and to the staff — so what the catalog contains depends on who is
-      // asking, and an anonymous visitor is asking as nobody.
+      // Quarantine and unlisted visibility. Both hide a listing from the room while leaving it visible to
+      // the person who published it and to the staff — so what the catalog contains depends on who is
+      // asking, and an anonymous visitor is asking as nobody. One clause for both, because the answer
+      // for each is the same pair of people.
       const isStaffViewer = Boolean(viewer && isStaff(viewer));
       if (!isStaffViewer) {
         if (viewer) {
-          whereClause.push('(w.quarantined_at IS NULL OR w.author_id = ?)');
+          whereClause.push("((w.quarantined_at IS NULL AND w.visibility = 'public') OR w.author_id = ?)");
           params.push(viewer.id);
         } else {
-          whereClause.push('w.quarantined_at IS NULL');
+          whereClause.push("w.quarantined_at IS NULL AND w.visibility = 'public'");
         }
       }
 
@@ -365,9 +367,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          model_license, contest_event_id, created_at, updated_at
+          model_license, contest_event_id, visibility, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -384,6 +386,7 @@ const World = {
         // Written here and nowhere else. Entering happens at publish, so nothing ever moves a listing
         // from one contest into another, and the entry date is simply the publish date.
         worldData.contest_event_id || null,
+        worldData.visibility || DEFAULT_VISIBILITY,
         now,
         now
       );
@@ -396,7 +399,8 @@ const World = {
   },
 
   /**
-   * Update a world
+   * Update a world. Every call bumps the revision, because every caller is changing what a downloader
+   * receives; a change that is not (visibility, spoiler) has a writer of its own that leaves it alone.
    * @param {string} id - World ID
    * @param {Object} worldData - World data to update
    * @returns {Object} Updated world object
@@ -435,12 +439,12 @@ const World = {
       
       // Build update query
       const fields = Object.keys(worldData).filter(key => key !== 'id');
-      const placeholders = fields.map(field => `${field} = ?`).join(', ');
+      const placeholders = [...fields.map(field => `${field} = ?`), 'revision = revision + 1'].join(', ');
       const values = fields.map(field => worldData[field]);
-      
+
       // Add ID to values
       values.push(id);
-      
+
       // Update world in database
       db.prepare(`
         UPDATE worlds
@@ -456,10 +460,12 @@ const World = {
   },
 
   /**
-   * Whether this viewer may see a quarantined listing at all.
+   * Whether this viewer may see a quarantined or unlisted listing at all.
    *
-   * The room sees nothing: to everyone else a quarantined listing is as absent as a deleted one, which is
-   * the point — it is out of circulation while its author fixes it, not merely flagged.
+   * The room sees nothing: to everyone else a hidden listing is as absent as a deleted one. For a
+   * quarantine that is the point — it is out of circulation while its author fixes it, not merely
+   * flagged. For an unlisted listing it is what keeps a component reachable only through a world that
+   * requires it; `isDependencyVisibleTo` is that one other path.
    *
    * @param {Object} world - The world row
    * @param {Object} [viewer] - The signed-in user, or null for an anonymous visitor
@@ -467,10 +473,51 @@ const World = {
    */
   isVisibleTo: (world, viewer = null) => {
     if (!world) return false;
-    if (!world.quarantined_at) return true;
+    if (!world.quarantined_at && world.visibility !== UNLISTED) return true;
     if (!viewer) return false;
 
     return isStaff(viewer) || world.author_id === viewer.id;
+  },
+
+  /**
+   * Whether this viewer may receive a listing as a required dependency of a world they can read.
+   *
+   * Unlisted stops mattering: that is the whole of what unlisted permits. Quarantine still applies, as
+   * it does everywhere — a quarantined source is out of circulation by whichever door it is reached.
+   *
+   * @param {Object} source - The source row
+   * @param {Object} [viewer] - The signed-in user, or null for an anonymous visitor
+   * @returns {boolean} True when it may be served
+   */
+  isDependencyVisibleTo: (source, viewer = null) =>
+    Boolean(source) && World.isVisibleTo({ ...source, visibility: PUBLIC }, viewer),
+
+  /**
+   * Change how a listing is shown, leaving its revision and its date alone: nothing a downloader receives
+   * has changed, so a client comparing revisions must not be told it has.
+   *
+   * @param {string} id - World ID
+   * @param {string} visibility - One of `VISIBILITIES`
+   * @returns {Object|undefined} The updated row
+   */
+  setVisibility: (id, visibility) => {
+    db.prepare('UPDATE worlds SET visibility = ? WHERE id = ?').run(visibility, id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Mark a listing changed without changing any of its columns. For a change kept in another table that
+   * still alters what a downloader receives: the required dependencies of a world.
+   *
+   * @param {string} id - World ID
+   * @returns {Object|undefined} The updated row
+   */
+  touch: (id) => {
+    db.prepare('UPDATE worlds SET revision = revision + 1, updated_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), id);
+
+    return World.findById(id);
   },
 
   /**
@@ -647,8 +694,8 @@ const World = {
    *
    * Deliberately public-only, with no viewer: this is what the room sees an account as having earned, and
    * a total that moved depending on who was reading would make an author's own profile disagree with the
-   * one they hand somebody else. Their hidden work still appears in their own listing, with its own
-   * numbers — it just doesn't count here until it's back in the catalog.
+   * one they hand somebody else. Their hidden work — quarantined or unlisted — still appears in their own
+   * listing, with its own numbers; it just doesn't count here while it is out of the catalog.
    *
    * @param {string} authorId - Author ID
    * @returns {Object} `{ likes, downloads }`, both zero for an account that has published nothing
@@ -659,9 +706,9 @@ const World = {
         COALESCE(SUM(w.downloads), 0) AS downloads,
         (SELECT COUNT(*) FROM world_likes l
           JOIN worlds lw ON lw.id = l.world_id
-          WHERE lw.author_id = ? AND lw.quarantined_at IS NULL) AS likes
+          WHERE lw.author_id = ? AND lw.quarantined_at IS NULL AND lw.visibility = 'public') AS likes
       FROM worlds w
-      WHERE w.author_id = ? AND w.quarantined_at IS NULL
+      WHERE w.author_id = ? AND w.quarantined_at IS NULL AND w.visibility = 'public'
     `).get(authorId, authorId);
 
     return { likes: row.likes || 0, downloads: row.downloads || 0 };

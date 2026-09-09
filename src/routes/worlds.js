@@ -3,6 +3,7 @@ const { check } = require('express-validator');
 const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, getLikers, getLikersAudit, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
+const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
@@ -21,6 +22,18 @@ router.get('/:id', optionalAuth, getWorld);
 
 // Get world content
 router.get('/:id/content', optionalAuth, getWorldContent);
+
+// Linked content. What a world requires, resolved for whoever can read the world — the one path by which
+// an unlisted component reaches the room — and each required source's content through the same door.
+router.get('/:id/dependencies', optionalAuth, getDependencies);
+router.get('/:id/dependencies/:sourceId/content', optionalAuth, getDependencyContent);
+router.put('/:id/dependencies', smallJson, protect, setDependencies);
+
+// What a component is offered for (its author's declaration), what a world is offered (never an unlisted
+// component), and the world author's answer to each offer.
+router.put('/:id/compatibility', smallJson, protect, setCompatibility);
+router.get('/:id/addons', optionalAuth, getAddons);
+router.put('/:id/addons/:componentId/review', smallJson, protect, setReviewState);
 
 // Create new world
 router.post(

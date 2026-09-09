@@ -1004,7 +1004,7 @@ describe('a client that has never heard of contests', () => {
     expect(Object.keys(response.body.data[0]).sort()).toEqual([
       'author', 'comment_count', 'contest_event_id', 'created_at', 'description', 'downloads', 'id',
       'kind', 'likes', 'name', 'quarantine_expires_at', 'quarantine_extended', 'quarantined_at',
-      'spoiler', 'tags', 'thumbnailUrl', 'thumbnail_file', 'updated_at'
+      'revision', 'spoiler', 'tags', 'thumbnailUrl', 'thumbnail_file', 'updated_at', 'visibility'
     ]);
   });
 });

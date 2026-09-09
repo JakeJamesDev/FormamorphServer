@@ -34,7 +34,9 @@ const TABLES = [
   'reports',
   'signals',
   'settings',
-  'account_tokens'
+  'account_tokens',
+  'listing_dependencies',
+  'listing_compatibility'
 ];
 
 /**

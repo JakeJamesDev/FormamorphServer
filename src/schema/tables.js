@@ -79,12 +79,51 @@ const apply = (database) => {
       -- The contest this listing was published into, if any. Set at publish and cleared by a withdrawal,
       -- never moved: a listing enters at most one contest, on the day it appears.
       contest_event_id TEXT,
+      -- How the listing is shown. An unlisted listing is hidden from discovery but not from existence: its
+      -- author and staff see it as normal, everyone else reaches it only through a world that requires it.
+      visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'unlisted')),
+      -- Bumped by every update that changes what a downloader receives. A client compares it with the
+      -- one it downloaded to know the source changed; the server keeps no version behind it.
+      revision INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id),
       -- SET NULL rather than the default: a plain reference would make an event with entries impossible
       -- to delete, which is precisely what the delete route is for.
       FOREIGN KEY (contest_event_id) REFERENCES events (id) ON DELETE SET NULL
+    )
+  `);
+
+  // What a world requires: one row per source listing its author declared necessary. The world side
+  // cascades, because a declaration has no meaning without the world that made it. The source side is
+  // deliberately not a foreign key: a source may be deleted while worlds still name it, and the row that
+  // survives is what lets dependency resolution answer "not found" instead of silently forgetting it.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS listing_dependencies (
+      world_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (world_id, source_id),
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+    )
+  `);
+
+  // What a component is offered for: one row per world its author declared it compatible with, carrying
+  // the world author's answer. The component author writes the row; only the world author writes the
+  // review state. `reviewed_revision` is the component's revision when the world author last answered,
+  // so "updated since review" is a comparison rather than a flag somebody has to remember to set.
+  // Cascades on both sides: an offering for a deleted world, or of a deleted component, means nothing.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS listing_compatibility (
+      component_id TEXT NOT NULL,
+      world_id TEXT NOT NULL,
+      review_state TEXT NOT NULL DEFAULT 'unreviewed' CHECK (review_state IN ('unreviewed', 'approved', 'declined')),
+      reviewed_revision INTEGER,
+      reviewed_at TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (component_id, world_id),
+      FOREIGN KEY (component_id) REFERENCES worlds (id) ON DELETE CASCADE,
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
     )
   `);
 

@@ -23,6 +23,14 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_worlds_kind ON worlds(kind);
     CREATE INDEX IF NOT EXISTS idx_worlds_quarantine ON worlds(quarantine_expires_at);
     CREATE INDEX IF NOT EXISTS idx_worlds_contest ON worlds(contest_event_id);
+    CREATE INDEX IF NOT EXISTS idx_worlds_visibility ON worlds(visibility);
+  `);
+
+  // Each association is read from its other end too: which worlds require a source, and which components
+  // are offered for a world. The primary keys already answer the first direction.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_listing_dependencies_source ON listing_dependencies(source_id);
+    CREATE INDEX IF NOT EXISTS idx_listing_compatibility_world ON listing_compatibility(world_id);
   `);
 
   // Both directions are asked for: the catalog counts a listing's likes, and a reader's own are looked up

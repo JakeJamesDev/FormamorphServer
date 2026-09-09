@@ -109,8 +109,8 @@ const Follow = {
    * otherwise — the same row either way, so an author revising something they posted last year reads as
    * an update rather than as news.
    *
-   * Quarantined listings are absent: they are out of circulation, and a feed row pointing at a 404 is
-   * worse than no row.
+   * Quarantined and unlisted listings are absent: neither is in circulation on its own, and a feed row
+   * pointing at a 404 is worse than no row.
    *
    * @param {string} followerId - Whose feed
    * @param {Object} [options] - `{ limit }`
@@ -127,6 +127,7 @@ const Follow = {
     JOIN users u ON u.id = w.author_id
     WHERE f.follower_id = ?
       AND w.quarantined_at IS NULL
+      AND w.visibility = 'public'
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
     ORDER BY ${AS_INSTANT('w.updated_at')} DESC, w.id ASC
     LIMIT ?
@@ -161,6 +162,7 @@ const Follow = {
     JOIN worlds w ON w.author_id = f.followed_id
     WHERE f.follower_id = @followerId
       AND w.quarantined_at IS NULL
+      AND w.visibility = 'public'
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
       AND (@seenAt IS NULL OR ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('@seenAt')})
   `).get({ followerId, seenAt: seenAt ?? null }).count,

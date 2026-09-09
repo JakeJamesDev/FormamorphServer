@@ -16,6 +16,12 @@ const { sweepQuarantine } = require('../utils/sweepQuarantine');
 const { recordSignal } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const Dependency = require('../models/Dependency');
+const Compatibility = require('../models/Compatibility');
+const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
+const {
+  idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
+} = require('../utils/linkedContent');
 
 /** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
 const likerRow = (row) => ({
@@ -113,23 +119,44 @@ const contestEntryRefusal = (eventId, user) => {
 };
 
 /**
- * Whether a listing is being judged: entered, past its contest's deadline, results not announced yet.
+ * Read the linked-content fields off a publish body and check them against the row they are for.
  *
- * The whole of the post-deadline lock. It lifts at the announcement rather than at the first place being
- * assigned, so judging finishes before entries go back to being editable. Cancelling a contest releases
- * its entries, so a cancelled event cannot reach this — and a contest still running has no reason to hold
- * anybody's work still.
+ * All three are optional and additive: a body that names none of them publishes exactly as before. Checked
+ * before any file is written, so a refused id leaves nothing on disk. The kind is the stored row's on an
+ * update and the body's on a create, which is why it is passed in rather than read here.
  *
- * @param {Object} world - The world row
- * @returns {Object|null} The contest it is being judged in, or null
+ * @param {Object} body - The request body
+ * @param {Object} row - `{ id, kind }` of the listing being written; `id` is null on a create
+ * @param {Object} user - Who is publishing
+ * @returns {Object} `{ refusal }` with `{ status, body }`, or `{ visibility, sourceIds, worldIds }`, each
+ *   undefined when the body did not name it
  */
-const judgingContest = (world) => {
-  if (!world.contest_event_id) return null;
+const linkedContentFields = (body, row, user) => {
+  const out = {};
 
-  const event = Event.findById(world.contest_event_id);
-  if (!event || event.state !== 'ended' || event.results_announced_at) return null;
+  if (body.visibility !== undefined) {
+    const error = visibilityError(body.visibility, row.kind);
+    if (error) return { refusal: { status: 400, body: { success: false, error } } };
+    out.visibility = body.visibility;
+  }
 
-  return event;
+  if (body.requiredDependencies !== undefined) {
+    const { ids, error } = idList(body.requiredDependencies, 'requiredDependencies');
+    if (error) return { refusal: { status: 400, body: { success: false, error } } };
+    const refusal = dependencyRefusal(row, ids, user);
+    if (refusal) return { refusal };
+    out.sourceIds = ids;
+  }
+
+  if (body.compatibleWorlds !== undefined) {
+    const { ids, error } = idList(body.compatibleWorlds, 'compatibleWorlds');
+    if (error) return { refusal: { status: 400, body: { success: false, error } } };
+    const refusal = compatibilityRefusal(row, ids, user);
+    if (refusal) return { refusal };
+    out.worldIds = ids;
+  }
+
+  return out;
 };
 
 /**
@@ -220,6 +247,10 @@ exports.getWorld = async (req, res, next) => {
     if (req.query.includeChangelog === 'true') {
       world.changelog = Changelog.getByWorldId(world.id);
     }
+
+    // Always, not opt-in: what a world requires is part of what the world is, and the client that opens
+    // one needs it to know what a download will install.
+    attachRelationships(world, req.user);
 
     // Get thumbnail as base64
     world.thumbnail = await getThumbnailBase64(world.thumbnail_file);
@@ -344,6 +375,11 @@ exports.createWorld = async (req, res, next) => {
       modelLicense = license;
     }
 
+    const linked = linkedContentFields(req.body, { id: null, kind }, req.user);
+    if (linked.refusal) {
+      return res.status(linked.refusal.status).json(linked.refusal.body);
+    }
+
     // Generate UUID for the world
     const worldId = uuidv4();
 
@@ -368,16 +404,22 @@ exports.createWorld = async (req, res, next) => {
           tags,
           kind,
           model_license: modelLicense ? JSON.stringify(modelLicense) : null,
-          contest_event_id: contestEventId || null
+          contest_event_id: contestEventId || null,
+          visibility: linked.visibility
         },
         contentFile,
         thumbnailFile
       );
 
+      // Declared in the same publish, so a world and what it requires appear together rather than a world
+      // appearing first with nothing behind it.
+      if (linked.sourceIds) Dependency.replaceFor(worldId, linked.sourceIds);
+      if (linked.worldIds) Compatibility.replaceFor(worldId, linked.worldIds);
+
       recordSignal(req, req.user.id, 'publish');
 
       // Get full world data for response
-      const fullWorld = await World.getContent(worldId);
+      const fullWorld = attachRelationships(await World.getContent(worldId), req.user);
 
       res.status(201).json({
         success: true,
@@ -448,11 +490,7 @@ exports.updateWorld = async (req, res, next) => {
     // whole thing all stay open, because none of them change the work being judged.
     const judging = judgingContest(world);
     if (judging && !canModerate(req.user, User.findById(world.author_id))) {
-      return res.status(409).json({
-        success: false,
-        code: 'CONTEST_LOCKED',
-        error: `${judging.title} is being judged, so its entries cannot be changed until the results are announced.`
-      });
+      return res.status(409).json(contestLockedBody(judging));
     }
 
     // Held from before the write: `World.update` returns the new row, and the extension has to know
@@ -487,6 +525,11 @@ exports.updateWorld = async (req, res, next) => {
         return res.status(400).json({ success: false, ...gateError });
       }
       modelLicense = license;
+    }
+
+    const linked = linkedContentFields(req.body, world, req.user);
+    if (linked.refusal) {
+      return res.status(linked.refusal.status).json(linked.refusal.body);
     }
 
     // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
@@ -527,8 +570,16 @@ exports.updateWorld = async (req, res, next) => {
         await saveWorldContent(world.id, contentData);
       }
 
-      // Update world in database
-      if (Object.keys(updateData).length > 0) {
+      // Neither declaration touches the row: visibility changes nothing a downloader receives, and a
+      // compatibility offer is about somebody else's world. A changed dependency set does, so it counts
+      // toward the revision bump below.
+      if (linked.visibility) World.setVisibility(world.id, linked.visibility);
+      if (linked.worldIds) Compatibility.replaceFor(world.id, linked.worldIds);
+      const dependenciesChanged = linked.sourceIds ? Dependency.replaceFor(world.id, linked.sourceIds) : false;
+
+      // Update world in database. New content alone is an update too — it is the whole of what a
+      // downloader receives — so the row's date and revision move with it even when no field changed.
+      if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
         world = World.update(req.params.id, updateData);
       }
 
@@ -557,7 +608,7 @@ exports.updateWorld = async (req, res, next) => {
       recordSignal(req, req.user.id, 'publish');
 
       // Get full world data for response
-      const fullWorld = await World.getContent(req.params.id);
+      const fullWorld = attachRelationships(await World.getContent(req.params.id), req.user);
 
       res.status(200).json({
         success: true,

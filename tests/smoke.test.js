@@ -22,8 +22,8 @@ describe('harness', () => {
       .map((r) => r.name);
     expect(tables).toEqual([
       'account_tokens', 'audit_log', 'comments', 'event_placements', 'events', 'feedback', 'feedback_comments', 'feedback_reads',
-      'feedback_votes', 'follows', 'message_states', 'messages', 'policies', 'policy_acceptances',
-      'reports', 'settings', 'signals', 'users', 'world_changelog', 'world_likes', 'worlds'
+      'feedback_votes', 'follows', 'listing_compatibility', 'listing_dependencies', 'message_states', 'messages',
+      'policies', 'policy_acceptances', 'reports', 'settings', 'signals', 'users', 'world_changelog', 'world_likes', 'worlds'
     ]);
   });
 

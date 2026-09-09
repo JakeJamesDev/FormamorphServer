@@ -114,6 +114,15 @@ exports.createComment = async (req, res, next) => {
       });
     }
 
+    // An unlisted listing is as absent to the room here as on a read: a comment that landed would say
+    // it exists. Its author and staff comment as normal.
+    if (!World.isVisibleTo(world, req.user)) {
+      return res.status(404).json({
+        success: false,
+        error: 'World not found'
+      });
+    }
+
     // Extract data from request body
     const { content } = req.body;
 

@@ -14,6 +14,20 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Like** | One account's revocable mark on a listing. The room sees only the count; staff see the likers, and can remove a like or clear an account's likes. |
 | **Image asset** | An uploaded image served back by filename: a listing's thumbnail, an account's avatar, or an event's poster. |
 
+## Linked content
+
+| Term | Meaning |
+|---|---|
+| **Component** | A listing a world can embed: an entity or a dictionary. Never a world, never a model. |
+| **Source** | The published listing a downloaded copy follows. Named by listing id; a republished listing is a new source. |
+| **Required dependency** | A source a world's author declared necessary. The world author alone writes the set; the row lives in `listing_dependencies` and survives the source's deletion so resolution can say `not_found`. |
+| **Compatibility** | A component author's offer of their component for a world. Lives in `listing_compatibility`. Never makes the component required. |
+| **Review state** | The world author's answer to an offer: `unreviewed`, `approved`, or `declined`. Written by the world author alone. Declined offers are hidden from everyone but the component's author and staff. |
+| **Add-on** | A compatible, public, visible component a world's download review may offer. An unlisted component is never one. |
+| **Visibility** | `public` or `unlisted`. Unlisted is hidden from discovery, not from existence: the author and staff see it as normal; everyone else gets `404` everywhere except dependency resolution. |
+| **Revision** | A per-listing counter bumped by every change to what a download installs. What a client compares to detect a source change; no version is kept behind it. |
+| **Dependency resolution** | `GET /api/worlds/:id/dependencies`: a world's required sources as the caller may receive them, `ok` with the listing or `not_found`. The one path an unlisted listing reaches the room by. |
+
 ## Moderation
 
 | Term | Meaning |

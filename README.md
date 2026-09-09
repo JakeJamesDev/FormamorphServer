@@ -244,6 +244,36 @@ GET /api/worlds?sort=updated_at&order=desc  # Sort by most recently updated
 GET /api/worlds?sort=name&order=asc  # Sort alphabetically by name
 ```
 
+### Linked content — dependencies, add-ons, and unlisted listings
+
+A world declares what it **requires**; a character or dictionary declares which worlds it is **compatible**
+with; the world's author **reviews** each offer. Every field and route here is additive: a client that
+sends none of them publishes and reads exactly as before.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/worlds/:id/dependencies` | anyone who can read the world | Each required source as `{ id, status, listing }`. `status` is `ok` or `not_found`. |
+| `GET /api/worlds/:id/dependencies/:sourceId/content` | anyone who can read the world | One required source's content, in the shape of `/content`. |
+| `PUT /api/worlds/:id/dependencies` | world author or staff | Body `{ sourceIds }`. Replaces the set. |
+| `PUT /api/worlds/:id/compatibility` | component author or staff | Body `{ worldIds }`. Replaces the set; kept rows keep their review. |
+| `GET /api/worlds/:id/addons` | anyone who can read the world | Compatible public components with `reviewState`. Declined ones only for the world author and staff. |
+| `PUT /api/worlds/:id/addons/:componentId/review` | world author only | Body `{ reviewState }`: `unreviewed`, `approved`, or `declined`. |
+
+`POST` and `PUT /api/worlds/:id` also take `visibility`, `requiredDependencies`, and `compatibleWorlds`, so a
+publish can carry its declarations. A listing read returns `requiredDependencies` on a world and
+`compatibleWorlds` on a component. Every listing carries `visibility` and `revision`.
+
+- **`visibility`** is `public` or `unlisted`. Only a character or a dictionary can be unlisted. An unlisted
+  listing answers `404` on read, download, search, and browse to everyone but its author and staff, and is
+  never an add-on. It reaches other players only through `/dependencies` of a world that requires it.
+- **`revision`** starts at 1 and moves with every update that changes what a download installs: content,
+  name, description, tags, thumbnail, or a world's required set. A client compares it with the one it has.
+  The server keeps no version behind it.
+- **Deleting a source is hard.** Worlds that required it keep the declaration and resolve it as `not_found`.
+- **Review state** is the world author's alone. `reviewedRevision` is the component's revision when they
+  last answered, and `updatedSinceReview` says whether it changed since. Answering again with the same
+  state marks the current revision reviewed.
+
 ### Kinds — worlds, characters, and dictionaries
 
 The `worlds` table holds three kinds of item, told apart by a `kind` column: a **world**, an **entity** (a
