@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import { makeGlb, makeVrm1, makeVrm0, makePlainGltf } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
-const { readVrmLicenseMeta, licenseGate, MODEL_LICENSE_REQUIREMENTS } = require('../src/utils/vrmLicenseGate');
+const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense, MODEL_LICENSE_REQUIREMENTS } = require('../src/utils/vrmLicenseGate');
 
 /** Meta that satisfies every requirement of the Permissive License gate. */
 const PASSING_META = {
@@ -117,5 +117,55 @@ describe('licenseGate', () => {
   it('treats one missing field as that field failing, never as permission', () => {
     const { avatarPermission, ...withoutPermission } = { metaVersion: '1', ...PASSING_META };
     expect(licenseGate(withoutPermission)).toEqual({ allowed: false, failedRequirements: ['avatarPermission'] });
+  });
+});
+
+describe('normalizeVrmLicense', () => {
+  /** VRM 1.0 meta carrying everything a reader is shown, not just what the gate checks. */
+  const FULL_META = {
+    ...PASSING_META,
+    name: 'Sedge',
+    authors: ['Alice', 'Bob'],
+    licenseUrl: 'https://example.test/license',
+    creditNotation: 'required',
+  };
+
+  it("reports a VRM 1.0 file's license in the shape the client renders", () => {
+    expect(normalizeVrmLicense(readVrmLicenseMeta(makeVrm1(FULL_META)))).toEqual({
+      metaVersion: '1',
+      title: 'Sedge',
+      authors: ['Alice', 'Bob'],
+      licenseUrl: 'https://example.test/license',
+      allowRedistribution: true,
+      commercialUse: 'corporation',
+      creditRequired: true,
+      avatarPermission: 'everyone',
+      modification: 'allowModificationRedistribution',
+    });
+  });
+
+  it('reads credit as not required when the file says so, and as unknown when it says nothing', () => {
+    const notRequired = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1({ ...FULL_META, creditNotation: 'unnecessary' })));
+    expect(notRequired.creditRequired).toBe(false);
+
+    const silent = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1(PASSING_META)));
+    expect(silent.creditRequired).toBeUndefined();
+  });
+
+  it('drops an enum value it does not recognize rather than passing it through', () => {
+    // A reader maps each enum to its own copy; an unknown string would render as nothing at all, so it
+    // is reported as unknown instead — the same rule the whole gate runs on.
+    const license = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1({ ...PASSING_META, commercialUsage: 'inventedTier' })));
+    expect(license.commercialUse).toBeUndefined();
+  });
+
+  it('reports an empty author list as unknown rather than as a credited nobody', () => {
+    const license = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1({ ...PASSING_META, authors: [] })));
+    expect(license.authors).toBeUndefined();
+  });
+
+  it('reports a file the gate rejects by its version, claiming nothing else about it', () => {
+    expect(normalizeVrmLicense(readVrmLicenseMeta(makeVrm0({ title: 'Old Format' })))).toEqual({ metaVersion: '0' });
+    expect(normalizeVrmLicense(readVrmLicenseMeta(makePlainGltf()))).toEqual({ metaVersion: null });
   });
 });

@@ -186,6 +186,113 @@ describe('listing and reading', () => {
   });
 });
 
+describe('the license a reader is shown', () => {
+  /** VRM 1.0 meta carrying the display fields as well as the ones the gate checks. */
+  const CREDITED_META = {
+    ...PASSING_META,
+    name: 'Sedge',
+    authors: ['Alice', 'Bob'],
+    licenseUrl: 'https://example.test/license',
+    creditNotation: 'required',
+  };
+
+  const creditedPayload = (overrides = {}) => modelPayload({
+    contentData: {
+      vrm: vrmDataUrl(makeVrm1(CREDITED_META)),
+      license: { metaVersion: '1', ...PASSING_META },
+      hash: 'test-hash',
+    },
+    ...overrides,
+  });
+
+  it("reports the file's own terms when one listing is read", async () => {
+    const user = createUser();
+    const created = await post(user, creditedPayload({ name: 'Credited' }));
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(res.body.data.modelLicense).toEqual({
+      metaVersion: '1',
+      title: 'Sedge',
+      authors: ['Alice', 'Bob'],
+      licenseUrl: 'https://example.test/license',
+      allowRedistribution: true,
+      commercialUse: 'corporation',
+      creditRequired: true,
+      avatarPermission: 'everyone',
+      modification: 'allowModificationRedistribution',
+    });
+  });
+
+  it('derives the terms from the file, never from what the publisher claimed', async () => {
+    const user = createUser();
+    // A body whose `license` says the author must be credited, over a file that says they need not be.
+    const created = await post(user, modelPayload({
+      name: 'Liar',
+      contentData: {
+        vrm: vrmDataUrl(makeVrm1({ ...CREDITED_META, creditNotation: 'unnecessary' })),
+        license: { metaVersion: '1', ...PASSING_META, creditRequired: true, title: 'Not The File' },
+        hash: 'test-hash',
+      },
+    }));
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(res.body.data.modelLicense.creditRequired).toBe(false);
+    expect(res.body.data.modelLicense.title).toBe('Sedge');
+  });
+
+  it('re-derives the terms when the file is replaced', async () => {
+    const user = createUser();
+    const created = await post(user, creditedPayload({ name: 'Re-exported' }));
+
+    await put(user, created.body.data.id, {
+      name: 'Re-exported',
+      contentData: {
+        vrm: vrmDataUrl(makeVrm1({ ...CREDITED_META, authors: ['Carol'], creditNotation: 'unnecessary' })),
+        license: { metaVersion: '1', ...PASSING_META },
+        hash: 'test-hash-2',
+      },
+    });
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(res.body.data.modelLicense.authors).toEqual(['Carol']);
+    expect(res.body.data.modelLicense.creditRequired).toBe(false);
+  });
+
+  it('keeps the terms when an update changes only the name', async () => {
+    const user = createUser();
+    const created = await post(user, creditedPayload({ name: 'Renamed' }));
+
+    await put(user, created.body.data.id, { name: 'Renamed Again' });
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(res.body.data.modelLicense.authors).toEqual(['Alice', 'Bob']);
+  });
+
+  it('never rides along with a page of cards, which no reader looks at terms on', async () => {
+    // The reason it is a column the list drops rather than one the list carries: a catalog page would
+    // otherwise send every card's license to render none of them.
+    const user = createUser();
+    await post(user, creditedPayload({ name: 'Listed' }));
+
+    const res = await request(app).get('/api/worlds?kind=model');
+    expect(res.body.data[0].modelLicense).toBeUndefined();
+    expect(res.body.data[0].model_license).toBeUndefined();
+  });
+
+  it('reports no terms for a kind that has none, rather than an empty object', async () => {
+    const user = createUser();
+    const created = await request(app).post('/api/worlds').set(authHeader(user)).send({
+      name: 'A World',
+      description: 'A marsh',
+      thumbnail: 'data:image/png;base64,iVBORw0KGgo=',
+      contentData: { worldOverview: { name: 'A World' } },
+    });
+
+    const res = await request(app).get(`/api/worlds/${created.body.data.id}`);
+    expect(res.body.data.modelLicense).toBeUndefined();
+  });
+});
+
 describe('kind-agnostic rules apply unchanged', () => {
   it('gives Avatars the same ownership rules as other kinds', async () => {
     const owner = createUser({ username: 'avatar-owner' });

@@ -6,7 +6,7 @@ const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, ge
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
-const { readVrmLicenseMeta, licenseGate } = require('../utils/vrmLicenseGate');
+const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense } = require('../utils/vrmLicenseGate');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedListing } = require('./reportController');
@@ -50,25 +50,33 @@ function contentSizeError(contentData, rules) {
 }
 
 /**
- * The Permissive License gate's refusal for an Avatar publish, or null when the file passes.
+ * Read an Avatar publish's file once, for both the gate and the terms a reader is shown.
  *
  * This is the only kind whose content the server parses. `contentData.vrm` is a data URL of the file's own
- * bytes; the client-sent `contentData.license` is never read here — it is stored verbatim for readers, but
- * enforcement always re-derives the verdict from the file itself, so a client cannot claim a license the
- * file does not carry.
+ * bytes; the client-sent `contentData.license` is never read here — it is stored verbatim for readers of
+ * the content, but both the verdict and the displayed terms are re-derived from the file itself, so a
+ * client cannot claim a license the file does not carry.
+ *
+ * One parse rather than two: an Avatar's bytes run to tens of megabytes, and decoding them twice per
+ * publish would be the most expensive thing the route does.
+ *
+ * @param {Object} contentData - The publish body's content
+ * @returns {{error?: Object, license?: Object}} A refusal to return, or the license to store
  */
-function modelContentError(contentData) {
-  if (!contentData) return null;
+function readModelContent(contentData) {
+  if (!contentData) return {};
 
   const dataUrl = contentData.vrm;
   const match = typeof dataUrl === 'string' && dataUrl.match(/^data:[^;,]*;base64,(.+)$/);
-  if (!match) return { error: 'Avatar content must include a vrm data URL' };
+  if (!match) return { error: { error: 'Avatar content must include a vrm data URL' } };
 
-  const bytes = Buffer.from(match[1], 'base64');
-  const { allowed, failedRequirements } = licenseGate(readVrmLicenseMeta(bytes));
-  if (allowed) return null;
+  const meta = readVrmLicenseMeta(Buffer.from(match[1], 'base64'));
+  const { allowed, failedRequirements } = licenseGate(meta);
+  if (!allowed) {
+    return { error: { error: 'That Avatar does not have a Permissive License', failedRequirements } };
+  }
 
-  return { error: 'That Avatar does not have a Permissive License', failedRequirements };
+  return { license: normalizeVrmLicense(meta) };
 }
 
 /**
@@ -325,11 +333,15 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: tooLarge });
     }
 
+    // Held from the gate's own parse, so the terms a reader is shown are stored without decoding the
+    // file a second time.
+    let modelLicense = null;
     if (kind === 'model') {
-      const gateError = modelContentError(contentData);
+      const { error: gateError, license } = readModelContent(contentData);
       if (gateError) {
         return res.status(400).json({ success: false, ...gateError });
       }
+      modelLicense = license;
     }
 
     // Generate UUID for the world
@@ -355,6 +367,7 @@ exports.createWorld = async (req, res, next) => {
           author_id: req.user.id,
           tags,
           kind,
+          model_license: modelLicense ? JSON.stringify(modelLicense) : null,
           contest_event_id: contestEventId || null
         },
         contentFile,
@@ -467,11 +480,13 @@ exports.updateWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: tooLarge });
     }
 
+    let modelLicense = null;
     if (kind === 'model' && contentData) {
-      const gateError = modelContentError(contentData);
+      const { error: gateError, license } = readModelContent(contentData);
       if (gateError) {
         return res.status(400).json({ success: false, ...gateError });
       }
+      modelLicense = license;
     }
 
     // Extract tags from contentData.worldOverview (preferred), then worldOverview, then a direct tags field
@@ -489,6 +504,9 @@ exports.updateWorld = async (req, res, next) => {
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (tags !== undefined) updateData.tags = tags; // Include tags if provided
+    // Re-derived from the replacement file, so a re-export's terms replace the ones on screen. An update
+    // that sends no content leaves the stored terms alone, because the file behind them has not changed.
+    if (modelLicense) updateData.model_license = JSON.stringify(modelLicense);
 
     try {
       // If thumbnail is provided, update it

@@ -36,6 +36,24 @@ const SORT_EXPRESSIONS = Object.assign(Object.create(null), {
 /**
  * World model
  */
+/**
+ * An Avatar's stored license terms, or null for a row that has none.
+ *
+ * A row written before a shape change, or by hand, could hold text that is not JSON; that reads as "no
+ * terms" rather than failing the whole listing read.
+ *
+ * @param {string|null} stored - The `model_license` column
+ * @returns {Object|null} The parsed terms
+ */
+const parseModelLicense = (stored) => {
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
+};
+
 const World = {
   /**
    * Find a world by ID
@@ -81,6 +99,11 @@ const World = {
     
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
+
+    // An Avatar's own license terms, which only a listing opened on its own ever shows. Absent rather
+    // than null for every other kind, so a reader has nothing to render instead of an empty object.
+    const modelLicense = parseModelLicense(world.model_license);
+    delete world.model_license;
     
     // Add thumbnail URL - ensure we're using the correct path
     // The thumbnail_file might contain a full path, so we need to extract just the filename
@@ -89,6 +112,7 @@ const World = {
 
     return {
       ...world,
+      ...(modelLicense ? { modelLicense } : {}),
       thumbnailUrl,
       author
     };
@@ -254,6 +278,9 @@ const World = {
         delete world.author_avatar_file;
         delete world.author_account_type;
         delete world.content_file;
+        // A page of cards shows no license terms, so it does not carry any — the column exists for the
+        // one listing a reader opens.
+        delete world.model_license;
 
         // Add thumbnail URL - ensure we're using the correct path
         // The thumbnail_file might contain a full path, so we need to extract just the filename
@@ -338,9 +365,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          contest_event_id, created_at, updated_at
+          model_license, contest_event_id, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -352,6 +379,8 @@ const World = {
         0, // Initialize comment_count to 0
         worldData.spoiler ? 1 : 0, // Convert boolean to INTEGER (0 or 1)
         worldData.kind || DEFAULT_KIND,
+        // The Avatar terms a reader is shown, as JSON. Null for every other kind, which has none.
+        worldData.model_license || null,
         // Written here and nowhere else. Entering happens at publish, so nothing ever moves a listing
         // from one contest into another, and the entry date is simply the publish date.
         worldData.contest_event_id || null,

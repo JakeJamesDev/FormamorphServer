@@ -35,6 +35,7 @@ const STEPS = [
   require('./steps/placeholderUser'),
   require('./steps/dropPreviewData'),
   require('./steps/emailVerification'),
+  require('./steps/modelLicense'),
   require('./indexes')
 ];
 
