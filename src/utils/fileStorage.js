@@ -10,8 +10,8 @@ const {
   EVENT_POSTERS_DIR: eventPostersStorageDir
 } = require('../config/paths');
 
-// Maximum world content size in bytes (200MB)
-const MAX_CONTENT_SIZE = 200 * 1024 * 1024;
+// Maximum world content size in bytes (100MB)
+const MAX_CONTENT_SIZE = 100 * 1024 * 1024;
 
 // Maximum thumbnail size in bytes (5MB)
 const MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024;
@@ -66,7 +66,7 @@ const saveWorldContent = async (worldId, content) => {
     
     // Check if content size exceeds the limit
     if (Buffer.byteLength(contentString) > MAX_CONTENT_SIZE) {
-      throw new Error(`World content exceeds maximum size of 200MB`);
+      throw new Error(`World content exceeds maximum size of 100MB`);
     }
     
     // Use a more memory-efficient approach for large files

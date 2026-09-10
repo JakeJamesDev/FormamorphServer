@@ -46,7 +46,7 @@ const EXTENSION_DAYS = 7;
  * The kind's content ceiling as an error string, or null when it fits.
  *
  * Shared by create and update so the cap is a property of the row rather than of whichever path wrote it:
- * enforcing it on create alone means a 1KB dictionary can be PUT up to the global 200MB a moment later.
+ * enforcing it on create alone means a 1KB dictionary can be PUT up to the global 100MB a moment later.
  */
 function contentSizeError(contentData, rules) {
   if (!contentData) return null;
@@ -358,7 +358,7 @@ exports.createWorld = async (req, res, next) => {
     const kind = req.body.kind || DEFAULT_KIND;
     const rules = rulesFor(kind);
 
-    // Size is capped per kind: a world may legitimately carry 200MB of base64 art, a lorebook may not.
+    // Size is capped per kind: a world may legitimately carry 100MB of base64 art, a lorebook may not.
     const tooLarge = contentSizeError(contentData, rules);
     if (tooLarge) {
       return res.status(400).json({ success: false, error: tooLarge });

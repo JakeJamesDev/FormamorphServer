@@ -297,7 +297,7 @@ Per-kind rules live in `src/config/kinds.js`:
 
 | Kind | Requires description | Requires thumbnail | Max content |
 |---|---|---|---|
-| `world` | yes | yes | 200 MB |
+| `world` | yes | yes | 100 MB |
 | `entity` | no | no | 25 MB |
 | `dictionary` | no | no | 5 MB |
 

@@ -7,6 +7,7 @@ import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 const require = createRequire(import.meta.url);
 const { KIND_RULES, rulesFor, DEFAULT_KIND } = require('../src/config/kinds');
 const { placeholderFor } = require('../src/config/placeholderThumbnails');
+const { saveWorldContent } = require('../src/utils/fileStorage');
 
 const post = (user, body) => request(app).post('/api/worlds').set(authHeader(user)).send(body);
 
@@ -143,6 +144,49 @@ describe('per-kind size caps', () => {
 
   it('falls back to the default kind’s rules for an unknown one', () => {
     expect(rulesFor('banana')).toBe(KIND_RULES[DEFAULT_KIND]);
+  });
+});
+
+describe('the world kind\'s 100 MiB content limit', () => {
+  // JSON.stringify({ blob: 'x'.repeat(n) }) wraps the padding in 11 bytes of syntax: `{"blob":"` + `"}`.
+  const worldContentOfSize = (totalBytes) => ({ blob: 'x'.repeat(totalBytes - 11) });
+  const limit = KIND_RULES.world.maxContentBytes;
+
+  // A ~100MB request body takes well under a second in isolation, but a run of all 47 files' workers
+  // competing for CPU can push it past vitest's 5s default — a longer timeout, not a smaller payload.
+  const LARGE_BODY_TIMEOUT = 30000;
+
+  it('accepts a world at exactly the limit', async () => {
+    const user = createUser();
+    const res = await post(user, worldPayload({ name: 'At The Limit', contentData: worldContentOfSize(limit) }));
+
+    expect(res.status).toBe(201);
+  }, LARGE_BODY_TIMEOUT);
+
+  it('refuses a world one byte over the limit on create, with the exact message', async () => {
+    const user = createUser();
+    const res = await post(user, worldPayload({ name: 'Over', contentData: worldContentOfSize(limit + 1) }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('World content exceeds the 100MB limit');
+  }, LARGE_BODY_TIMEOUT);
+
+  it('refuses a world one byte over the limit on update, with the exact message', async () => {
+    const user = createUser();
+    const world = await post(user, worldPayload({ name: 'Small World' }));
+
+    const res = await request(app)
+      .put(`/api/worlds/${world.body.data.id}`)
+      .set(authHeader(user))
+      .send({ contentData: worldContentOfSize(limit + 1) });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('World content exceeds the 100MB limit');
+  }, LARGE_BODY_TIMEOUT);
+
+  it('has the disk write guard at the same 100MB limit', async () => {
+    await expect(saveWorldContent('guard-check', worldContentOfSize(limit + 1)))
+      .rejects.toThrow('World content exceeds maximum size of 100MB');
   });
 });
 

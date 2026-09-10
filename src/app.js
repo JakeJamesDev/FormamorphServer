@@ -71,7 +71,7 @@ app.use(morgan(':method :url :status :response-time ms - :res[content-length] :c
 app.use(requireClientVersion);
 
 // JSON bodies are parsed per route-group: only world create/update accept the large
-// 200MB payload (see routes/worlds.js); everything else is capped tight to blunt payload DoS.
+// 120MB payload (see routes/worlds.js); everything else is capped tight to blunt payload DoS.
 const smallJson = express.json({ limit: '100kb' });
 
 // Routes

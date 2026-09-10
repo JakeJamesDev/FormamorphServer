@@ -37,13 +37,13 @@ const isValidKindQuery = (kind) => kind === ALL_KINDS || KINDS.includes(kind);
  * descriptions and a book has an optional note. The database columns stay NOT NULL; the controller fills
  * a placeholder thumbnail and an empty description, which satisfies them without a table rebuild.
  *
- * `maxContentBytes` is per kind because a lorebook has no business claiming the 200MB a world may need.
+ * `maxContentBytes` is per kind because a lorebook has no business claiming the 100MB a world may need.
  */
 const KIND_RULES = {
   world: {
     requiresDescription: true,
     requiresThumbnail: true,
-    maxContentBytes: 200 * 1024 * 1024,
+    maxContentBytes: 100 * 1024 * 1024,
     label: 'World',
   },
   entity: {

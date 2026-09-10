@@ -10,8 +10,9 @@ const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 
 const router = express.Router();
 
-// World content can be large (up to 200MB); other bodies here stay tightly capped.
-const largeJson = express.json({ limit: '200mb' });
+// World content can be large (up to 100MB); the parser cap sits above that so the thumbnail and
+// envelope around a world at the limit are never refused by the parser first.
+const largeJson = express.json({ limit: '120mb' });
 const smallJson = express.json({ limit: '100kb' });
 
 // Get all worlds
