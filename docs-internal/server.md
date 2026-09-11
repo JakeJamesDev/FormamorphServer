@@ -182,6 +182,11 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-10** — deployed `998eb88`: listing relationships with unlisted visibility, and the world content
+  limit lowered to 100 MB. All 1,484 tests passed in 15.8 s wall time. Pre-deploy backup
+  `pre-deploy-2fd6196-2026-09-11T00-21-09.554Z.db` in `backups/`, integrity `ok`. Boot applied `tables`,
+  `linkedContent`, and `indexes`, all additive. Service active with zero restarts, public route 200. Caddy's
+  body cap stays at 210 MB, above the new limit, so no proxy change.
 - **2026-09-09** — deployed `2fd6196`: the model listing kind gated on the VRM's embedded license, an Avatar
   listing's own license terms, and quarantined listings kept in the author's own list. All 1,437 tests passed in
   15.5 s wall time. Pre-deploy backup `pre-deploy-73e3112-2026-09-09T16-44-58.498Z.db` in `backups/`, integrity
