@@ -117,9 +117,12 @@ const visibilityError = (visibility, kind) => {
  *
  * @param {Object} row - A `listing_compatibility` row
  * @param {number} componentRevision - The component's current revision
- * @returns {Object} `{ reviewState, reviewedRevision, reviewedAt, updatedSinceReview }`
+ * @returns {Object} `{ offeredAt, reviewState, reviewedRevision, reviewedAt, updatedSinceReview }`
  */
 const reviewFields = (row, componentRevision) => ({
+  // When the offer was made. A world author's queue sorts by how long a row has waited, and the component
+  // listing's own dates cannot say that: republishing it moves them without touching the offer.
+  offeredAt: row.created_at,
   reviewState: row.review_state,
   reviewedRevision: row.reviewed_revision,
   reviewedAt: row.reviewed_at,

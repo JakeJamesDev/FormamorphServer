@@ -248,6 +248,21 @@ describe('the world author’s review of an offer', () => {
     expect((await readOne(component.id)).body.data.compatibleWorlds[0].reviewState).toBe('approved');
   });
 
+  it('dates the offer when it was made, not when the component last changed', async () => {
+    const { worldAuthor, componentAuthor, world, component } = await seed();
+    await declareCompatibility(componentAuthor, component.id, [world.id]);
+    const { offeredAt } = (await addons(world.id, worldAuthor)).body.data[0];
+    expect(offeredAt).toBeTruthy();
+
+    await update(componentAuthor, component.id, { contentData: { name: 'Marsh Warden', changed: true } });
+
+    // The queue sorts by how long a row has waited. A republish moves the listing's own dates, so the
+    // offer has to carry its own or every republished offer jumps the line.
+    const after = (await addons(world.id, worldAuthor)).body.data[0];
+    expect(after.revision).toBe(2);
+    expect(after.offeredAt).toBe(offeredAt);
+  });
+
   it('shows the world author when the component changed since they answered', async () => {
     const { worldAuthor, componentAuthor, world, component } = await seed();
     await declareCompatibility(componentAuthor, component.id, [world.id]);
