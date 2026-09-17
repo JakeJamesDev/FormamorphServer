@@ -182,6 +182,9 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-17** — deployed `759334f`: an add-on offer dated by when it was made, and the likes audit no
+  longer logged. All 1,484 tests passed in 15.9 s wall time. No schema change, so no pre-deploy backup.
+  Service active with zero restarts, public route 200.
 - **2026-09-10** — deployed `998eb88`: listing relationships with unlisted visibility, and the world content
   limit lowered to 100 MB. All 1,484 tests passed in 15.8 s wall time. Pre-deploy backup
   `pre-deploy-2fd6196-2026-09-11T00-21-09.554Z.db` in `backups/`, integrity `ok`. Boot applied `tables`,
