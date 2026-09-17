@@ -277,30 +277,14 @@ describe('acting on what the audit shows', () => {
 });
 
 describe('who may read the audit, and what reading it records', () => {
-  it('writes one entry per call, naming the listing and its author', async () => {
-    const { author, id } = await seed();
+  it('writes no audit entry, because reading likes is routine staff work', async () => {
+    const { id } = await seed();
     const moderator = mod();
     await like(user('sock'), id, HOME);
 
-    await audit(moderator, id);
+    expect((await audit(moderator, id)).status).toBe(200);
 
-    const [entry] = await logEntries(moderator, '?action=signals_viewed');
-    expect(entry).toMatchObject({
-      action: 'signals_viewed',
-      actor: { username: moderator.username, role: 'mod' },
-      targetUser: { id: author.id, username: author.username },
-      target: { kind: 'world', name: 'Sedge Landing' }
-    });
-  });
-
-  it('writes a second entry on a second look, so going back is recorded too', async () => {
-    const { id } = await seed();
-    const moderator = mod();
-
-    await audit(moderator, id);
-    await audit(moderator, id);
-
-    expect(await logEntries(moderator, '?action=signals_viewed')).toHaveLength(2);
+    expect(await logEntries(moderator, '?action=signals_viewed')).toEqual([]);
   });
 
   it('refuses an ordinary account, and writes nothing when it does', async () => {

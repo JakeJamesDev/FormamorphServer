@@ -719,8 +719,8 @@ exports.getLikers = async (req, res, next) => {
  * same address as each other, and which acted from the author's. Four accounts made minutes apart from
  * one place, all liking one contest entry, is the shape this is for.
  *
- * A separate route rather than a field on the list, because reading it is written to the audit log and
- * opening a like list to count it should not file a look at anybody. `models/Signal.sharedAddressGroups`
+ * A separate route rather than a field on the list, so the plain list stays cheap and staff-only data
+ * stays off it. Reading it is routine staff work and writes no audit entry. `models/Signal.sharedAddressGroups`
  * explains what a group means. Nothing here acts — the removal route beside it is what staff act with.
  *
  * @desc    List the accounts that liked a listing, grouped by shared network address
@@ -739,17 +739,6 @@ exports.getLikersAudit = async (req, res, next) => {
       rows.map((row) => row.id),
       world.author_id
     );
-
-    // Every call, not the first: the log answers "who looked at whom, and when", and a row written once
-    // would leave the second look — the one somebody went back for — unrecorded.
-    const author = world.author_id ? User.findById(world.author_id) : null;
-    AuditLog.tryRecord({
-      action: 'signals_viewed',
-      actor: req.user,
-      targetUser: author && author.id !== req.user.id ? author : null,
-      targetKind: world.kind || 'world',
-      targetName: world.name
-    });
 
     res.status(200).json({
       success: true,
