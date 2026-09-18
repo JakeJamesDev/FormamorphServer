@@ -90,8 +90,8 @@ few MB. That was ~6 GB of the ~12 GB in R2, which is what put the bucket over it
 The vacuum needs free disk equal to the current file, because it writes a full copy before swapping it in.
 The two `ls -l` lines above give the real figures. Record them here in place of the estimate once it has run.
 
-The restore point for this deploy is the nightly R2 snapshot from the morning it ran,
-`r2:formamorph-backups/db-history/2026-09-04.db.zst`. It is the last copy that still has the column.
+No restore point for this deploy remains. The last copy that still had the column was the nightly R2
+snapshot from the morning it ran, and the 14-day prune deleted it on 2026-09-18.
 
 ## Changing configuration
 
@@ -212,7 +212,8 @@ rclone size r2:formamorph-files
   Real mail remains unconfigured. Dependency installation reported 15 vulnerabilities (1 low, 5 moderate,
   9 high); dependency remediation was outside this deployment.
 - **2026-09-04** — dropped `worlds.preview_data` (commit `cd2cbcb`). Pre-deploy backup `pre-drop-preview-data` in
-  `backups/`; it is the only restore point that works with older code. Boot step took under a second; a manual
+  `backups/` was the only restore point that worked with older code; the old nightly cleanup has since removed
+  it. Boot step took under a second; a manual
   `VACUUM` with the service stopped shrank the database from 602 MB to 3.3 MB.
 
 ## Known gaps
