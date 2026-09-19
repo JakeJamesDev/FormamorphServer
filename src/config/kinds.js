@@ -73,6 +73,7 @@ const KIND_RULES = {
     requiresDescription: false,
     requiresThumbnail: false,
     requiresModels: true,
+    stampsAppVersion: true, // the preset's appVersion is copied onto the row
     canEnterContest: false,
     maxContentBytes: 1024 * 1024, // text only
     label: 'Prompt',

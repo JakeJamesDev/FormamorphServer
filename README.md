@@ -314,6 +314,8 @@ remove another's thumbnail. Swap the PNGs to change the art; no code knows about
 - `models` is a list of model names. A prompt must name at least one; other kinds ignore the field.
 - The server trims each name, drops blanks, and removes case-insensitive repeats. The first spelling wins.
 - Every listing reads back `models`: `[]` on every kind but `prompt`.
+- Every listing reads back `app_version`: the preset's `appVersion` stamp, copied from the content at create
+  and update. It is `null` on every other kind, and when the stamp is missing or not a version.
 - A prompt can declare compatible worlds. No world can require one, so it cannot be unlisted.
 - A prompt cannot enter a contest. A publish that names one is a `400` with `CONTEST_KIND_REFUSED`.
 

@@ -1002,7 +1002,7 @@ describe('a client that has never heard of contests', () => {
     const response = await request(app).get('/api/worlds');
 
     expect(Object.keys(response.body.data[0]).sort()).toEqual([
-      'author', 'comment_count', 'contest_event_id', 'created_at', 'description', 'downloads', 'id',
+      'app_version', 'author', 'comment_count', 'contest_event_id', 'created_at', 'description', 'downloads', 'id',
       'kind', 'likes', 'models', 'name', 'quarantine_expires_at', 'quarantine_extended', 'quarantined_at',
       'revision', 'spoiler', 'tags', 'thumbnailUrl', 'thumbnail_file', 'updated_at', 'visibility'
     ]);

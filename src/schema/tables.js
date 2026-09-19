@@ -72,6 +72,8 @@ const apply = (database) => {
       model_license TEXT,
       -- The models a prompt says it works with, as a JSON array of strings. Every other kind holds '[]'.
       models TEXT NOT NULL DEFAULT '[]',
+      -- The app version a prompt's preset was made for, from its content. Null for every other kind.
+      app_version TEXT,
       -- Quarantine: hidden from everyone but its author and the admins, and deleted when the deadline
       -- passes unless an admin releases it first. The extension flag is per-episode, cleared on
       -- release, so a listing quarantined again later gets its one grace extension afresh.

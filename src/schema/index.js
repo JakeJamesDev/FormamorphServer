@@ -38,6 +38,7 @@ const STEPS = [
   require('./steps/modelLicense'),
   require('./steps/linkedContent'),
   require('./steps/promptModels'),
+  require('./steps/promptAppVersion'),
   require('./indexes')
 ];
 

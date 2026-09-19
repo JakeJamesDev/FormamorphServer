@@ -17,6 +17,7 @@ const { recordSignal } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { modelList } = require('../utils/modelList');
+const { appVersionOf } = require('../utils/appVersion');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
@@ -443,7 +444,8 @@ exports.createWorld = async (req, res, next) => {
           model_license: modelLicense ? JSON.stringify(modelLicense) : null,
           contest_event_id: contestEventId || null,
           visibility: linked.visibility,
-          models
+          models,
+          app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null
         },
         contentFile,
         thumbnailFile
@@ -594,6 +596,7 @@ exports.updateWorld = async (req, res, next) => {
     // that sends no content leaves the stored terms alone, because the file behind them has not changed.
     if (modelLicense) updateData.model_license = JSON.stringify(modelLicense);
     if (models) updateData.models = JSON.stringify(models);
+    if (rulesFor(kind).stampsAppVersion && contentData) updateData.app_version = appVersionOf(contentData);
 
     try {
       // If thumbnail is provided, update it

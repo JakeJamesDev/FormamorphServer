@@ -380,9 +380,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          model_license, contest_event_id, visibility, models, created_at, updated_at
+          model_license, contest_event_id, visibility, models, app_version, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -401,6 +401,7 @@ const World = {
         worldData.contest_event_id || null,
         worldData.visibility || DEFAULT_VISIBILITY,
         JSON.stringify(worldData.models || []),
+        worldData.app_version || null,
         now,
         now
       );
