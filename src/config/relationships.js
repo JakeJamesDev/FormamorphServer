@@ -14,6 +14,14 @@ const COMPONENT_KINDS = ['entity', 'dictionary'];
 const isComponentKind = (kind) => COMPONENT_KINDS.includes(kind);
 
 /**
+ * The kinds that may offer themselves for a world. A prompt may, but no world can require one, so it
+ * is not a component and cannot be unlisted.
+ */
+const COMPATIBLE_KINDS = [...COMPONENT_KINDS, 'prompt'];
+
+const isCompatibleKind = (kind) => COMPATIBLE_KINDS.includes(kind);
+
+/**
  * How a listing is shown. `public` is in the catalog. `unlisted` is hidden from discovery but not from
  * existence: its author and staff see it as normal, and everyone else reaches it only through a world
  * that requires it. Only a component may be unlisted.
@@ -43,6 +51,8 @@ const MAX_ASSOCIATIONS = 100;
 module.exports = {
   COMPONENT_KINDS,
   isComponentKind,
+  COMPATIBLE_KINDS,
+  isCompatibleKind,
   PUBLIC,
   UNLISTED,
   VISIBILITIES,

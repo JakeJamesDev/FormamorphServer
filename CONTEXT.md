@@ -6,8 +6,8 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 
 | Term | Meaning |
 |---|---|
-| **Listing** | One published item in the workshop: a world, a character, or a dictionary. Stored in the `worlds` table whatever its `kind`. |
-| **Kind** | Which of the three a listing is. Defaults to `world` on every list endpoint, so a client that never heard of kinds sees only worlds. |
+| **Listing** | One published item in the workshop: a world, a character, a dictionary, an avatar, or a prompt. Stored in the `worlds` table whatever its `kind`. |
+| **Kind** | Which of the five a listing is. Defaults to `world` on every list endpoint, so a client that never heard of kinds sees only worlds. |
 | **Author** | The account that published a listing. Owns its edits, its changelog, and the comments on it. |
 | **Changelog** | A listing's author-maintained update history, one entry per update, sorted by the author's own entry date. |
 | **Comment** | A reader's remark on a listing. Editable and deletable by its own author, deletable by the listing's author and by staff. |
@@ -19,9 +19,10 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | Term | Meaning |
 |---|---|
 | **Component** | A listing a world can embed: an entity or a dictionary. Never a world, never a model. |
+| **Prompt** | A shared prompt preset that names the AI models it works with (`models`, `?model=`). It may offer **Compatibility** for a world, but it is never a component. Not the `model` kind, which is an avatar. |
 | **Source** | The published listing a downloaded copy follows. Named by listing id; a republished listing is a new source. |
 | **Required dependency** | A source a world's author declared necessary. The world author alone writes the set; the row lives in `listing_dependencies` and survives the source's deletion so resolution can say `not_found`. |
-| **Compatibility** | A component author's offer of their component for a world. Lives in `listing_compatibility`. Never makes the component required. |
+| **Compatibility** | A component's or a prompt's offer of itself for a world, made by its author. Lives in `listing_compatibility`. Never makes the component required. |
 | **Review state** | The world author's answer to an offer: `unreviewed`, `approved`, or `declined`. Written by the world author alone. Declined offers are hidden from everyone but the component's author and staff. |
 | **Add-on** | A compatible, public, visible component a world's download review may offer. An unlisted component is never one. |
 | **Visibility** | `public` or `unlisted`. Unlisted is hidden from discovery, not from existence: the author and staff see it as normal; everyone else gets `404` everywhere except dependency resolution. |

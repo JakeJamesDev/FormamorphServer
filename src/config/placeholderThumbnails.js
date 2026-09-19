@@ -21,6 +21,8 @@ const PLACEHOLDER_THUMBNAILS = {
   dictionary: load('dictionary'),
   // Avatars have no art of their own yet; reuse the entity placeholder rather than commission new art.
   model: load('entity'),
+  // Prompt cards show a fixed icon, so this only fills the NOT NULL column.
+  prompt: load('dictionary'),
 };
 
 /** The stand-in for a kind, or null when the kind is expected to supply its own (worlds). */

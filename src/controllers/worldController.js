@@ -16,6 +16,7 @@ const { sweepQuarantine } = require('../utils/sweepQuarantine');
 const { recordSignal } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { modelList } = require('../utils/modelList');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
@@ -53,6 +54,27 @@ function contentSizeError(contentData, rules) {
   const bytes = Buffer.byteLength(JSON.stringify(contentData));
   if (bytes <= rules.maxContentBytes) return null;
   return `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`;
+}
+
+/**
+ * Read a prompt's models off a publish body, as an error string or the cleaned list.
+ *
+ * A kind that has no models ignores the field. On an update an absent field keeps the stored list, which
+ * already holds at least one.
+ *
+ * @param {Object} body - The request body
+ * @param {Object} rules - The kind's rules
+ * @param {boolean} required - Whether the body must carry the field
+ * @returns {{models?: string[], error?: string}} Undefined `models` when there is nothing to write
+ */
+function modelsField(body, rules, required) {
+  if (!rules.requiresModels) return {};
+  if (body.models === undefined && !required) return {};
+
+  const { models, error } = modelList(body.models ?? []);
+  if (error) return { error };
+  if (models.length === 0) return { error: `A ${rules.label.toLowerCase()} must name at least one model it works with` };
+  return { models };
 }
 
 /**
@@ -170,6 +192,7 @@ exports.getWorlds = async (req, res, next) => {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const search = req.query.search || '';
+    const model = typeof req.query.model === 'string' ? req.query.model : '';
     const tags = req.query.tags || '';
     const searchByAuthor = req.query.searchByAuthor === 'true';
     const sort = req.query.sort || 'created_at';
@@ -194,6 +217,7 @@ exports.getWorlds = async (req, res, next) => {
       sort,
       order,
       kind,
+      model,
       viewer: req.user || null
     });
 
@@ -333,6 +357,17 @@ exports.createWorld = async (req, res, next) => {
     // in the content would change the shape of every exported file for a flag the game never reads.
     const { name, description, thumbnail, contentData, contestEventId } = req.body;
 
+    const kind = req.body.kind || DEFAULT_KIND;
+    const rules = rulesFor(kind);
+
+    if (contestEventId && !rules.canEnterContest) {
+      return res.status(400).json({
+        success: false,
+        code: 'CONTEST_KIND_REFUSED',
+        error: `A ${rules.label.toLowerCase()} cannot be entered in a contest`
+      });
+    }
+
     if (contestEventId) {
       const refusal = contestEntryRefusal(contestEventId, req.user);
       if (refusal) {
@@ -355,13 +390,15 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Name and content data are required' });
     }
 
-    const kind = req.body.kind || DEFAULT_KIND;
-    const rules = rulesFor(kind);
-
     // Size is capped per kind: a world may legitimately carry 100MB of base64 art, a lorebook may not.
     const tooLarge = contentSizeError(contentData, rules);
     if (tooLarge) {
       return res.status(400).json({ success: false, error: tooLarge });
+    }
+
+    const { models, error: modelsError } = modelsField(req.body, rules, true);
+    if (modelsError) {
+      return res.status(400).json({ success: false, error: modelsError });
     }
 
     // Held from the gate's own parse, so the terms a reader is shown are stored without decoding the
@@ -405,7 +442,8 @@ exports.createWorld = async (req, res, next) => {
           kind,
           model_license: modelLicense ? JSON.stringify(modelLicense) : null,
           contest_event_id: contestEventId || null,
-          visibility: linked.visibility
+          visibility: linked.visibility,
+          models
         },
         contentFile,
         thumbnailFile
@@ -518,6 +556,11 @@ exports.updateWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: tooLarge });
     }
 
+    const { models, error: modelsError } = modelsField(req.body, rulesFor(kind), false);
+    if (modelsError) {
+      return res.status(400).json({ success: false, error: modelsError });
+    }
+
     let modelLicense = null;
     if (kind === 'model' && contentData) {
       const { error: gateError, license } = readModelContent(contentData);
@@ -550,6 +593,7 @@ exports.updateWorld = async (req, res, next) => {
     // Re-derived from the replacement file, so a re-export's terms replace the ones on screen. An update
     // that sends no content leaves the stored terms alone, because the file behind them has not changed.
     if (modelLicense) updateData.model_license = JSON.stringify(modelLicense);
+    if (models) updateData.models = JSON.stringify(models);
 
     try {
       // If thumbnail is provided, update it

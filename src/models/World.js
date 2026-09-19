@@ -1,11 +1,12 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
-const { DEFAULT_KIND, ALL_KINDS } = require('../config/kinds');
+const { DEFAULT_KIND, ALL_KINDS, rulesFor } = require('../config/kinds');
 const { DEFAULT_VISIBILITY, PUBLIC, UNLISTED } = require('../config/relationships');
 const Comment = require('./Comment');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { isStaff, badgeRole } = require('../config/roles');
+const { parseModels } = require('../utils/modelList');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -101,6 +102,8 @@ const World = {
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
 
+    world.models = parseModels(world.models);
+
     // An Avatar's own license terms, which only a listing opened on its own ever shows. Absent rather
     // than null for every other kind, so a reader has nothing to render instead of an empty object.
     const modelLicense = parseModelLicense(world.model_license);
@@ -160,6 +163,7 @@ const World = {
         sort = 'created_at',
         order = 'desc',
         kind = DEFAULT_KIND,
+        model = '',
         viewer = null
       } = options;
       
@@ -225,7 +229,14 @@ const World = {
         whereClause.push(`(${tagConditions.join(' OR ')})`);
         tagList.forEach(tag => params.push(`%${tag}%`));
       }
-      
+
+      // Any one model name containing the text, case-insensitively. Read per element, so a match never
+      // spans two names or the JSON around them, and through `instr` so `%` and `_` are plain text.
+      if (model && kind !== ALL_KINDS && rulesFor(kind).requiresModels) {
+        whereClause.push('EXISTS (SELECT 1 FROM json_each(w.models) m WHERE instr(lower(m.value), lower(?)) > 0)');
+        params.push(model);
+      }
+
       // Add where clause to queries
       if (whereClause.length > 0) {
         query += ' WHERE ' + whereClause.join(' AND ');
@@ -258,6 +269,8 @@ const World = {
         
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
+
+        world.models = parseModels(world.models);
 
         // How many liked it, and whether this reader is one of them. `liked` is absent rather than false
         // for a signed-out visitor: somebody with no account has not decided against liking anything, and
@@ -367,9 +380,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          model_license, contest_event_id, visibility, created_at, updated_at
+          model_license, contest_event_id, visibility, models, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -387,6 +400,7 @@ const World = {
         // from one contest into another, and the entry date is simply the publish date.
         worldData.contest_event_id || null,
         worldData.visibility || DEFAULT_VISIBILITY,
+        JSON.stringify(worldData.models || []),
         now,
         now
       );

@@ -70,6 +70,8 @@ const apply = (database) => {
       -- An Avatar's own license terms, as JSON, derived from the file at publish. Only model rows fill
       -- it, and only a listing opened on its own is served it: the catalog list projection drops it.
       model_license TEXT,
+      -- The models a prompt says it works with, as a JSON array of strings. Every other kind holds '[]'.
+      models TEXT NOT NULL DEFAULT '[]',
       -- Quarantine: hidden from everyone but its author and the admins, and deleted when the deadline
       -- passes unless an admin releases it first. The extension flag is per-episode, cleared on
       -- release, so a listing quarantined again later gets its one grace extension afresh.

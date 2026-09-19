@@ -3,7 +3,7 @@ const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { isStaff } = require('../config/roles');
 const {
-  isComponentKind, isValidVisibility, UNLISTED, MAX_ASSOCIATIONS
+  isComponentKind, isCompatibleKind, isValidVisibility, UNLISTED, MAX_ASSOCIATIONS
 } = require('../config/relationships');
 
 /** What every hidden-or-missing listing answers with. One wording, so a probe cannot tell the cases apart. */
@@ -82,8 +82,8 @@ const dependencyRefusal = (world, sourceIds, declarer) => {
  * @returns {Object|null} `{ status, body }` on refusal, otherwise null
  */
 const compatibilityRefusal = (component, worldIds, declarer) => {
-  if (!isComponentKind(component.kind)) {
-    return { status: 400, body: { success: false, error: 'Only a character or a dictionary can declare compatibility' } };
+  if (!isCompatibleKind(component.kind)) {
+    return { status: 400, body: { success: false, error: 'Only a character, a dictionary, or a prompt can declare compatibility' } };
   }
 
   const missing = worldIds.filter((id) => {
@@ -174,7 +174,7 @@ const compatibleWorldsFor = (component, viewer = null) => {
 const attachRelationships = (listing, viewer = null) => {
   if (listing.kind === 'world') {
     listing.requiredDependencies = Dependency.resolveFor(listing.id, viewer);
-  } else if (isComponentKind(listing.kind)) {
+  } else if (isCompatibleKind(listing.kind)) {
     listing.compatibleWorlds = compatibleWorldsFor(listing, viewer);
   }
 

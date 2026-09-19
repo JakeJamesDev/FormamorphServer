@@ -235,7 +235,8 @@ The `GET /api/worlds` endpoint supports the following query parameters:
 - `searchByAuthor` - Set to 'true' to search by author username instead of world properties
 - `sort` - Field to sort by (options: 'created_at', 'updated_at', 'downloads', 'name')
 - `order` - Sort direction ('asc' or 'desc', default: 'desc')
-- `kind` - What to list: `world` (default), `entity`, `dictionary`, or `all`
+- `kind` - What to list: `world` (default), `entity`, `dictionary`, `model`, `prompt`, or `all`
+- `model` - With `kind=prompt` only: keep prompts where any model name contains this text. Case folding covers A–Z only
 
 Example requests:
 ```
@@ -300,11 +301,21 @@ Per-kind rules live in `src/config/kinds.js`:
 | `world` | yes | yes | 100 MB |
 | `entity` | no | no | 25 MB |
 | `dictionary` | no | no | 5 MB |
+| `model` | no | no | 64 MB |
+| `prompt` | no | no | 1 MB |
 
 Characters and dictionaries don't have those fields to give — a dictionary has no art at all, and a
 character's portrait is optional — so the server stores an empty description and assigns stand-in cover art
 from `src/assets/placeholders/`. Each row gets its own copy of that art, so deleting one listing can't
 remove another's thumbnail. Swap the PNGs to change the art; no code knows about them.
+
+**Prompts** are shared prompt presets. 📝
+
+- `models` is a list of model names. A prompt must name at least one; other kinds ignore the field.
+- The server trims each name, drops blanks, and removes case-insensitive repeats. The first spelling wins.
+- Every listing reads back `models`: `[]` on every kind but `prompt`.
+- A prompt can declare compatible worlds. No world can require one, so it cannot be unlisted.
+- A prompt cannot enter a contest. A publish that names one is a `400` with `CONTEST_KIND_REFUSED`.
 
 ## Database schema
 

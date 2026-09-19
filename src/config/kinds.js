@@ -1,8 +1,8 @@
 /**
  * What a `worlds` row can hold. The table predates the others and keeps its name; `kind` is what
- * distinguishes them, so comments, downloads, tags, ownership, and search work the same for all three.
+ * distinguishes them, so comments, downloads, tags, ownership, and search work the same for every kind.
  */
-const KINDS = ['world', 'entity', 'dictionary', 'model'];
+const KINDS = ['world', 'entity', 'dictionary', 'model', 'prompt'];
 
 /**
  * The kind assumed when a request doesn't name one.
@@ -44,25 +44,38 @@ const KIND_RULES = {
     requiresDescription: true,
     requiresThumbnail: true,
     maxContentBytes: 100 * 1024 * 1024,
+    canEnterContest: true,
     label: 'World',
   },
   entity: {
     requiresDescription: false,
     requiresThumbnail: false,
     maxContentBytes: 25 * 1024 * 1024, // a portrait is base64 inside the content
+    canEnterContest: true,
     label: 'Character',
   },
   dictionary: {
     requiresDescription: false,
     requiresThumbnail: false,
     maxContentBytes: 5 * 1024 * 1024, // text entries only
+    canEnterContest: true,
     label: 'Dictionary',
   },
   model: {
     requiresDescription: false,
     requiresThumbnail: false,
     maxContentBytes: 64 * 1024 * 1024, // a VRM's mesh and textures, base64 inside the content
+    canEnterContest: true,
     label: 'Avatar',
+  },
+  // A shared prompt preset.
+  prompt: {
+    requiresDescription: false,
+    requiresThumbnail: false,
+    requiresModels: true,
+    canEnterContest: false,
+    maxContentBytes: 1024 * 1024, // text only
+    label: 'Prompt',
   },
 };
 

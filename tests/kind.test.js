@@ -106,7 +106,7 @@ describe('kind defaults', () => {
   });
 
   it('exposes the allowed kinds and a world default', () => {
-    expect(KINDS).toEqual(['world', 'entity', 'dictionary', 'model']);
+    expect(KINDS).toEqual(['world', 'entity', 'dictionary', 'model', 'prompt']);
     expect(DEFAULT_KIND).toBe('world');
   });
 });
