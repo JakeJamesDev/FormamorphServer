@@ -756,8 +756,18 @@ describe('announcing a contest’s results', () => {
     expect(placementRows(event.id)).toEqual([]);
   });
 
+  it('refuses the same world twice in one place, which a shared place now makes expressible', async () => {
+    const { event, ids } = await judgeableThree();
+
+    const response = await announce(event, sharedPodium([1, 1], [ids[0], ids[0]]), staffUser('admin'));
+
+    expect(response.status).toBe(400);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
   // Competition ranking, the rule players know from sport: a shared place pushes the next one down by as
-  // many worlds as shared it. The same table runs against the client's own helper, so the two cannot drift.
+  // many worlds as shared it. The table is the spec's own example list, so the client helper that derives
+  // these places can be held to the same cases.
   it.each([
     [[1]],
     [[1, 2]],

@@ -14,6 +14,11 @@ const { tableExists, columnNames } = require('../columns');
  *
  * A rebuild rather than an ALTER, because SQLite cannot change a primary key in place. `IF NOT EXISTS` is
  * no help here — the table already exists — so the `position` column is what says whether this has run.
+ *
+ * Unlike the `eventPlacements` rebuild, this one runs with `foreign_keys` left on, inside the step runner's
+ * own transaction. That step rebuilt `events`, which this table points at, so enforcement would have
+ * cascaded the podium away underneath it. Nothing points at `event_placements`, so dropping it cascades to
+ * nothing, and every row copied across satisfies the same two references it already satisfied.
  */
 
 const TIED_PLACEMENTS_TABLE = `

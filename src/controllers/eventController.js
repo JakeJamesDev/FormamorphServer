@@ -535,6 +535,22 @@ const followsRanking = (sorted) => sorted[0] === 1 && sorted.every(
 );
 
 /**
+ * Two strings in code-unit order, the collation SQLite gives the columns these values come out of.
+ *
+ * `localeCompare` would be wrong here: it weighs punctuation by locale, so a timestamp written as
+ * `2025-01-01 00:00:00` and one written as `2025-01-01T00:00:00.000Z` need not order the same way the
+ * database orders them.
+ *
+ * @param {string} first - The left value
+ * @param {string} second - The right value
+ * @returns {number} Negative, zero or positive, as a sort comparator wants
+ */
+const compareText = (first, second) => {
+  if (first === second) return 0;
+  return first < second ? -1 : 1;
+};
+
+/**
  * Read a podium out of a request body, or say why it is not one.
  *
  * The ranking rule lives here rather than in the two routes that need it, so announcing and editing cannot
@@ -606,9 +622,10 @@ const readPodium = (event, body, actor) => {
 
   // The listing id breaks a dead heat, so two listings published in the same millisecond still come out in
   // the same order every time rather than in whatever order the request happened to carry them.
+  // `publishedAt` is scratch for this sort alone; the pass below builds the rows without it.
   entries.sort((first, second) => first.place - second.place
-    || String(first.publishedAt).localeCompare(String(second.publishedAt))
-    || first.worldId.localeCompare(second.worldId));
+    || compareText(first.publishedAt, second.publishedAt)
+    || compareText(first.worldId, second.worldId));
 
   const placements = [];
   for (const entry of entries) {
