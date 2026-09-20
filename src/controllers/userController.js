@@ -7,6 +7,8 @@ const { kindFromQuery } = require('../utils/kindQuery');
 const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const Follow = require('../models/Follow');
+const InstallClaim = require('../models/InstallClaim');
+const { NO_INSTALL, installIdFrom } = require('../config/anonymousLikes');
 const { recordSignal } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
@@ -571,6 +573,45 @@ exports.getLinkedAccounts = async (req, res, next) => {
     });
 
     res.status(200).json({ success: true, data: { accounts } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Take the hearts this Install pressed while signed out, and make them this account's.
+ *
+ * The moment a guest becomes somebody. Their liked list starts full instead of empty, which is most of
+ * the reason the guest heart was worth building — a like that vanishes on sign-in is a like they may as
+ * well not have given. It also links the two, so signing out again is no longer a second heart on the
+ * same listing.
+ *
+ * Called on sign-in, on sign-up, and whenever a session is adopted, so it runs far more often than it
+ * finds anything. Nothing to claim is the ordinary case and answers the same way as a full one.
+ *
+ * Not gated by the Anonymous Likes setting. Switching that off stops new marks and keeps the stored ones
+ * counted, so a guest who liked before the switch must still be able to take their likes with them.
+ *
+ * Behind the ordinary authenticated gate, which is what refuses an account that has not accepted the
+ * Privacy Policy: somebody the server is still waiting on cannot start moving rows onto their account.
+ *
+ * @desc    Move this Install's Anonymous Likes onto the signed-in account
+ * @route   POST /api/users/me/anonymous-likes/claim
+ * @access  Private
+ */
+exports.claimAnonymousLikes = async (req, res, next) => {
+  try {
+    const installId = installIdFrom(req);
+    if (!installId) return res.status(400).json(NO_INSTALL);
+
+    const claimed = InstallClaim.claim(installId, req.user.id);
+
+    // One Signal for the whole Claim, and only when something moved. The point of it is to put the
+    // claimed Likes into the address grouping the way a like given as an account already is; a Claim
+    // that moved nothing has nothing to group, and signing in files its own Signal regardless.
+    if (claimed > 0) recordSignal(req, req.user.id, 'like');
+
+    res.status(200).json({ success: true, data: { claimed } });
   } catch (error) {
     next(error);
   }

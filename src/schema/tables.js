@@ -341,6 +341,11 @@ const apply = (database) => {
       world_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      -- When a Claim moved an Anonymous Like onto this account, and null on a like given as an account.
+      -- The created_at beside it stays the instant the heart was first pressed, so a liked list reads in
+      -- the order the person actually liked things. That leaves staff a fresh account holding likes older
+      -- than itself, which reads like a ring until this column says where they came from.
+      claimed_at TEXT,
       PRIMARY KEY (world_id, user_id),
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -366,6 +371,25 @@ const apply = (database) => {
       created_at TEXT NOT NULL,
       PRIMARY KEY (world_id, install_id),
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+    )
+  `);
+
+  // Which account last claimed an Install. One row per Install, so signing in on a shared computer moves
+  // the link rather than adding a second one: the question this answers is "whose marks are these now",
+  // and two answers would be no answer.
+  //
+  // It is what stops signing out being a way to like twice. Once an account has claimed an Install, the
+  // guest route reads this link and follows the account's own rules — already liked, wrote it, suspended.
+  //
+  // Cascades on the account, which is the whole of its erasure story: the row says an account was here,
+  // so it has to go when the account does. There is deliberately no cascade back the other way, because
+  // an Install is not a row anybody can delete.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS install_claims (
+      install_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )
   `);
 

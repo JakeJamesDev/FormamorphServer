@@ -40,6 +40,15 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_world_likes_user ON world_likes(user_id);
   `);
 
+  // The Install side of an Anonymous Like, which the primary key's leading `world_id` cannot answer. Both
+  // readers ask it: a Claim takes every mark one Install holds, and a page of cards fills its hearts from
+  // one Install at a time. The account link is read the same way, and its account column is indexed so an
+  // erasure's cascade has somewhere to look.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_anonymous_likes_install ON anonymous_likes(install_id);
+    CREATE INDEX IF NOT EXISTS idx_install_claims_user ON install_claims(user_id);
+  `);
+
   // Both directions are asked for: the count on a profile reads one, the notification feed the other.
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_follows_followed ON follows(followed_id);

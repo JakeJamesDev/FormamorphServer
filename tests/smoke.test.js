@@ -22,7 +22,7 @@ describe('harness', () => {
       .map((r) => r.name);
     expect(tables).toEqual([
       'account_tokens', 'anonymous_likes', 'audit_log', 'comments', 'event_placements', 'events', 'feedback', 'feedback_comments', 'feedback_reads',
-      'feedback_votes', 'follows', 'listing_compatibility', 'listing_dependencies', 'message_states', 'messages',
+      'feedback_votes', 'follows', 'install_claims', 'listing_compatibility', 'listing_dependencies', 'message_states', 'messages',
       'policies', 'policy_acceptances', 'reports', 'settings', 'signals', 'users', 'world_changelog', 'world_likes', 'worlds'
     ]);
   });

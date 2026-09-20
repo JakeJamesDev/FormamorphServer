@@ -8,10 +8,11 @@ const require = createRequire(import.meta.url);
 const Setting = require('../src/models/Setting');
 const Signal = require('../src/models/Signal');
 const AnonymousLike = require('../src/models/AnonymousLike');
-const { ANONYMOUS_LIKES, INSTALL_HEADER_NAME } = require('../src/config/anonymousLikes');
+const { ANONYMOUS_LIKES, INSTALL_HEADER_NAME, CODES } = require('../src/config/anonymousLikes');
 const { LIKE_LIMIT } = require('../src/config/likeLimit');
 const { DAY_MS } = require('../src/config/time');
 const { sweepRetention } = require('../src/utils/sweepRetention');
+const { eraseUser } = require('../src/utils/eraseUser');
 
 /**
  * Anonymous Likes — the heart a guest can press.
@@ -679,5 +680,359 @@ describe('letting go of an address after ninety days', () => {
     vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
 
     expect(sweepRetention(NOW)).toEqual({ signals: 0, hashes: 0 });
+  });
+});
+
+/**
+ * Sign in on this Install, which is what a client does the moment a session appears.
+ *
+ * `installId` of null sends no header at all.
+ */
+const claim = (user, installId) => {
+  const req = request(app).post('/api/users/me/anonymous-likes/claim').set(authHeader(user));
+  return installId === null ? req : withInstall(req, installId);
+};
+
+/** The listing as one account sees it: their own heart, and the number beside it. */
+const readAs = (user, id) => request(app).get(`/api/worlds/${id}`).set(authHeader(user));
+
+/** The number the room sees on a listing. */
+const countOf = async (id) => (await readOne(id)).body.data.likes;
+
+/**
+ * Bench an account that has already claimed an Install.
+ *
+ * Written straight to the row, the same way `createUser` writes a suspended account in the first place.
+ * A suspended account cannot make a Claim, so these tests need one that was normal when it claimed.
+ */
+const suspend = (user) => db.prepare("UPDATE users SET status = 'suspended' WHERE id = ?").run(user.id);
+
+const signalsFor = (user) =>
+  db.prepare('SELECT event FROM signals WHERE user_id = ? ORDER BY id').all(user.id).map((r) => r.event);
+
+/** Switch the Privacy Policy on, so an account that has not answered it is one the server is waiting on. */
+const requirePolicy = (root) =>
+  request(app).put('/api/policies/privacy_policy').set(authHeader(root))
+    .send({ enabled: true, title: 'Privacy Policy', body: 'What we store about you.' });
+
+/** One listing somebody else published, with a guest mark already on it from this Install. */
+const markedByAGuest = async (installId, over = {}) => {
+  const seeded = await seed(over);
+  await fromItsOwnAddress(anonLike(seeded.id, installId, true));
+  return seeded;
+};
+
+describe('taking a guest’s likes with them into an account', () => {
+  it('moves every mark this Install gave onto the account', async () => {
+    enable();
+    const installId = install();
+    const first = await markedByAGuest(installId);
+    const second = await markedByAGuest(installId);
+    const reader = createUser({ username: 'newcomer' });
+
+    const res = await claim(reader, installId);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.claimed).toBe(2);
+    expect((await readAs(reader, first.id)).body.data.liked).toBe(true);
+    expect((await readAs(reader, second.id)).body.data.liked).toBe(true);
+  });
+
+  it('leaves the number on a listing exactly where it was', async () => {
+    enable();
+    const installId = install();
+    const { id } = await markedByAGuest(installId);
+    const reader = createUser({ username: 'newcomer' });
+    const before = await countOf(id);
+
+    await claim(reader, installId);
+
+    expect(before).toBe(1);
+    expect(await countOf(id)).toBe(1);
+  });
+
+  it('keeps the moment the heart was first pressed', async () => {
+    enable();
+    const installId = install();
+    const { id } = await markedByAGuest(installId);
+    const pressedAt = db
+      .prepare('SELECT created_at FROM anonymous_likes WHERE world_id = ?').get(id).created_at;
+    const reader = createUser({ username: 'newcomer' });
+    const staffUser = createUser({ username: 'a-mod', accountType: 'mod' });
+
+    await claim(reader, installId);
+
+    const given = await request(app).get(`/api/users/${reader.id}/likes`).set(authHeader(staffUser));
+    expect(given.body.data.rows[0].likedAt).toBe(pressedAt);
+  });
+
+  it('marks the Like as one a Claim moved, and leaves an ordinary like unmarked', async () => {
+    // No route reads this column yet: the staff surfaces that show it are ticket 04. It is asserted here
+    // because it is the contract that ticket is built on, and because the time carried across above reads
+    // as an old like on a young account until something says where it came from.
+    enable();
+    const installId = install();
+    const moved = await markedByAGuest(installId);
+    const { id: pressedIn } = await seed();
+    const reader = createUser({ username: 'newcomer' });
+    await accountLike(reader, pressedIn, true);
+
+    await claim(reader, installId);
+
+    const claimedAt = (world) => db
+      .prepare('SELECT claimed_at FROM world_likes WHERE world_id = ? AND user_id = ?')
+      .get(world, reader.id).claimed_at;
+    expect(claimedAt(moved.id)).toEqual(expect.any(String));
+    expect(claimedAt(pressedIn)).toBeNull();
+  });
+
+  it('counts a listing they had both liked only once', async () => {
+    enable();
+    const installId = install();
+    const { id } = await markedByAGuest(installId);
+    const reader = createUser({ username: 'newcomer' });
+    await accountLike(reader, id, true);
+    expect(await countOf(id)).toBe(2);
+
+    const res = await claim(reader, installId);
+
+    expect(res.body.data.claimed).toBe(0);
+    expect(await countOf(id)).toBe(1);
+    expect((await readAs(reader, id)).body.data.liked).toBe(true);
+  });
+
+  it('takes the mark off a listing the account wrote and makes no like of it', async () => {
+    enable();
+    const installId = install();
+    const { author, id } = await markedByAGuest(installId);
+    expect(await countOf(id)).toBe(1);
+
+    const res = await claim(author, installId);
+
+    expect(res.body.data.claimed).toBe(0);
+    expect(await countOf(id)).toBe(0);
+    expect((await readAs(author, id)).body.data.liked).toBe(false);
+  });
+
+  it('changes nothing the second time it runs', async () => {
+    enable();
+    const installId = install();
+    const moved = await markedByAGuest(installId);
+    const shared = await markedByAGuest(installId);
+    const reader = createUser({ username: 'newcomer' });
+    await accountLike(reader, shared.id, true);
+    await claim(reader, installId);
+    const after = [await countOf(moved.id), await countOf(shared.id)];
+
+    const again = await claim(reader, installId);
+
+    expect(again.body.data.claimed).toBe(0);
+    expect([await countOf(moved.id), await countOf(shared.id)]).toEqual(after);
+    expect((await readAs(reader, moved.id)).body.data.liked).toBe(true);
+    expect((await readAs(reader, shared.id)).body.data.liked).toBe(true);
+  });
+
+  it('files one Signal for the likes it moved', async () => {
+    enable();
+    const installId = install();
+    await markedByAGuest(installId);
+    await markedByAGuest(installId);
+    const reader = createUser({ username: 'newcomer' });
+
+    await claim(reader, installId);
+
+    expect(signalsFor(reader)).toEqual(['like']);
+  });
+
+  it('files no Signal for a Claim that moved nothing', async () => {
+    enable();
+    const reader = createUser({ username: 'newcomer' });
+
+    await claim(reader, install());
+
+    expect(signalsFor(reader)).toEqual([]);
+  });
+
+  it('refuses a Claim that names no Install', async () => {
+    const reader = createUser({ username: 'newcomer' });
+
+    const res = await claim(reader, null);
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe(CODES.BAD_INSTALL);
+  });
+
+  it('refuses an account that has not answered the Privacy Policy', async () => {
+    enable();
+    const installId = install();
+    const { id } = await markedByAGuest(installId);
+    const root = createUser({ username: 'root-admin', accountType: 'admin' });
+    await requirePolicy(root);
+    const waiting = createUser({ username: 'not-yet' });
+
+    const res = await claim(waiting, installId);
+
+    expect(res.status).toBe(403);
+    // Still a guest mark, on nobody's account: the Claim was refused before it could move anything, so
+    // the Install is what the filled heart still comes from.
+    expect(await countOf(id)).toBe(1);
+    expect((await withInstall(readOne(id), installId)).body.data.liked).toBe(true);
+  });
+
+  it('serves a press from an account that has not answered the Privacy Policy as a guest press', async () => {
+    enable();
+    // Published before the policy goes up, since the gate refuses its author too.
+    const { id } = await seed();
+    const root = createUser({ username: 'root-admin', accountType: 'admin' });
+    await requirePolicy(root);
+    const waiting = createUser({ username: 'not-yet' });
+
+    const res = await fromItsOwnAddress(
+      withInstall(request(app).put(`/api/worlds/${id}/anonymous-like`), install())
+        .set(authHeader(waiting)).send({ liked: true })
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+  });
+});
+
+describe('the account an Install answers to once it has signed in', () => {
+  /** An Install a returning reader has claimed, and one listing somebody else published. */
+  const claimed = async (over = {}) => {
+    enable();
+    const installId = install();
+    const { author, id } = await seed(over);
+    const reader = createUser({ username: 'returning' });
+    await claim(reader, installId);
+
+    return { installId, author, reader, id };
+  };
+
+  it('answers a press with liked, and stores nothing, when the account already likes it', async () => {
+    const { installId, reader, id } = await claimed();
+    await accountLike(reader, id, true);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, true));
+
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(CODES.ACCOUNT_ALREADY_LIKED);
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+  });
+
+  it('answers a clear the same way, and leaves the account’s like where it is', async () => {
+    const { installId, reader, id } = await claimed();
+    await accountLike(reader, id, true);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, false));
+
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+    expect((await readAs(reader, id)).body.data.liked).toBe(true);
+  });
+
+  it('refuses a press on a listing the account wrote', async () => {
+    enable();
+    const installId = install();
+    const { author, id } = await seed();
+    await claim(author, installId);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, true));
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe(CODES.ACCOUNT_OWN_LISTING);
+    expect(await countOf(id)).toBe(0);
+  });
+
+  it('refuses a press when the account has been suspended', async () => {
+    const { installId, reader, id } = await claimed();
+    suspend(reader);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, true));
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe(CODES.ACCOUNT_SUSPENDED);
+    expect(await countOf(id)).toBe(0);
+  });
+
+  it('still lets a suspended account’s Install take a mark back', async () => {
+    // The privacy text promises that pressing the heart again removes an Anonymous Like, and a
+    // suspension must not quietly break that promise. The mark is a real one, given after the Claim.
+    const { installId, reader, id } = await claimed();
+    await fromItsOwnAddress(anonLike(id, installId, true));
+    suspend(reader);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, false));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: false, likes: 0 });
+
+    // And the clear is not a way back in: the next press is refused like any other from a benched
+    // account. This is the pair the ticket asks for, and the seam where a clear could leak into a like.
+    const again = await fromItsOwnAddress(anonLike(id, installId, true));
+    expect(again.status).toBe(403);
+    expect(again.body.code).toBe(CODES.ACCOUNT_SUSPENDED);
+    expect(await countOf(id)).toBe(0);
+  });
+
+  it('takes the Install’s own mark off a listing its account has since liked', async () => {
+    // One person holding two of a listing's likes: marked while signed out, then liked on the account
+    // route, which cannot see the Install. Nothing else reaches that mark — the account route does not
+    // know it exists, and until the next sign-in no Claim runs. The press is what clears it.
+    const { installId, reader, id } = await claimed();
+    await fromItsOwnAddress(anonLike(id, installId, true));
+    await accountLike(reader, id, true);
+    expect(await countOf(id)).toBe(2);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, false));
+
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+    expect(await countOf(id)).toBe(1);
+    expect((await readAs(reader, id)).body.data.liked).toBe(true);
+  });
+
+  it('takes it off on a like press too, so no press leaves the listing counting twice', async () => {
+    const { installId, reader, id } = await claimed();
+    await fromItsOwnAddress(anonLike(id, installId, true));
+    await accountLike(reader, id, true);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, true));
+
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+    expect(await countOf(id)).toBe(1);
+  });
+
+  it('lets the same Install still like listings the account has not', async () => {
+    const { installId, reader, id } = await claimed();
+    await accountLike(reader, id, true);
+    const other = await seed();
+
+    const res = await fromItsOwnAddress(anonLike(other.id, installId, true));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+  });
+
+  it('shows a guest the heart filled on a listing the account likes', async () => {
+    const { installId, reader, id } = await claimed();
+    await accountLike(reader, id, true);
+
+    const detail = await withInstall(readOne(id), installId);
+    const catalog = await withInstall(list(), installId);
+
+    expect(detail.body.data.liked).toBe(true);
+    expect(rowFor(catalog.body, id).liked).toBe(true);
+  });
+
+  it('forgets the Install when the account is erased', async () => {
+    const { installId, reader, id } = await claimed();
+    await accountLike(reader, id, true);
+
+    await eraseUser(db.prepare('SELECT * FROM users WHERE id = ?').get(reader.id));
+
+    // Nothing answers for this Install any more, so the press lands as any other guest press does.
+    const res = await fromItsOwnAddress(anonLike(id, installId, true));
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBeUndefined();
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
   });
 });

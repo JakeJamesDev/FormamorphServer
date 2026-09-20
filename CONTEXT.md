@@ -14,6 +14,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Like** | One account's revocable mark on a listing. The count the room sees is the sum of these and the Anonymous Likes; staff see the likers, and can remove a like or clear an account's likes. |
 | **Install** | One copy of the app's local storage, named by a random id it makes once and sends in the `X-Formamorph-Install` header. It names a copy of the app and nothing else: not a person, not a device. Never shown, never put in a URL. |
 | **Anonymous Like** | One Install's revocable mark on a listing, given without an account, counted into the number the room sees. It carries the address hash the per-listing cap counts; the hourly sweep empties that hash at the Signal retention period and the like stays. |
+| **Claim** | Moving an Install's Anonymous Likes onto an account and linking the two, on sign-in. Each mark becomes a Like that keeps the time it was first given, unless the account already likes the listing or wrote it; every mark goes either way. A mark that becomes a Like leaves the listing's total where it was. A skipped one lowers that total by exactly one, which is the point in both cases: an overlap was one person counted twice, and nobody may like their own work. The link is what makes the guest route follow the account's rules afterwards, so signing out is not a second like. |
 | **Image asset** | An uploaded image served back by filename: a listing's thumbnail, an account's avatar, or an event's poster. |
 
 ## Linked content

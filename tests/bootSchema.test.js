@@ -28,7 +28,7 @@ const TABLES = [
   'messages', 'message_states',
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
-  'audit_log', 'follows', 'world_likes', 'anonymous_likes',
+  'audit_log', 'follows', 'world_likes', 'anonymous_likes', 'install_claims',
   'events', 'event_placements',
   'world_changelog',
   'reports',
@@ -80,6 +80,14 @@ const OLDEST_SQL = `
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
     FOREIGN KEY (author_id) REFERENCES users (id)
+  );
+  CREATE TABLE world_likes (
+    world_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (world_id, user_id),
+    FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
   );
   CREATE TABLE feedback (
     id TEXT PRIMARY KEY,
@@ -343,6 +351,27 @@ describe('the schema step', () => {
     expect(migrate(legacy)).toContain('dropPreviewData');
 
     expect(columnNames(legacy, 'worlds')).not.toContain('preview_data');
+    expect(migrate(legacy)).toEqual([]);
+
+    legacy.close();
+  });
+
+  it('gives an existing like table the claim column, and every stored like a null in it', () => {
+    // A live database has a `world_likes` that shipped before Claims existed, so the fresh table's own
+    // shape never reaches it. Every like already in it was given as an account, which is what the null
+    // says, and the staff view reads the column to tell those from the ones a Claim moved.
+    const legacy = oldestDatabase();
+    legacy.exec(`
+      INSERT INTO users (id, username, password) VALUES ('u1', 'liker', 'x');
+      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file)
+        VALUES ('w1', 'Sedge Landing', 'd', 'u1', 't', '', 'c');
+      INSERT INTO world_likes (world_id, user_id, created_at) VALUES ('w1', 'u1', '2026-01-01T00:00:00Z');
+    `);
+    expect(columnNames(legacy, 'world_likes')).not.toContain('claimed_at');
+
+    expect(migrate(legacy)).toContain('likeClaims');
+
+    expect(legacy.prepare('SELECT claimed_at FROM world_likes').get().claimed_at).toBeNull();
     expect(migrate(legacy)).toEqual([]);
 
     legacy.close();

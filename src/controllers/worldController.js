@@ -17,8 +17,9 @@ const { recordSignal, addressHash } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const Setting = require('../models/Setting');
 const AnonymousLike = require('../models/AnonymousLike');
+const InstallClaim = require('../models/InstallClaim');
 const {
-  ANONYMOUS_LIKES, CODES, INSTALL_HEADER_NAME, installIdFrom
+  ANONYMOUS_LIKES, CODES, NO_INSTALL, INSTALL_HEADER_NAME, installIdFrom
 } = require('../config/anonymousLikes');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
@@ -51,7 +52,11 @@ const anonymousLikesEnabled = () => Setting.get(ANONYMOUS_LIKES) === true;
  * sends no Install keeps the flag absent, exactly as they do today: having no account is not a decision
  * against liking anything.
  *
- * Reads the whole page in one query, so a catalog costs the same one look however many cards it holds.
+ * An Install that has been claimed answers with its account's likes as well. A Claim moved every mark
+ * onto the account, so a person who signs out is looking at hearts that are no longer the Install's —
+ * and showing them empty would invite a press the guards then refuse.
+ *
+ * Reads the whole page in one query per side, so a catalog costs the same however many cards it holds.
  *
  * @param {Object} req - The Express request
  * @param {Array<Object>} worlds - The rows about to be sent, edited in place
@@ -62,8 +67,13 @@ const markGuestLikes = (req, worlds) => {
   const installId = installIdFrom(req);
   if (!installId) return;
 
-  const liked = AnonymousLike.likedAmong(worlds.map((world) => world.id), installId);
-  for (const world of worlds) world.liked = liked.has(world.id);
+  const ids = worlds.map((world) => world.id);
+  const byInstall = AnonymousLike.likedAmong(ids, installId);
+
+  const claimedBy = InstallClaim.accountFor(installId);
+  const byAccount = claimedBy ? World.likedAmong(ids, claimedBy.id) : new Set();
+
+  for (const world of worlds) world.liked = byInstall.has(world.id) || byAccount.has(world.id);
 };
 
 /** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
@@ -794,9 +804,12 @@ exports.setLikeStatus = async (req, res, next) => {
  *
  * Every refusal carries a code as well as its wording. The client picks a different message for each —
  * a switched-off server sends the guest to sign-in as it always did, and a listing that has gone quiet
- * needs no message — and a code lets the wording change without changing what the client does.
+ * needs no message — and a code lets the wording change without changing what the client does. 400 is
+ * kept for a request that is malformed and 403 for a press this Install may not make, so a client can
+ * tell a bug of its own from a rule it has met.
  *
- * The guards that follow an Install's linked account are separate work.
+ * Three of those rules come from the account that claimed this Install, if one ever did. Signing out
+ * does not leave an account's rules behind: what an Install may do is what its account may do.
  *
  * @desc    Set whether this Install likes a listing
  * @route   PUT /api/worlds/:id/anonymous-like
@@ -822,13 +835,7 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
     }
 
     const installId = installIdFrom(req);
-    if (!installId) {
-      return res.status(400).json({
-        success: false,
-        code: CODES.BAD_INSTALL,
-        error: 'This request carried no usable install id'
-      });
-    }
+    if (!installId) return res.status(400).json(NO_INSTALL);
 
     const { liked } = req.body;
     if (typeof liked !== 'boolean') {
@@ -836,6 +843,46 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
         success: false,
         code: CODES.BAD_LIKED,
         error: 'Liked must be a boolean value'
+      });
+    }
+
+    const claimedBy = InstallClaim.accountFor(installId);
+
+    // Both of these answer a like press only. A clear press takes a mark off and lowers a count, which
+    // neither rule exists to prevent — and the privacy text promises that pressing the heart again
+    // removes an Anonymous Like, which a suspension must not quietly break. Such a mark can exist: an
+    // Install may be claimed, then like again while signed out, and only then be suspended.
+    if (liked && claimedBy?.status === 'suspended') {
+      return res.status(403).json({
+        success: false,
+        code: CODES.ACCOUNT_SUSPENDED,
+        error: 'The account this app was last signed in to cannot like listings'
+      });
+    }
+
+    if (liked && claimedBy?.id === world.author_id) {
+      return res.status(403).json({
+        success: false,
+        code: CODES.ACCOUNT_OWN_LISTING,
+        error: 'You cannot like your own listing'
+      });
+    }
+
+    // Not a refusal, and the one guard that answers a clear press too. The listing genuinely is liked,
+    // by the account behind this Install, so `liked: true` is the truth either way — and a request with
+    // no token must never be able to take an account's Like off. Signing out is not a second heart.
+    //
+    // The mark goes whichever way the heart was pressed. Once the account holds the Like, a mark from
+    // its own Install is the same person counted a second time, and leaving it there would both inflate
+    // the listing and leave a mark the person has no way to remove — the account route cannot see it,
+    // and this route would answer every clear without touching it. The press is what reaches both.
+    if (claimedBy && World.hasLiked(world.id, claimedBy.id)) {
+      AnonymousLike.clear(world.id, installId);
+
+      return res.status(200).json({
+        success: true,
+        code: CODES.ACCOUNT_ALREADY_LIKED,
+        data: { liked: true, likes: World.likeCount(world.id) }
       });
     }
 

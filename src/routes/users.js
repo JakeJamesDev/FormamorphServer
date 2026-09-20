@@ -3,7 +3,7 @@ const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
   setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile, getUserProfileByUsername,
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
-  getUserLikes, clearUserLikes, getLinkedAccounts
+  getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes
 } = require('../controllers/userController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
@@ -33,6 +33,13 @@ router.get('/me/notifications/unread-count', protect, getNotificationCount);
 // somebody's ID.
 router.put('/me/avatar', avatarJson, protect, setMyAvatar);
 router.delete('/me/avatar', protect, removeMyAvatar);
+
+// Take the hearts this Install pressed while signed out. POST rather than PUT: it is not a state the
+// caller sets and could set again to the same effect, it is a move, and it reports how much it moved.
+// The Install arrives in the header the guest route reads, so there is no body at all.
+//
+// On `/me` and ahead of the `/:id` routes, like the rest: an account may only ever claim for itself.
+router.post('/me/anonymous-likes/claim', protect, claimAnonymousLikes);
 
 // The same profile, found by the name a shared `formamorph.ai/u/<username>` link carries. Grouped with
 // the literal-prefix routes above so a later `/:id/by-username/...` cannot swallow it.

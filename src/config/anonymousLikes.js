@@ -64,7 +64,29 @@ const CODES = Object.freeze({
   NOT_VISIBLE: 'listing_not_visible',
   BAD_INSTALL: 'install_header_invalid',
   BAD_LIKED: 'liked_invalid',
-  ADDRESS_CAP: 'anonymous_likes_address_cap'
+  ADDRESS_CAP: 'anonymous_likes_address_cap',
+  // The three an Install inherits from the account that claimed it. Signing out is not a way around an
+  // account's own rules, so the guest route asks the same three questions the account route asks. It
+  // does not answer them the same way: this route keeps 400 for a malformed request and 403 for a press
+  // the Install may not make, where the account route answers its own-listing refusal with a 400.
+  //
+  // "Account" rather than "linked", which this server already uses for accounts that share an address.
+  // The last is not a failure at all: the listing really is liked, by the account, so it answers 200.
+  ACCOUNT_SUSPENDED: 'anonymous_likes_account_suspended',
+  ACCOUNT_OWN_LISTING: 'anonymous_likes_account_own_listing',
+  ACCOUNT_ALREADY_LIKED: 'anonymous_likes_account_already_liked'
+});
+
+/**
+ * The refusal for a request that named no usable Install.
+ *
+ * One body rather than one per route: both the guest route and the Claim need an Install before they can
+ * do anything, and two spellings of the same refusal would be two the client has to recognize.
+ */
+const NO_INSTALL = Object.freeze({
+  success: false,
+  code: CODES.BAD_INSTALL,
+  error: 'This request carried no usable install id'
 });
 
 /**
@@ -81,6 +103,7 @@ module.exports = {
   INSTALL_HEADER_NAME,
   ADDRESS_CAP,
   CODES,
+  NO_INSTALL,
   installIdFrom,
   validateAnonymousLikes
 };

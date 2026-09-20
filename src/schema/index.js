@@ -40,6 +40,7 @@ const STEPS = [
   require('./steps/promptModels'),
   require('./steps/promptAppVersion'),
   require('./steps/placementTies'),
+  require('./steps/likeClaims'),
   require('./indexes')
 ];
 
