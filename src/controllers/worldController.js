@@ -817,6 +817,56 @@ exports.setLikeStatus = async (req, res, next) => {
 };
 
 /**
+ * What this route answers when the account behind the Install already Likes the listing.
+ *
+ * The listing genuinely is liked, so `liked: true` is the truth whichever way the heart was pressed, and
+ * a request with no token must never be able to take an account's Like off. Signing out is not a second
+ * heart. The count is read after the caller has removed the Install's own mark, so it is the number the
+ * room is left with.
+ *
+ * @param {string} worldId - The listing
+ * @returns {Object} The body to send with a 200
+ */
+const accountAlreadyLikes = (worldId) => ({
+  success: true,
+  code: CODES.ACCOUNT_ALREADY_LIKED,
+  data: { liked: true, likes: World.likeCount(worldId) }
+});
+
+/**
+ * Take this Install's mark off a listing on a clear press, ahead of every guard, and answer when one
+ * was there to take.
+ *
+ * The privacy text promises that pressing the heart again removes an Anonymous Like. The guards below
+ * answer the state of the server now, and a mark was given under the state of the server then: an
+ * operator switches the feature off, a listing goes unlisted or into quarantine, and each of those
+ * would otherwise hold a mark in place with no way left to reach it.
+ *
+ * A pass-through, never a refusal. It needs all three of a well-formed Install, a clear press, and a
+ * stored mark; anything short of that answers null and the request goes on through the order below. So
+ * the switch stays un-probeable: a malformed header reaches no mark and is still answered by the switch.
+ *
+ * @param {Object} req - The Express request
+ * @returns {Object|null} The body to send, or null when this is not a clear that reached a mark
+ */
+const answerForClearedMark = (req) => {
+  if (req.body?.liked !== false) return null;
+
+  const installId = installIdFrom(req);
+  if (!installId) return null;
+
+  const worldId = req.params.id;
+  if (!AnonymousLike.clear(worldId, installId)) return null;
+
+  // An account Like behind this Install is not this route's to remove, so the heart stays filled and the
+  // guard below answers for it. The mark is gone either way, and the count is read after it went.
+  const claimedBy = InstallClaim.accountFor(installId);
+  if (claimedBy && World.hasLiked(worldId, claimedBy.id)) return accountAlreadyLikes(worldId);
+
+  return { success: true, data: { liked: false, likes: World.likeCount(worldId) } };
+};
+
+/**
  * Set or clear an Anonymous Like, for somebody who has not signed in.
  *
  * The heart used to send a guest to sign-in, and most of them stopped there — so a listing somebody was
@@ -841,8 +891,13 @@ exports.setLikeStatus = async (req, res, next) => {
  */
 exports.setAnonymousLikeStatus = async (req, res, next) => {
   try {
-    // First, and before anything else is read: the switch is the operator's emergency stop, and what
-    // else might be wrong with a request is not something a switched-off server should answer.
+    // Before the guards, because it is answering a press made before they were as they are now. Silent
+    // unless it finds a mark to remove, so the order below is what every other request still meets.
+    const cleared = answerForClearedMark(req);
+    if (cleared) return res.status(200).json(cleared);
+
+    // First of the guards, and before anything else is read: the switch is the operator's emergency
+    // stop, and what else might be wrong with a request is not something a switched-off server answers.
     if (!anonymousLikesEnabled()) {
       return res.status(403).json({
         success: false,
@@ -892,22 +947,17 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
       });
     }
 
-    // Not a refusal, and the one guard that answers a clear press too. The listing genuinely is liked,
-    // by the account behind this Install, so `liked: true` is the truth either way — and a request with
-    // no token must never be able to take an account's Like off. Signing out is not a second heart.
+    // Not a refusal, and the one guard that answers a clear press too — a clear that found a mark was
+    // answered above, and one that found none arrives here for the same reading of the listing.
     //
     // The mark goes whichever way the heart was pressed. Once the account holds the Like, a mark from
     // its own Install is the same person counted a second time, and leaving it there would both inflate
-    // the listing and leave a mark the person has no way to remove — the account route cannot see it,
-    // and this route would answer every clear without touching it. The press is what reaches both.
+    // the listing and leave a mark the person has no way to remove — the account route cannot see it.
+    // A like press is the half that reaches a mark here; the clear half is the early answer's.
     if (claimedBy && World.hasLiked(world.id, claimedBy.id)) {
       AnonymousLike.clear(world.id, installId);
 
-      return res.status(200).json({
-        success: true,
-        code: CODES.ACCOUNT_ALREADY_LIKED,
-        data: { liked: true, likes: World.likeCount(world.id) }
-      });
+      return res.status(200).json(accountAlreadyLikes(world.id));
     }
 
     // Where the mark came from, in the form a Signal holds it: the address is hashed with the same salt

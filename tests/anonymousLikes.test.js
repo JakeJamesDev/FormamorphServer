@@ -223,6 +223,128 @@ describe('what the guest route refuses', () => {
   });
 });
 
+describe('taking a mark back after the rules changed under it', () => {
+  /** Put a listing out of the room's sight the way a staff hold does. */
+  const quarantine = (id) =>
+    db.prepare('UPDATE worlds SET quarantined_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+
+  it('removes the mark after the operator switches the feature off', async () => {
+    // The privacy text promises the heart can be pressed again. The switch stops new marks; it must not
+    // strand the ones already given.
+    enable();
+    const { id } = await seed();
+    const me = install();
+    await anonLike(id, me, true);
+    Setting.set(ANONYMOUS_LIKES, false);
+
+    const res = await anonLike(id, me, false);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: false, likes: 0 });
+    expect(AnonymousLike.countFor(id)).toBe(0);
+  });
+
+  it('still refuses a like press while the feature is switched off', async () => {
+    // The other half of the pair: the clear passing through must not open the way back in.
+    enable();
+    const { id } = await seed();
+    const me = install();
+    await anonLike(id, me, true);
+    Setting.set(ANONYMOUS_LIKES, false);
+    await anonLike(id, me, false);
+
+    const res = await anonLike(id, me, true);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe(CODES.OFF);
+    expect(AnonymousLike.countFor(id)).toBe(0);
+  });
+
+  it('removes the mark on a listing that has gone unlisted', async () => {
+    enable();
+    const { id } = await seed();
+    const me = install();
+    await anonLike(id, me, true);
+    db.prepare("UPDATE worlds SET visibility = 'unlisted' WHERE id = ?").run(id);
+
+    const res = await anonLike(id, me, false);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: false, likes: 0 });
+    expect(AnonymousLike.countFor(id)).toBe(0);
+  });
+
+  it('removes the mark on a quarantined listing', async () => {
+    enable();
+    const { id } = await seed();
+    const me = install();
+    await anonLike(id, me, true);
+    quarantine(id);
+
+    const res = await anonLike(id, me, false);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ liked: false, likes: 0 });
+    expect(AnonymousLike.countFor(id)).toBe(0);
+  });
+
+  it('still answers not found for a hidden listing this Install never marked', async () => {
+    // Nothing to take back, so nothing passes through. A listing the room cannot see stays absent.
+    enable();
+    const { id } = await seed({ visibility: 'unlisted', kind: 'entity' });
+
+    const res = await anonLike(id, install(), false);
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe(CODES.NOT_VISIBLE);
+  });
+
+  it('answers the switch for a clear press that names no usable Install', async () => {
+    // The stop stays un-probeable on the clear side too: a malformed header reaches no mark, so the
+    // request falls through to the order that was always there.
+    const { id } = await seed();
+
+    const res = await anonLike(id, 'not-a-uuid', false);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe(CODES.OFF);
+  });
+
+  it('removes the mark on a quarantined listing the Install account also likes', async () => {
+    // The account's Like is not this route's to remove, so the heart stays filled. The Install's own
+    // mark still goes, and the count is the one left after it.
+    enable();
+    const installId = install();
+    const { reader, id } = await seed();
+    await claim(reader, installId);
+    await fromItsOwnAddress(anonLike(id, installId, true));
+    await accountLike(reader, id, true);
+    quarantine(id);
+
+    const res = await fromItsOwnAddress(anonLike(id, installId, false));
+
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(CODES.ACCOUNT_ALREADY_LIKED);
+    expect(res.body.data).toEqual({ liked: true, likes: 1 });
+    expect(AnonymousLike.countFor(id)).toBe(0);
+  });
+
+  it('fills a guest heart while the feature is switched off', async () => {
+    // What makes the clear reachable at all: the client cannot offer a press it was never told about.
+    enable();
+    const { id } = await seed();
+    const me = install();
+    await anonLike(id, me, true);
+    Setting.set(ANONYMOUS_LIKES, false);
+
+    const detail = await withInstall(readOne(id), me);
+    const catalog = await withInstall(list(), me);
+
+    expect(detail.body.data.liked).toBe(true);
+    expect(rowFor(catalog.body, id).liked).toBe(true);
+  });
+});
+
 describe('the number the room sees', () => {
   it('sums account Likes and Anonymous Likes on a listing', async () => {
     enable();
