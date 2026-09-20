@@ -1,4 +1,4 @@
-**Last updated: 6 September 2026**
+**Last updated: 20 September 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It does not cover your play. The game runs on your device, and nothing about a playthrough reaches us.
 
@@ -42,6 +42,20 @@ Our legal basis is **legitimate interest**. The community cannot stay usable if 
 
 We also use your network address to **rate limit** requests, so no single source can flood the server. That use stores nothing.
 
+## Liking while signed out
+
+In the app you can like a listing without an account. We store the like against your **Install**: a random id the app makes once and keeps in your browser's local storage. It names that copy of the app and nothing else. It carries nothing about you or your device, we never show it to you, and it never goes in a link.
+
+Beside the like we store **a salted hash of your network address, and a coarse browser family** such as `Chrome/Windows`. We derive both the way we derive a Signal, and we do not store the address.
+
+The hash has one purpose: **to limit and detect abuse**. It caps how many of these likes one connection may give one listing, and it lets staff see a number that was inflated from one place. Nothing else uses it.
+
+**We blank the hash after 90 days.** The like stays and still counts. Only where it came from goes.
+
+**To take one of these likes back, press the heart again on the same copy of the app.**
+
+**Signing in moves these likes to your account.** They become ordinary Likes. We record which account took the Install, so signing out again does not let the same copy of the app like a listing twice. Deleting your account deletes that record too.
+
 ## Who else handles your data
 
 **Hetzner** hosts the server in **Helsinki, Finland**. Your data lives there.
@@ -62,6 +76,7 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 
 - **Your account and what you published:** until you delete it.
 - **Signals:** 90 days.
+- **The address hash beside a like you gave while signed out:** 90 days. The like itself stays.
 - **Nightly copies of the database:** up to 30 days.
 - **Published files:** mirrored to Cloudflare storage for as long as the listing exists.
 

@@ -297,10 +297,17 @@ describe('the schema step', () => {
     const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'privacy_policy'").get();
     expect(seeded.enabled).toBe(0);
     expect(seeded.acceptance_version).toBe(2);
-    expect(seeded.body).toContain('**Last updated: 6 September 2026**');
+    expect(seeded.body).toContain('**Last updated: 20 September 2026**');
     expect(seeded.body).toContain('**Your email address is optional.**');
     expect(seeded.body).toContain('Once verified, it can also receive password-reset links.');
     expect(seeded.body).toContain('**Resend** delivers verification and password-reset email.');
+
+    // The collection an Anonymous Like makes, which the route may not start before this text is live.
+    expect(seeded.body).toContain('\n## Liking while signed out\n');
+    expect(seeded.body).toContain('a salted hash of your network address, and a coarse browser family');
+    expect(seeded.body).toContain('**We blank the hash after 90 days.**');
+    expect(seeded.body).toContain('press the heart again on the same copy of the app');
+    expect(seeded.body).toContain('**Signing in moves these likes to your account.**');
 
     fresh.prepare("UPDATE policies SET enabled = 1, body = 'The owner rewrote this.' WHERE id = 'privacy_policy'").run();
     expect(migrate(fresh)).toEqual([]);
