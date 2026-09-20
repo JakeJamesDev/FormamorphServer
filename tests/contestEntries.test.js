@@ -672,7 +672,7 @@ describe('announcing a contest’s results', () => {
     publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
     const posted = broadcasts().length;
 
-    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+    await announce(event, sharedPodium([1, 1, 2], ids), staffUser('admin'));
 
     const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
 
@@ -681,7 +681,8 @@ describe('announcing a contest’s results', () => {
     expect(announcement.body).toContain(
       `First place: The Entry by ${entrants[0].username} and Runner Up by ${entrants[1].username}`
     );
-    expect(announcement.body).toContain(`Third place: Third Wheel by ${entrants[2].username}`);
+    expect(announcement.body).toContain(`Second place: Third Wheel by ${entrants[2].username}`);
+    expect(announcement.body).not.toContain('Third place:');
     // One line for the place, not one line per world.
     expect(announcement.body.match(/First place:/g)).toHaveLength(1);
   });
@@ -720,13 +721,13 @@ describe('announcing a contest’s results', () => {
     publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
     publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
 
-    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+    await announce(event, sharedPodium([1, 1, 2], ids), staffUser('admin'));
 
     expect(auditRows()).toEqual([expect.objectContaining({
       action: 'results_announced',
       target_username: entrants[0].username,
       snippet: `First place: The Entry by ${entrants[0].username} and Runner Up by ${entrants[1].username}`
-        + `; Third place: Third Wheel by ${entrants[2].username}`
+        + `; Second place: Third Wheel by ${entrants[2].username}`
     })]);
   });
 
@@ -737,7 +738,7 @@ describe('announcing a contest’s results', () => {
     publishedAt(ids[0], '2025-11-02T00:00:00.000Z');
     publishedAt(ids[1], '2025-11-01T00:00:00.000Z');
 
-    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+    await announce(event, sharedPodium([1, 1, 2], ids), staffUser('admin'));
 
     expect(auditRows()[0].target_username).toBe(entrants[1].username);
   });
@@ -844,40 +845,44 @@ describe('announcing a contest’s results', () => {
     expect(placementRows(event.id)).toEqual([]);
   });
 
-  // Competition ranking, the rule players know from sport: a shared place pushes the next one down by as
-  // many worlds as shared it. The table is the spec's own example list, so the client helper that derives
-  // these places can be held to the same cases.
+  // Places run from 1 with no gaps, so a tie removes no place and staff decide how many worlds win. The
+  // table is the spec's own example list, so the client helper that derives these places can be held to
+  // the same cases.
   it.each([
     [[1]],
     [[1, 2]],
     [[1, 2, 3]],
     [[1, 1]],
-    [[1, 1, 3]],
+    [[1, 1, 2]],
+    [[1, 1, 2, 3]],
     [[1, 1, 1]],
     [[1, 2, 2]],
-    [[1, 2, 3, 3, 3]]
-  ])('stores a podium ranked %j', async (places) => {
+    [[1, 2, 3, 3, 3]],
+    [[1, 1, 2, 2, 3]]
+  ])('stores and returns a podium placed %j', async (places) => {
     const { event, ids } = await judgeableMany(places.length);
 
     const response = await announce(event, sharedPodium(places, ids), staffUser('admin'));
 
     expect(response.status).toBe(200);
     expect(placementRows(event.id).map((row) => row.place)).toEqual(places);
+    expect(response.body.data.placements.map((row) => row.place)).toEqual(places);
   });
 
   it.each([
     [[2]],
     [[3]],
     [[1, 3]],
-    [[1, 1, 2]],
+    [[1, 1, 3]],
     [[1, 1, 1, 3]],
-    [[1, 2, 2, 3]]
-  ])('refuses a podium ranked %j', async (places) => {
+    [[2, 2, 3]]
+  ])('refuses a podium placed %j, which does not run from first place with no gap', async (places) => {
     const { event, ids } = await judgeableMany(places.length);
 
     const response = await announce(event, sharedPodium(places, ids), staffUser('admin'));
 
     expect(response.status).toBe(400);
+    expect(response.body.error).toBe('A podium runs from first place down with no gap between places');
     expect(placementRows(event.id)).toEqual([]);
   });
 
@@ -899,16 +904,16 @@ describe('announcing a contest’s results', () => {
     expect(placementRows(event.id)).toEqual([]);
   });
 
-  it('stores two worlds in first place, with third place next', async () => {
+  it('stores two worlds in first place, with second place next', async () => {
     const { event, entrants, ids } = await judgeableMany(3);
 
-    const response = await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+    const response = await announce(event, sharedPodium([1, 1, 2], ids), staffUser('admin'));
 
     expect(response.status).toBe(200);
     expect(placementRows(event.id)).toEqual([
       { place: 1, world_id: ids[0], world_name: 'Entry 1', author_name: entrants[0].username },
       { place: 1, world_id: ids[1], world_name: 'Entry 2', author_name: entrants[1].username },
-      { place: 3, world_id: ids[2], world_name: 'Entry 3', author_name: entrants[2].username }
+      { place: 2, world_id: ids[2], world_name: 'Entry 3', author_name: entrants[2].username }
     ]);
   });
 
@@ -953,7 +958,7 @@ describe('announcing a contest’s results', () => {
     const { event, ids } = await judgeableMany(3);
     publishedAt(ids[0], '2025-06-06T00:00:00.000Z');
     publishedAt(ids[1], '2025-05-05T00:00:00.000Z');
-    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+    await announce(event, sharedPodium([1, 1, 2], ids), staffUser('admin'));
 
     const one = await request(app).get(`/api/events/${event.id}`);
     const list = await request(app).get('/api/events');
@@ -961,7 +966,7 @@ describe('announcing a contest’s results', () => {
     const expected = [
       { place: 1, name: 'Entry 2' },
       { place: 1, name: 'Entry 1' },
-      { place: 3, name: 'Entry 3' }
+      { place: 2, name: 'Entry 3' }
     ];
 
     const shape = (placements) => placements.map((row) => ({ place: row.place, name: row.worldName }));
@@ -1175,16 +1180,16 @@ describe('editing an announced podium', () => {
     // The live case this was built for: a result announced as a sole win, corrected to the tie it was.
     const { event, ids, admin } = await announced();
 
-    const response = await editPodium(event, sharedPodium([1, 1, 3], ids), admin);
+    const response = await editPodium(event, sharedPodium([1, 1, 2], ids), admin);
 
     expect(response.status).toBe(200);
-    expect(placementRows(event.id).map((row) => row.place)).toEqual([1, 1, 3]);
+    expect(placementRows(event.id).map((row) => row.place)).toEqual([1, 1, 2]);
   });
 
-  it('refuses an edit whose places break the ranking rule, keeping the announced podium', async () => {
+  it('refuses an edit whose places have a gap, keeping the announced podium', async () => {
     const { event, ids, admin } = await announced();
 
-    const response = await editPodium(event, sharedPodium([1, 1, 2], ids), admin);
+    const response = await editPodium(event, sharedPodium([1, 3, 3], ids), admin);
 
     expect(response.status).toBe(400);
     expect(placementRows(event.id).map((row) => row.world_id)).toEqual(ids);
@@ -1236,8 +1241,8 @@ describe('editing an announced podium', () => {
   it('logs the world that joined a shared first place, and the world that moved for it', async () => {
     const { event, entrants, ids, admin } = await announcedOfFour();
 
-    // Gold keeps first place and the fourth entry joins it, which pushes silver to third.
-    await editPodium(event, sharedPodium([1, 1, 3, 3], [ids[0], ids[3], ids[1], ids[2]]), admin);
+    // Gold keeps first place and the fourth entry joins it. Silver stays, and bronze moves up to share second.
+    await editPodium(event, sharedPodium([1, 1, 2, 2], [ids[0], ids[3], ids[1], ids[2]]), admin);
 
     expect(auditRows()).toEqual([
       expect.objectContaining({
@@ -1247,8 +1252,8 @@ describe('editing an announced podium', () => {
       }),
       expect.objectContaining({
         action: 'podium_edited',
-        target_username: entrants[1].username,
-        snippet: `Third place: Entry 2 by ${entrants[1].username} (was Second place)`
+        target_username: entrants[2].username,
+        snippet: `Second place: Entry 3 by ${entrants[2].username} (was Third place)`
       })
     ]);
   });
@@ -1266,12 +1271,12 @@ describe('editing an announced podium', () => {
     const admin = staffUser('admin');
     publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
     publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
-    await announce(event, sharedPodium([1, 1, 3], ids), admin);
+    await announce(event, sharedPodium([1, 1, 2], ids), admin);
     db.prepare('DELETE FROM audit_log').run();
 
     // The tied pair swaps publish times, so the same podium stores in the other order and nothing else.
     publishedAt(ids[1], '2025-10-31T00:00:00.000Z');
-    await editPodium(event, sharedPodium([1, 1, 3], ids), admin);
+    await editPodium(event, sharedPodium([1, 1, 2], ids), admin);
 
     expect(tiedRows(event.id).map((row) => row.world_name))
       .toEqual(['Runner Up', 'The Entry', 'Third Wheel']);
@@ -1285,11 +1290,11 @@ describe('editing an announced podium', () => {
     publishedAt(ids[3], '2000-01-01T00:00:00.000Z');
 
     // The fourth entry is the earliest published, so joining first place puts it above gold.
-    await editPodium(event, sharedPodium([1, 1, 3, 3], [ids[0], ids[3], ids[1], ids[2]]), admin);
+    await editPodium(event, sharedPodium([1, 1, 2, 2], [ids[0], ids[3], ids[1], ids[2]]), admin);
 
     expect(placementRows(event.id).map((row) => row.world_name).slice(0, 2)).toEqual(['Entry 4', 'Entry 1']);
     expect(auditRows().map((row) => row.target_username))
-      .toEqual([entrants[3].username, entrants[1].username]);
+      .toEqual([entrants[3].username, entrants[2].username]);
   });
 
   it('leaves the contest decided, and the announcement stamp untouched', async () => {

@@ -519,18 +519,17 @@ exports.cancelEventById = async (req, res, next) => {
 const PLACES = [1, 2, 3];
 
 /**
- * Whether a podium's places follow competition ranking.
+ * Whether a podium's places run from first place with no gaps.
  *
- * Sorted, the first place is 1, and every later place either repeats the one before it or equals its own
- * 1-based index in the list. That is what makes two worlds in first place push the next world to third:
- * the third entry's index is 3. It also refuses a gap, because a skipped place has no index to match, and
- * it refuses dense ranking, because 1, 1, 2 puts a 2 at index 3.
+ * Sorted, the first place is 1, and every later place either repeats the one before it or is one more. A
+ * tie removes no place: 1, 1, 2 holds, and 1, 1, 3 does not. How many worlds win is the judge's call, and
+ * the shape check caps a place at 3.
  *
  * @param {number[]} sorted - The places, ascending
- * @returns {boolean} True when the podium is ranked
+ * @returns {boolean} True when the places have no gap
  */
-const followsRanking = (sorted) => sorted[0] === 1 && sorted.every(
-  (place, index) => index === 0 || place === sorted[index - 1] || place === index + 1
+const hasNoGaps = (sorted) => sorted[0] === 1 && sorted.every(
+  (place, index) => index === 0 || place === sorted[index - 1] || place === sorted[index - 1] + 1
 );
 
 /**
@@ -552,7 +551,7 @@ const compareText = (first, second) => {
 /**
  * Read a podium out of a request body, or say why it is not one.
  *
- * The ranking rule lives here rather than in the two routes that need it, so announcing and editing cannot
+ * The no-gap rule lives here rather than in the two routes that need it, so announcing and editing cannot
  * drift into judging the same request differently. Two kinds of wrong, and the status says which: a body
  * that is not a podium at all reads 400, and an entry that cannot hold the place it was given reads 409 —
  * the same split the rest of this controller uses.
@@ -589,8 +588,8 @@ const readPodium = (event, body, actor) => {
   // Compared numerically rather than by `sort()`'s default, which orders as text — right for one digit
   // and quietly wrong the day a podium grows past nine places.
   const places = sent.map((entry) => entry.place).sort((a, b) => a - b);
-  if (!followsRanking(places)) {
-    return refuse(400, 'A podium is ranked from first place down, and a shared place skips the next');
+  if (!hasNoGaps(places)) {
+    return refuse(400, 'A podium runs from first place down with no gap between places');
   }
 
   const entries = [];
