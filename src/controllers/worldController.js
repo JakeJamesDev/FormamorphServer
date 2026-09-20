@@ -18,7 +18,7 @@ const Signal = require('../models/Signal');
 const Setting = require('../models/Setting');
 const AnonymousLike = require('../models/AnonymousLike');
 const {
-  ANONYMOUS_LIKES, CODES, INSTALL_HEADER_NAME, installIdFrom
+  ANONYMOUS_LIKES, ADDRESS_CAP, CODES, INSTALL_HEADER_NAME, installIdFrom
 } = require('../config/anonymousLikes');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
@@ -796,8 +796,7 @@ exports.setLikeStatus = async (req, res, next) => {
  * a switched-off server sends the guest to sign-in as it always did, and a listing that has gone quiet
  * needs no message — and a code lets the wording change without changing what the client does.
  *
- * The cap on how many Anonymous Likes one address may give a listing, and the guards that follow an
- * Install's linked account, are separate work. This route is the press and nothing more.
+ * The guards that follow an Install's linked account are separate work.
  *
  * @desc    Set whether this Install likes a listing
  * @route   PUT /api/worlds/:id/anonymous-like
@@ -841,10 +840,22 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
     }
 
     // Where the mark came from, in the form a Signal holds it: the address is hashed with the same salt
-    // and never stored, and the browser family is the same coarse tiebreaker. Both are for the cap and
-    // the staff audit; the like itself needs neither.
+    // and never stored, and the browser family is the same coarse tiebreaker. The hash is what the cap
+    // counts; the like itself needs neither.
+    const hash = addressHash(clientAddress(req));
+
+    // Last of the refusals, and only on the way in: taking a like back is never refused, and an Install
+    // does not count against itself, so pressing again is as free as pressing the first time.
+    if (liked && AnonymousLike.countFromAddress(world.id, hash, installId) >= ADDRESS_CAP) {
+      return res.status(429).json({
+        success: false,
+        code: CODES.ADDRESS_CAP,
+        error: 'This connection has already liked this listing as many times as it can without an account'
+      });
+    }
+
     AnonymousLike.set(world.id, installId, liked, {
-      addressHash: addressHash(clientAddress(req)),
+      addressHash: hash,
       browserFamily: browserFamily(req.headers['user-agent'])
     });
 

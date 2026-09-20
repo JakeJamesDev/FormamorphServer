@@ -40,6 +40,19 @@ const installIdFrom = (req) => {
 };
 
 /**
+ * How many Anonymous Likes one address may give one listing.
+ *
+ * An Install is free to make: clearing local storage makes a new one, and a script could make a
+ * thousand. The address behind them is the one thing that is harder to change, so it is what the count
+ * is held against. Three rather than one, because a household, a dorm and an office all look like one
+ * address, and a family who each liked a world are not a ring. Nothing beyond this number happens to a
+ * shared address — no flag, no hold, no score.
+ *
+ * Per listing, not per address: liking three worlds is not what this is for.
+ */
+const ADDRESS_CAP = 3;
+
+/**
  * Why a press was refused, so the client can choose its message.
  *
  * The client shows different things for each: a switched-off server sends the guest to sign-in as it
@@ -50,7 +63,8 @@ const CODES = Object.freeze({
   OFF: 'anonymous_likes_off',
   NOT_VISIBLE: 'listing_not_visible',
   BAD_INSTALL: 'install_header_invalid',
-  BAD_LIKED: 'liked_invalid'
+  BAD_LIKED: 'liked_invalid',
+  ADDRESS_CAP: 'anonymous_likes_address_cap'
 });
 
 /**
@@ -65,6 +79,7 @@ const validateAnonymousLikes = (value) =>
 module.exports = {
   ANONYMOUS_LIKES,
   INSTALL_HEADER_NAME,
+  ADDRESS_CAP,
   CODES,
   installIdFrom,
   validateAnonymousLikes

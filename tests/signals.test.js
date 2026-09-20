@@ -520,9 +520,9 @@ describe('purging Signals after ninety days', () => {
     age(old, 91, NOW);
     age(recent, 89, NOW);
 
-    const deleted = sweepSignals(NOW);
+    const swept = sweepSignals(NOW);
 
-    expect(deleted).toBe(1);
+    expect(swept.signals).toBe(1);
     expect(rowsFor(old)).toEqual([]);
     expect(rowsFor(recent)).toHaveLength(1);
   });

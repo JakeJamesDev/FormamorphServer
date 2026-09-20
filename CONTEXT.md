@@ -11,7 +11,9 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Author** | The account that published a listing. Owns its edits, its changelog, and the comments on it. |
 | **Changelog** | A listing's author-maintained update history, one entry per update, sorted by the author's own entry date. |
 | **Comment** | A reader's remark on a listing. Editable and deletable by its own author, deletable by the listing's author and by staff. |
-| **Like** | One account's revocable mark on a listing. The room sees only the count; staff see the likers, and can remove a like or clear an account's likes. |
+| **Like** | One account's revocable mark on a listing. The count the room sees is the sum of these and the Anonymous Likes; staff see the likers, and can remove a like or clear an account's likes. |
+| **Install** | One copy of the app's local storage, named by a random id it makes once and sends in the `X-Formamorph-Install` header. It names a copy of the app and nothing else: not a person, not a device. Never shown, never put in a URL. |
+| **Anonymous Like** | One Install's revocable mark on a listing, given without an account, counted into the number the room sees. It carries the address hash the per-listing cap counts; the hourly sweep empties that hash at the Signal retention period and the like stays. |
 | **Image asset** | An uploaded image served back by filename: a listing's thumbnail, an account's avatar, or an event's poster. |
 
 ## Linked content

@@ -46,8 +46,9 @@ startQuarantineSweeper();
 void sweepEvents();
 startEventSweeper();
 
-// And for the Signals: purge whatever passed its 90 days while the server was down, then keep purging.
-// Retention is a promise the privacy policy makes in writing, so nothing here waits for a reader.
+// And for the addresses: let go of whatever passed its 90 days while the server was down, then keep
+// letting go. Retention is a promise the privacy policy makes in writing, so nothing here waits for a
+// reader.
 sweepSignals();
 startSignalSweeper();
 
