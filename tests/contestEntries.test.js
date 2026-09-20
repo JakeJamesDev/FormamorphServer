@@ -509,10 +509,40 @@ const judgeableThree = async () => {
   return { event, entrants, ids };
 };
 
-/** A podium body from world ids in podium order. */
+/** A closed contest with as many entrants as a tie needs. */
+const judgeableMany = async (count) => {
+  const event = contest();
+  const entrants = [];
+  const ids = [];
+  for (let i = 0; i < count; i += 1) {
+    const entrant = author();
+    const world = await publish(entrant, { contestEventId: event.id, name: `Entry ${i + 1}` });
+    entrants.push(entrant);
+    ids.push(world.body.data.id);
+  }
+  Event.update(event.id, { startsAt: at(-120), endsAt: at(-60) });
+  return { event, entrants, ids };
+};
+
+/** A podium body from world ids in podium order, one place each. */
 const podium = (...worldIds) => ({
   placements: worldIds.map((worldId, index) => ({ place: index + 1, worldId }))
 });
+
+/** A podium body from explicit places, so a shared place can be sent. */
+const sharedPodium = (places, worldIds) => ({
+  placements: places.map((place, index) => ({ place, worldId: worldIds[index] }))
+});
+
+/**
+ * Backdate a listing's publish time.
+ *
+ * Publish time is what orders worlds inside a shared place, and listings published moments apart in a test
+ * can land on the same millisecond. Setting it makes the expected order a fact rather than a race.
+ */
+const publishedAt = (worldId, iso) => db
+  .prepare('UPDATE worlds SET created_at = ? WHERE id = ?')
+  .run(iso, worldId);
 
 const announce = (event, body, actor) => request(app)
   .put(`/api/events/${event.id}/results`)
@@ -527,7 +557,15 @@ const editPodium = (event, body, actor) => request(app)
 const eventRow = (id) => db.prepare('SELECT * FROM events WHERE id = ?').get(id);
 
 const placementRows = (id) => db
-  .prepare('SELECT place, world_id, world_name, author_name FROM event_placements WHERE event_id = ? ORDER BY place')
+  .prepare(`
+    SELECT place, world_id, world_name, author_name FROM event_placements
+    WHERE event_id = ? ORDER BY place, position
+  `)
+  .all(id);
+
+/** The same rows with the order inside each place, for the tests that are about that order. */
+const tiedRows = (id) => db
+  .prepare('SELECT place, position, world_name FROM event_placements WHERE event_id = ? ORDER BY place, position')
   .all(id);
 
 const broadcasts = () => db.prepare('SELECT * FROM messages ORDER BY created_at, id').all();
@@ -718,18 +756,37 @@ describe('announcing a contest’s results', () => {
     expect(placementRows(event.id)).toEqual([]);
   });
 
+  // Competition ranking, the rule players know from sport: a shared place pushes the next one down by as
+  // many worlds as shared it. The same table runs against the client's own helper, so the two cannot drift.
   it.each([
-    ['silver with no gold', [2]],
-    ['bronze with no silver', [1, 3]],
-    ['bronze alone', [3]]
-  ])('refuses a podium with a gap — %s', async (_label, places) => {
-    const { event, ids } = await judgeableThree();
+    [[1]],
+    [[1, 2]],
+    [[1, 2, 3]],
+    [[1, 1]],
+    [[1, 1, 3]],
+    [[1, 1, 1]],
+    [[1, 2, 2]],
+    [[1, 2, 3, 3, 3]]
+  ])('stores a podium ranked %j', async (places) => {
+    const { event, ids } = await judgeableMany(places.length);
 
-    const response = await announce(
-      event,
-      { placements: places.map((place, index) => ({ place, worldId: ids[index] })) },
-      staffUser('admin')
-    );
+    const response = await announce(event, sharedPodium(places, ids), staffUser('admin'));
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id).map((row) => row.place)).toEqual(places);
+  });
+
+  it.each([
+    [[2]],
+    [[3]],
+    [[1, 3]],
+    [[1, 1, 2]],
+    [[1, 1, 1, 3]],
+    [[1, 2, 2, 3]]
+  ])('refuses a podium ranked %j', async (places) => {
+    const { event, ids } = await judgeableMany(places.length);
+
+    const response = await announce(event, sharedPodium(places, ids), staffUser('admin'));
 
     expect(response.status).toBe(400);
     expect(placementRows(event.id)).toEqual([]);
@@ -744,16 +801,132 @@ describe('announcing a contest’s results', () => {
     expect(broadcasts().every((message) => !message.body.includes('has been judged'))).toBe(true);
   });
 
-  it('refuses a fourth place', async () => {
-    const { event, ids } = await judgeableThree();
+  it('refuses a place above third, whatever the rest of the podium looks like', async () => {
+    const { event, ids } = await judgeableMany(4);
+
+    const response = await announce(event, sharedPodium([1, 2, 3, 4], ids), staffUser('admin'));
+
+    expect(response.status).toBe(400);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('stores two worlds in first place, with third place next', async () => {
+    const { event, entrants, ids } = await judgeableMany(3);
+
+    const response = await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id)).toEqual([
+      { place: 1, world_id: ids[0], world_name: 'Entry 1', author_name: entrants[0].username },
+      { place: 1, world_id: ids[1], world_name: 'Entry 2', author_name: entrants[1].username },
+      { place: 3, world_id: ids[2], world_name: 'Entry 3', author_name: entrants[2].username }
+    ]);
+  });
+
+  it('puts no limit on how many worlds share a place', async () => {
+    const { event, ids } = await judgeableMany(5);
+
+    const response = await announce(event, sharedPodium([1, 1, 1, 1, 1], ids), staffUser('admin'));
+
+    expect(response.status).toBe(200);
+    expect(tiedRows(event.id).map((row) => row.position)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('orders a shared place by publish time, whatever order the request used', async () => {
+    const { event, ids } = await judgeableMany(3);
+    publishedAt(ids[0], '2025-03-03T00:00:00.000Z');
+    publishedAt(ids[1], '2025-01-01T00:00:00.000Z');
+    publishedAt(ids[2], '2025-02-02T00:00:00.000Z');
+
+    await announce(event, sharedPodium([1, 1, 1], ids), staffUser('admin'));
+
+    expect(tiedRows(event.id)).toEqual([
+      { place: 1, position: 0, world_name: 'Entry 2' },
+      { place: 1, position: 1, world_name: 'Entry 3' },
+      { place: 1, position: 2, world_name: 'Entry 1' }
+    ]);
+  });
+
+  it('answers with the tie in its stored order, with the place repeated', async () => {
+    const { event, entrants, ids } = await judgeableMany(2);
+    publishedAt(ids[0], '2025-05-05T00:00:00.000Z');
+    publishedAt(ids[1], '2025-04-04T00:00:00.000Z');
+
+    const response = await announce(event, sharedPodium([1, 1], ids), staffUser('admin'));
+
+    expect(response.body.data.placements).toEqual([
+      { place: 1, worldId: ids[1], worldName: 'Entry 2', authorName: entrants[1].username },
+      { place: 1, worldId: ids[0], worldName: 'Entry 1', authorName: entrants[0].username }
+    ]);
+  });
+
+  it('reads the tie back in the same order on its own and in the list', async () => {
+    const { event, ids } = await judgeableMany(3);
+    publishedAt(ids[0], '2025-06-06T00:00:00.000Z');
+    publishedAt(ids[1], '2025-05-05T00:00:00.000Z');
+    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+
+    const one = await request(app).get(`/api/events/${event.id}`);
+    const list = await request(app).get('/api/events');
+    const listed = list.body.data.find((row) => row.id === event.id);
+    const expected = [
+      { place: 1, name: 'Entry 2' },
+      { place: 1, name: 'Entry 1' },
+      { place: 3, name: 'Entry 3' }
+    ];
+
+    const shape = (placements) => placements.map((row) => ({ place: row.place, name: row.worldName }));
+    expect(shape(one.body.data.placements)).toEqual(expected);
+    expect(shape(listed.placements)).toEqual(expected);
+  });
+
+  it.each([
+    ['a quarantined world', async (ids) => {
+      await request(app).put(`/api/worlds/${ids[1]}/quarantine`).set(authHeader(staffUser())).send({});
+    }],
+    ['a world entered in nothing', async (ids) => {
+      db.prepare('UPDATE worlds SET contest_event_id = NULL WHERE id = ?').run(ids[1]);
+    }]
+  ])('refuses %s that shares a place, the same way it refuses a sole one', async (_label, spoil) => {
+    const { event, ids } = await judgeableMany(2);
+    await spoil(ids);
+
+    const response = await announce(event, sharedPodium([1, 1], ids), staffUser('admin'));
+
+    expect(response.status).toBe(409);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('refuses the announcer their own entry even when it only shares a place', async () => {
+    const announcer = staffUser('admin');
+    const event = contest();
+    const theirs = await publish(author(), { contestEventId: event.id, name: 'Theirs' });
+    const own = await publish(announcer, { contestEventId: event.id, name: 'Mine' });
+    Event.update(event.id, { startsAt: at(-120), endsAt: at(-60) });
 
     const response = await announce(
       event,
-      { placements: [...podium(...ids).placements, { place: 3, worldId: ids[0] }] },
-      staffUser('admin')
+      sharedPodium([1, 1], [theirs.body.data.id, own.body.data.id]),
+      announcer
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(409);
+    expect(placementRows(event.id)).toEqual([]);
+  });
+
+  it('keeps a tied world’s row, place and position after its listing is deleted', async () => {
+    const { event, entrants, ids } = await judgeableMany(2);
+    publishedAt(ids[0], '2025-07-07T00:00:00.000Z');
+    publishedAt(ids[1], '2025-08-08T00:00:00.000Z');
+    await announce(event, sharedPodium([1, 1], ids), staffUser('admin'));
+
+    await request(app).delete(`/api/worlds/${ids[0]}`).set(authHeader(entrants[0]));
+
+    expect(tiedRows(event.id)).toEqual([
+      { place: 1, position: 0, world_name: 'Entry 1' },
+      { place: 1, position: 1, world_name: 'Entry 2' }
+    ]);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual([null, ids[1]]);
   });
 
   it('refuses a second announcement, and announces nothing further', async () => {
@@ -799,7 +972,7 @@ describe('announcing a contest’s results', () => {
     // without announcing it is not a state a route offers, so the stored placement stands in for it.
     const { event, user, worldId } = await judgeable();
     Event.setPlacements(event.id, [
-      { place: 1, worldId, name: 'The Entry', authorName: user.username }
+      { place: 1, position: 0, worldId, name: 'The Entry', authorName: user.username }
     ]);
 
     const response = await request(app)
@@ -898,6 +1071,25 @@ describe('editing an announced podium', () => {
 
     expect(response.status).toBe(200);
     expect(placementRows(event.id)).toHaveLength(2);
+  });
+
+  it('adds a tie to a podium that is already announced', async () => {
+    // The live case this was built for: a result announced as a sole win, corrected to the tie it was.
+    const { event, ids, admin } = await announced();
+
+    const response = await editPodium(event, sharedPodium([1, 1, 3], ids), admin);
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id).map((row) => row.place)).toEqual([1, 1, 3]);
+  });
+
+  it('refuses an edit whose places break the ranking rule, keeping the announced podium', async () => {
+    const { event, ids, admin } = await announced();
+
+    const response = await editPodium(event, sharedPodium([1, 1, 2], ids), admin);
+
+    expect(response.status).toBe(400);
+    expect(placementRows(event.id).map((row) => row.world_id)).toEqual(ids);
   });
 
   it('announces nothing, however much moves', async () => {

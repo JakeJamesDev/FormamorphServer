@@ -431,10 +431,12 @@ const apply = (database) => {
     )
   `);
 
-  // A contest's podium: up to three places, one row each. Its own table rather than nine more columns on
-  // `events`, because a place is a relationship to a listing and there are three of them — the shape the
-  // strict-podium rule is expressible in. Both uniques are the rule: one world per place, and one place
-  // per world within a contest.
+  // A contest's podium: one row per placed world, at a place of 1, 2 or 3. Its own table rather than
+  // columns on `events`, because a place is a relationship to a listing and a contest has several.
+  //
+  // Any number of worlds can share a place, so the key carries `position` — the order inside a place,
+  // from 0. That also keeps rows apart once a taken-down listing has left them with no world id to differ
+  // on, which a key on (event, world) could not. One place per world is the unique beside it.
   //
   // `world_id` is SET NULL on delete while the two names are snapshots, for the reason the audit log
   // snapshots its own: the archive has to still read after the listing is gone.
@@ -442,11 +444,12 @@ const apply = (database) => {
     CREATE TABLE IF NOT EXISTS event_placements (
       event_id TEXT NOT NULL,
       place INTEGER NOT NULL CHECK (place IN (1, 2, 3)),
+      position INTEGER NOT NULL DEFAULT 0,
       world_id TEXT,
       world_name TEXT NOT NULL,
       author_name TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      PRIMARY KEY (event_id, place),
+      PRIMARY KEY (event_id, place, position),
       UNIQUE (event_id, world_id),
       FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE,
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE SET NULL

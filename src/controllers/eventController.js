@@ -513,24 +513,42 @@ exports.cancelEventById = async (req, res, next) => {
   }
 };
 
-/** The three places a podium has, in the order they read. */
+/** The places a podium can hold, in the order they read. Any number of worlds may share one. */
 const PLACES = [1, 2, 3];
 
 /** How each place reads wherever the server has to name one. */
 const PLACE_NAMES = { 1: 'First place', 2: 'Second place', 3: 'Third place' };
 
 /**
+ * Whether a podium's places follow competition ranking.
+ *
+ * Sorted, the first place is 1, and every later place either repeats the one before it or equals its own
+ * 1-based index in the list. That is what makes two worlds in first place push the next world to third:
+ * the third entry's index is 3. It also refuses a gap, because a skipped place has no index to match, and
+ * it refuses dense ranking, because 1, 1, 2 puts a 2 at index 3.
+ *
+ * @param {number[]} sorted - The places, ascending
+ * @returns {boolean} True when the podium is ranked
+ */
+const followsRanking = (sorted) => sorted[0] === 1 && sorted.every(
+  (place, index) => index === 0 || place === sorted[index - 1] || place === index + 1
+);
+
+/**
  * Read a podium out of a request body, or say why it is not one.
  *
- * The strict-podium rule lives here rather than in the two routes that need it, so announcing and editing
- * cannot drift into judging the same request differently. Two kinds of wrong, and the status says which:
- * a body that is not a podium at all reads 400, and an entry that cannot hold the place it was given
- * reads 409 — the same split the rest of this controller uses.
+ * The ranking rule lives here rather than in the two routes that need it, so announcing and editing cannot
+ * drift into judging the same request differently. Two kinds of wrong, and the status says which: a body
+ * that is not a podium at all reads 400, and an entry that cannot hold the place it was given reads 409 —
+ * the same split the rest of this controller uses.
  *
- * Every place is checked against the three refusals the single winner was: the listing has to still be an
+ * Every entry is checked against the three refusals the single winner was: the listing has to still be an
  * entry in this contest, it has to be one people can actually see, and it must not belong to whoever is
  * judging. Staff enter contests like anyone else in a community this size, so refusing to let them crown
- * themselves is the one rule that keeps that above board.
+ * themselves is the one rule that keeps that above board. A world that shares a place meets all three.
+ *
+ * The stored order is the server's, not the sender's: place first, and inside a place the listing that was
+ * published earliest. Staff judge ties by hand and their list order says nothing about which came first.
  *
  * @param {Object} event - The contest being judged
  * @param {*} body - The request body
@@ -543,7 +561,6 @@ const readPodium = (event, body, actor) => {
 
   if (!Array.isArray(sent)) return refuse(400, 'A list of placements is required');
   if (sent.length === 0) return refuse(400, 'First place is required');
-  if (sent.length > PLACES.length) return refuse(400, 'A podium holds three places at most');
 
   const shaped = sent.every((entry) => entry
     && PLACES.includes(entry.place)
@@ -551,22 +568,19 @@ const readPodium = (event, body, actor) => {
     && entry.worldId);
   if (!shaped) return refuse(400, 'Each placement needs a place of 1, 2 or 3 and a world ID');
 
-  // Compared numerically rather than by `sort()`'s default, which orders as text — right for one digit
-  // and quietly wrong the day a podium grows past nine places.
-  const places = sent.map((entry) => entry.place).sort((a, b) => a - b);
-  if (new Set(places).size !== places.length) return refuse(400, 'One world per place');
-  // Contiguous from gold: the sorted places have to run 1, 2, 3 with nothing skipped.
-  if (places.some((place, index) => place !== index + 1)) {
-    return refuse(400, 'A podium fills from first place down, with no gaps');
-  }
-
   const worldIds = sent.map((entry) => entry.worldId);
   if (new Set(worldIds).size !== worldIds.length) return refuse(400, 'One place per world');
 
-  const placements = [];
+  // Compared numerically rather than by `sort()`'s default, which orders as text — right for one digit
+  // and quietly wrong the day a podium grows past nine places.
+  const places = sent.map((entry) => entry.place).sort((a, b) => a - b);
+  if (!followsRanking(places)) {
+    return refuse(400, 'A podium is ranked from first place down, and a shared place skips the next');
+  }
 
-  for (const place of places) {
-    const { worldId } = sent.find((entry) => entry.place === place);
+  const entries = [];
+
+  for (const { place, worldId } of sent) {
     const world = World.findById(worldId);
 
     if (!world) return refuse(404, 'World not found');
@@ -581,11 +595,30 @@ const readPodium = (event, body, actor) => {
     }
 
     const author = User.findById(world.author_id);
-    placements.push({
+    entries.push({
       place,
       worldId: world.id,
       name: world.name,
-      authorName: author ? author.username : 'a departed account'
+      authorName: author ? author.username : 'a departed account',
+      publishedAt: world.created_at || ''
+    });
+  }
+
+  // The listing id breaks a dead heat, so two listings published in the same millisecond still come out in
+  // the same order every time rather than in whatever order the request happened to carry them.
+  entries.sort((first, second) => first.place - second.place
+    || String(first.publishedAt).localeCompare(String(second.publishedAt))
+    || first.worldId.localeCompare(second.worldId));
+
+  const placements = [];
+  for (const entry of entries) {
+    const above = placements[placements.length - 1];
+    placements.push({
+      place: entry.place,
+      position: above && above.place === entry.place ? above.position + 1 : 0,
+      worldId: entry.worldId,
+      name: entry.name,
+      authorName: entry.authorName
     });
   }
 

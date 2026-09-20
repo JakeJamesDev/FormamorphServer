@@ -274,49 +274,52 @@ const Event = {
   },
 
   /**
-   * A contest's podium, gold first.
+   * A contest's podium, gold first, and inside a place in the order it was stored.
    *
    * @param {string} id - Event ID
-   * @returns {Array<Object>} The placement rows, ordered by place
+   * @returns {Array<Object>} The placement rows, ordered by place and then position
    */
   placements: (id) => db
-    .prepare('SELECT * FROM event_placements WHERE event_id = ? ORDER BY place')
+    .prepare('SELECT * FROM event_placements WHERE event_id = ? ORDER BY place, position')
     .all(id),
 
   /**
    * Every placement across a set of events, so a whole list's podiums cost one query rather than one each.
    *
    * @param {Array<string>} ids - Event IDs
-   * @returns {Array<Object>} The placement rows, ordered by event and then by place
+   * @returns {Array<Object>} The placement rows, ordered by event, then place, then position
    */
   placementsFor: (ids) => {
     if (!ids.length) return [];
 
     const slots = ids.map(() => '?').join(', ');
     return db
-      .prepare(`SELECT * FROM event_placements WHERE event_id IN (${slots}) ORDER BY event_id, place`)
+      .prepare(`
+        SELECT * FROM event_placements WHERE event_id IN (${slots})
+        ORDER BY event_id, place, position
+      `)
       .all(...ids);
   },
 
   /**
    * Replace a contest's podium with the one handed in.
    *
-   * Wholesale rather than per place, in one transaction, because the podium is a shape rather than three
+   * Wholesale rather than per place, in one transaction, because the podium is a shape rather than a set of
    * independent facts: swapping gold and silver written place by place would trip the one-place-per-world
    * unique halfway through, and an edit that failed partway would leave a contest wearing a podium nobody
    * chose. The names are stamped rather than joined, for the reason the audit log stamps its own — the
    * archive has to still read after the listing is gone.
    *
    * @param {string} id - Event ID
-   * @param {Array<Object>} placements - `[{ place, worldId, name, authorName }]`, contiguous from 1
+   * @param {Array<Object>} placements - `[{ place, position, worldId, name, authorName }]`, ranked
    * @returns {Array<Object>} The stored placement rows, gold first
    */
   setPlacements: (id, placements) => {
     const stamp = new Date().toISOString();
     const clear = db.prepare('DELETE FROM event_placements WHERE event_id = ?');
     const insert = db.prepare(`
-      INSERT INTO event_placements (event_id, place, world_id, world_name, author_name, created_at)
-      VALUES (@eventId, @place, @worldId, @name, @authorName, @createdAt)
+      INSERT INTO event_placements (event_id, place, position, world_id, world_name, author_name, created_at)
+      VALUES (@eventId, @place, @position, @worldId, @name, @authorName, @createdAt)
     `);
     const touch = db.prepare('UPDATE events SET updated_at = ? WHERE id = ?');
 

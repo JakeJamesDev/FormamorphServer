@@ -209,7 +209,7 @@ describe('GET /api/events?slim', () => {
       .set(authHeader(author))
       .send(worldPayload({ name: 'Sedge Landing' }));
     Event.setPlacements(contest.id, [
-      { place: 1, worldId: published.body.data.id, name: 'Sedge Landing', authorName: 'wren' }
+      { place: 1, position: 0, worldId: published.body.data.id, name: 'Sedge Landing', authorName: 'wren' }
     ]);
     Event.announceResults(contest.id);
 

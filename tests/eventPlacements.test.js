@@ -108,27 +108,8 @@ const placementsIn = (connection) => connection
   .prepare('SELECT * FROM event_placements ORDER BY event_id, place')
   .all();
 
-/** A real events row and real worlds for the podium constraints to bite against. */
-const seedPodiumTargets = (eventId, worldIds) => {
-  db.prepare(`
-    INSERT INTO events (id, type, title, banner_text, body, starts_at, ends_at, created_at, updated_at)
-    VALUES (?, 'contest', 'Constraint Contest', 'b', 'b', '2025-01-01', '2025-01-02', '2025-01-01', '2025-01-01')
-  `).run(eventId);
-  db.prepare("INSERT OR IGNORE INTO users (id, username, password) VALUES ('u-constraint', 'constraint', 'x')").run();
-
-  for (const worldId of worldIds) {
-    db.prepare(`
-      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file)
-      VALUES (?, ?, 'd', 'u-constraint', 't.png', 'c.json')
-    `).run(worldId, worldId);
-  }
-
-  return (place, worldId) => db.prepare(`
-    INSERT INTO event_placements (event_id, place, world_id, world_name, author_name, created_at)
-    VALUES (?, ?, ?, 'n', 'a', '2025-01-01')
-  `).run(eventId, place, worldId);
-};
-
+// The constraints the live podium table carries, shared places included, are proved in
+// placementTies.test.js — the step that rebuilt the table is where its key belongs.
 describe('the podium schema', () => {
   it('is on a freshly created database, with the single-winner columns already gone', () => {
     const columns = columnsOf(db, 'events');
@@ -140,39 +121,6 @@ describe('the podium schema', () => {
     // The broadcast id stays: it is the podium announcement's now.
     expect(columns).toContain('results_message_id');
     expect(columnsOf(db, 'event_placements')).toContain('place');
-  });
-
-  it('holds one world per place', () => {
-    const insert = seedPodiumTargets('e-u1', ['w-a1', 'w-b1']);
-
-    insert(1, 'w-a1');
-
-    expect(() => insert(1, 'w-b1')).toThrow(/UNIQUE|PRIMARY KEY/);
-  });
-
-  it('holds one place per world', () => {
-    const insert = seedPodiumTargets('e-u2', ['w-c2']);
-
-    insert(1, 'w-c2');
-
-    expect(() => insert(2, 'w-c2')).toThrow(/UNIQUE/);
-  });
-
-  it('refuses a fourth place at the column, not only at the route', () => {
-    const insert = seedPodiumTargets('e-u3', ['w-d3']);
-
-    expect(() => insert(4, 'w-d3')).toThrow(/CHECK/);
-  });
-
-  it('lets two lost listings share a podium, since neither has an id left to clash on', () => {
-    const insert = seedPodiumTargets('e-u4', ['w-e4', 'w-f4']);
-    insert(1, 'w-e4');
-    insert(2, 'w-f4');
-
-    db.prepare('DELETE FROM worlds WHERE id IN (?, ?)').run('w-e4', 'w-f4');
-
-    expect(db.prepare('SELECT world_id FROM event_placements WHERE event_id = ? ORDER BY place').all('e-u4'))
-      .toEqual([{ world_id: null }, { world_id: null }]);
   });
 });
 
