@@ -6,7 +6,7 @@ const { isStaff } = require('../config/roles');
 const { sweepEvents, cancelEvent, announceResults: postResultsBroadcast } = require('../utils/sweepEvents');
 const { saveEventPoster, deleteEventPoster } = require('../utils/fileStorage');
 const {
-  SUBJECT_MAX, BODY_MAX, PLACE_LABELS, placeLines, worldPhrase
+  SUBJECT_MAX, BODY_MAX, PLACE_LABELS, placeLines, worldPhrase, joinPhrases
 } = require('../utils/eventBroadcasts');
 
 /**
@@ -659,8 +659,7 @@ const podiumSnippet = (placements) => placeLines(placements).join('; ');
  * leaves no line even when its position inside that place moved — that order is the server's, read off
  * publish time, so no one decided it and no one is accountable for it.
  *
- * A row whose listing was deleted has no world id to match on, so it counts as removed. That is what an
- * edit does to it: the replace writes the sent podium, and a world nobody can send is not in it.
+ * A row with no world id matches nothing, so it reads as removed — which is what a replace does to it.
  *
  * @param {Array<Object>} before - The stored rows before the edit
  * @param {Array<Object>} after - The stored rows after it
@@ -682,6 +681,32 @@ const placeChanges = (before, after) => {
   }
 
   return changes;
+};
+
+/**
+ * Why a stored podium cannot be replaced, or null when it can.
+ *
+ * A listing that is taken down leaves its placement row behind with a null world reference, so the archive
+ * still says who placed where. Nothing can put that row back: an edit replaces the podium wholesale from
+ * the request, and a world with no listing has no id for a request to carry. So the first correction after
+ * a takedown would quietly erase a result the archive was built to keep.
+ *
+ * Refusing is the honest answer, because no request means "leave that row alone". The message names the
+ * places that are in the way, so a caller knows which ones rather than guessing why an edit it can see
+ * nothing wrong with will not take.
+ *
+ * @param {Array<Object>} stored - The placement rows as they stand
+ * @returns {string|null} The refusal, or null when every placed listing is still there
+ */
+const lostListingRefusal = (stored) => {
+  const lost = stored.filter((row) => !row.world_id);
+  if (lost.length === 0) return null;
+
+  const named = joinPhrases(lost.map((row) => `${PLACE_LABELS[row.place]} (${row.world_name})`));
+
+  return lost.length === 1
+    ? `${named} is no longer a listing. Editing would erase that placement.`
+    : `${named} are no longer listings. Editing would erase those placements.`;
 };
 
 /** How one moved world reads in the log: where it stands now, and where it stood before. */
@@ -769,10 +794,15 @@ exports.editPlacements = async (req, res, next) => {
       return res.status(409).json({ success: false, error: 'Announce the results before editing the podium' });
     }
 
+    // Read first and judged before the body, because no body can answer it: this is the podium's own
+    // state refusing, the way an unannounced contest does, rather than anything the request got wrong.
+    const before = Event.placements(event.id);
+    const lost = lostListingRefusal(before);
+    if (lost) return res.status(409).json({ success: false, error: lost });
+
     const { placements: podium, refusal } = readPodium(event, req.body, req.user);
     if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
 
-    const before = Event.placements(event.id);
     const placements = Event.setPlacements(event.id, podium);
 
     for (const change of placeChanges(before, placements)) {

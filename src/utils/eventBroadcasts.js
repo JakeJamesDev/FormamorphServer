@@ -127,6 +127,7 @@ module.exports = {
   podiumBroadcast,
   placeLines,
   worldPhrase,
+  joinPhrases,
   PLACE_LABELS,
   SUBJECT_MAX,
   BODY_MAX

@@ -1317,6 +1317,81 @@ describe('editing an announced podium', () => {
     expect([quarantined.status, duplicated.status, gapped.status]).toEqual([409, 400, 400]);
     expect(placementRows(event.id).map((row) => row.world_id)).toEqual(ids);
   });
+
+  /**
+   * The same again, with the named entrants' listings taken down through the route that takes them down,
+   * so their placement rows are left holding a null world reference and the snapshots beside it.
+   *
+   * @param {number[]} lost - Which of the three entries to take down, by index
+   */
+  const announcedWithLostListing = async (lost = [1]) => {
+    const seeded = await announced();
+    for (const index of lost) {
+      await request(app).delete(`/api/worlds/${seeded.ids[index]}`).set(authHeader(seeded.entrants[index]));
+    }
+    db.prepare('DELETE FROM audit_log').run();
+    return seeded;
+  };
+
+  it('refuses to edit a podium holding a deleted listing, and keeps every stored row', async () => {
+    const { event, ids, admin } = await announcedWithLostListing();
+
+    const response = await editPodium(event, podium(ids[0], ids[2]), admin);
+
+    expect(response.status).toBe(409);
+    expect(placementRows(event.id)).toEqual([
+      { place: 1, world_id: ids[0], world_name: 'The Entry', author_name: expect.any(String) },
+      { place: 2, world_id: null, world_name: 'Runner Up', author_name: expect.any(String) },
+      { place: 3, world_id: ids[2], world_name: 'Third Wheel', author_name: expect.any(String) }
+    ]);
+  });
+
+  it('names the lost world and its place, so a caller knows which record blocks the edit', async () => {
+    const { event, ids, admin } = await announcedWithLostListing();
+
+    const response = await editPodium(event, podium(ids[0], ids[2]), admin);
+
+    expect(response.body.error)
+      .toBe('Second place (Runner Up) is no longer a listing. Editing would erase that placement.');
+  });
+
+  it('names every lost world, joined the way the broadcast joins them', async () => {
+    const { event, ids, admin } = await announcedWithLostListing([1, 2]);
+
+    const response = await editPodium(event, podium(ids[0]), admin);
+
+    expect(response.body.error).toBe(
+      'Second place (Runner Up) and Third place (Third Wheel) are no longer listings.'
+      + ' Editing would erase those placements.'
+    );
+  });
+
+  it('logs nothing and announces nothing when it refuses over a lost record', async () => {
+    const { event, ids, admin } = await announcedWithLostListing();
+    const before = broadcasts().length;
+
+    await editPodium(event, podium(ids[0], ids[2]), admin);
+
+    expect(auditRows()).toEqual([]);
+    expect(broadcasts()).toHaveLength(before);
+  });
+
+  it('refuses before it reads the body, so a malformed request meets the same wall', async () => {
+    const { event, admin } = await announcedWithLostListing();
+
+    const response = await editPodium(event, { placements: 'not a podium' }, admin);
+
+    expect(response.status).toBe(409);
+  });
+
+  it('takes an edit, ties included, when no placed listing is missing', async () => {
+    const { event, ids, admin } = await announced();
+
+    const response = await editPodium(event, sharedPodium([1, 1], [ids[0], ids[1]]), admin);
+
+    expect(response.status).toBe(200);
+    expect(placementRows(event.id).map((row) => row.place)).toEqual([1, 1]);
+  });
 });
 
 describe('calling a contest off', () => {
