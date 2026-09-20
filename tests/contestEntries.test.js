@@ -666,20 +666,23 @@ describe('announcing a contest’s results', () => {
     ].join('\n\n'));
   });
 
-  it('joins two worlds that share a place onto that place’s line', async () => {
+  it('joins two worlds that share a place onto that place’s line, in one broadcast', async () => {
     const { event, entrants, ids } = await judgeableThree();
     publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
     publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
+    const posted = broadcasts().length;
 
     await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
 
     const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
 
+    expect(broadcasts()).toHaveLength(posted + 1);
+
     expect(announcement.body).toContain(
       `First place: The Entry by ${entrants[0].username} and Runner Up by ${entrants[1].username}`
     );
     expect(announcement.body).toContain(`Third place: Third Wheel by ${entrants[2].username}`);
-    // One line for the place, not one line per world: the old form would have written "First place:" twice.
+    // One line for the place, not one line per world.
     expect(announcement.body.match(/First place:/g)).toHaveLength(1);
   });
 
@@ -1255,6 +1258,23 @@ describe('editing an announced podium', () => {
 
     await editPodium(event, podium(...ids), admin);
 
+    expect(auditRows()).toEqual([]);
+  });
+
+  it('logs nothing for an edit whose only effect is the order inside a place', async () => {
+    const { event, ids } = await judgeableThree();
+    const admin = staffUser('admin');
+    publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
+    publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
+    await announce(event, sharedPodium([1, 1, 3], ids), admin);
+    db.prepare('DELETE FROM audit_log').run();
+
+    // The tied pair swaps publish times, so the same podium stores in the other order and nothing else.
+    publishedAt(ids[1], '2025-10-31T00:00:00.000Z');
+    await editPodium(event, sharedPodium([1, 1, 3], ids), admin);
+
+    expect(tiedRows(event.id).map((row) => row.world_name))
+      .toEqual(['Runner Up', 'The Entry', 'Third Wheel']);
     expect(auditRows()).toEqual([]);
   });
 

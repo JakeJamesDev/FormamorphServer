@@ -655,7 +655,7 @@ const podiumSnippet = (placements) => placeLines(placements).join('; ');
 /**
  * Which worlds an edit moved, and where each one came from.
  *
- * Keyed by world rather than by place, because a place now holds any number of worlds: a per-place diff
+ * Keyed by world rather than by place, because a place holds any number of worlds: a per-place diff
  * would name one holder of a shared place and drop the other silently. A world whose place is unchanged
  * leaves no line even when its position inside that place moved — that order is the server's, read off
  * publish time, so no one decided it and no one is accountable for it.
