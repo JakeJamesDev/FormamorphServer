@@ -648,6 +648,55 @@ describe('announcing a contest’s results', () => {
     expect(announcement.body).toContain('Third place');
   });
 
+  it('writes a podium with no ties exactly as it always did', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+
+    await announce(event, podium(...ids), staffUser('admin'));
+
+    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
+
+    expect(announcement.body).toBe([
+      `${event.title} has been judged.`,
+      [
+        `First place: The Entry by ${entrants[0].username}`,
+        `Second place: Runner Up by ${entrants[1].username}`,
+        `Third place: Third Wheel by ${entrants[2].username}`
+      ].join('\n'),
+      'Congratulations, and thank you to everyone who entered.'
+    ].join('\n\n'));
+  });
+
+  it('joins two worlds that share a place onto that place’s line', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+    publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
+    publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
+
+    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+
+    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
+
+    expect(announcement.body).toContain(
+      `First place: The Entry by ${entrants[0].username} and Runner Up by ${entrants[1].username}`
+    );
+    expect(announcement.body).toContain(`Third place: Third Wheel by ${entrants[2].username}`);
+    // One line for the place, not one line per world: the old form would have written "First place:" twice.
+    expect(announcement.body.match(/First place:/g)).toHaveLength(1);
+  });
+
+  it('reads three tied worlds as a list, with only the last one joined by “and”', async () => {
+    const { event, entrants, ids } = await judgeableMany(3);
+    for (let i = 0; i < ids.length; i += 1) publishedAt(ids[i], `2025-11-0${i + 1}T00:00:00.000Z`);
+
+    await announce(event, sharedPodium([1, 1, 1], ids), staffUser('admin'));
+
+    const announcement = broadcasts().find((message) => message.id === eventRow(event.id).results_message_id);
+
+    expect(announcement.body).toContain(
+      `First place: Entry 1 by ${entrants[0].username}, Entry 2 by ${entrants[1].username}`
+      + ` and Entry 3 by ${entrants[2].username}`
+    );
+  });
+
   it('logs who announced it, whose contest it was, and the whole podium', async () => {
     const { event, entrants, ids } = await judgeableThree();
     const announcer = staffUser('admin');
@@ -661,6 +710,33 @@ describe('announcing a contest’s results', () => {
       target_name: event.title,
       snippet: `First place: The Entry by ${entrants[0].username}; Second place: Runner Up by ${entrants[1].username}`
     })]);
+  });
+
+  it('logs a tie in the joined form, against the first world in first place', async () => {
+    const { event, entrants, ids } = await judgeableThree();
+    publishedAt(ids[0], '2025-11-01T00:00:00.000Z');
+    publishedAt(ids[1], '2025-11-02T00:00:00.000Z');
+
+    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+
+    expect(auditRows()).toEqual([expect.objectContaining({
+      action: 'results_announced',
+      target_username: entrants[0].username,
+      snippet: `First place: The Entry by ${entrants[0].username} and Runner Up by ${entrants[1].username}`
+        + `; Third place: Third Wheel by ${entrants[2].username}`
+    })]);
+  });
+
+  it('names the earliest of the tied first-place worlds as the log’s target, whatever order was sent', async () => {
+    // The author the line is filed against has to be the one the archive shows first, not the one the
+    // admin happened to type first.
+    const { event, entrants, ids } = await judgeableThree();
+    publishedAt(ids[0], '2025-11-02T00:00:00.000Z');
+    publishedAt(ids[1], '2025-11-01T00:00:00.000Z');
+
+    await announce(event, sharedPodium([1, 1, 3], ids), staffUser('admin'));
+
+    expect(auditRows()[0].target_username).toBe(entrants[1].username);
   });
 
   it('refuses an event that does not exist', async () => {
@@ -1043,6 +1119,15 @@ describe('editing an announced podium', () => {
     return { ...seeded, admin };
   };
 
+  /** The same, with a fourth entry left off the podium, so an edit has a world to bring onto it. */
+  const announcedOfFour = async () => {
+    const seeded = await judgeableMany(4);
+    const admin = staffUser('admin');
+    await announce(seeded.event, podium(seeded.ids[0], seeded.ids[1], seeded.ids[2]), admin);
+    db.prepare('DELETE FROM audit_log').run();
+    return { ...seeded, admin };
+  };
+
   it('refuses staff who are not administrators', async () => {
     const { event, ids } = await announced();
 
@@ -1111,7 +1196,7 @@ describe('editing an announced podium', () => {
     expect(broadcasts()).toHaveLength(before);
   });
 
-  it('logs one entry per place that actually moved', async () => {
+  it('logs one entry per world that actually moved', async () => {
     const { event, entrants, ids, admin } = await announced();
 
     // Gold and silver swap; bronze stays put and should leave no line behind.
@@ -1123,25 +1208,68 @@ describe('editing an announced podium', () => {
         actor_username: admin.username,
         target_username: entrants[1].username,
         target_name: event.title,
-        snippet: `First place: Runner Up by ${entrants[1].username} (was The Entry)`
+        snippet: `First place: Runner Up by ${entrants[1].username} (was Second place)`
       }),
       expect.objectContaining({
         action: 'podium_edited',
         target_username: entrants[0].username,
-        snippet: `Second place: The Entry by ${entrants[0].username} (was Runner Up)`
+        snippet: `Second place: The Entry by ${entrants[0].username} (was First place)`
       })
     ]);
   });
 
-  it('logs a place that was dropped', async () => {
-    const { event, ids, admin } = await announced();
+  it('logs a world that was dropped', async () => {
+    const { event, entrants, ids, admin } = await announced();
 
     await editPodium(event, podium(ids[0], ids[1]), admin);
 
     expect(auditRows()).toEqual([expect.objectContaining({
       action: 'podium_edited',
-      snippet: 'Third place: cleared (was Third Wheel)'
+      target_username: entrants[2].username,
+      snippet: `Removed: Third Wheel by ${entrants[2].username} (was Third place)`
     })]);
+  });
+
+  it('logs the world that joined a shared first place, and the world that moved for it', async () => {
+    const { event, entrants, ids, admin } = await announcedOfFour();
+
+    // Gold keeps first place and the fourth entry joins it, which pushes silver to third.
+    await editPodium(event, sharedPodium([1, 1, 3, 3], [ids[0], ids[3], ids[1], ids[2]]), admin);
+
+    expect(auditRows()).toEqual([
+      expect.objectContaining({
+        action: 'podium_edited',
+        target_username: entrants[3].username,
+        snippet: `First place: Entry 4 by ${entrants[3].username}`
+      }),
+      expect.objectContaining({
+        action: 'podium_edited',
+        target_username: entrants[1].username,
+        snippet: `Third place: Entry 2 by ${entrants[1].username} (was Second place)`
+      })
+    ]);
+  });
+
+  it('logs nothing when the edit changes no world’s place', async () => {
+    const { event, ids, admin } = await announced();
+
+    await editPodium(event, podium(...ids), admin);
+
+    expect(auditRows()).toEqual([]);
+  });
+
+  it('logs nothing for a world whose position inside its place moved but whose place did not', async () => {
+    // The order inside a place is the server's, read off publish time. Nobody decided it, so nobody is
+    // accountable for it, and a log line for it would bury the places that did change.
+    const { event, entrants, ids, admin } = await announcedOfFour();
+    publishedAt(ids[3], '2000-01-01T00:00:00.000Z');
+
+    // The fourth entry is the earliest published, so joining first place puts it above gold.
+    await editPodium(event, sharedPodium([1, 1, 3, 3], [ids[0], ids[3], ids[1], ids[2]]), admin);
+
+    expect(placementRows(event.id).map((row) => row.world_name).slice(0, 2)).toEqual(['Entry 4', 'Entry 1']);
+    expect(auditRows().map((row) => row.target_username))
+      .toEqual([entrants[3].username, entrants[1].username]);
   });
 
   it('leaves the contest decided, and the announcement stamp untouched', async () => {

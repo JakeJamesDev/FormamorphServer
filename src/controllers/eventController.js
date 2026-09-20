@@ -5,7 +5,9 @@ const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
 const { sweepEvents, cancelEvent, announceResults: postResultsBroadcast } = require('../utils/sweepEvents');
 const { saveEventPoster, deleteEventPoster } = require('../utils/fileStorage');
-const { SUBJECT_MAX, BODY_MAX } = require('../utils/eventBroadcasts');
+const {
+  SUBJECT_MAX, BODY_MAX, PLACE_LABELS, placeLines, worldPhrase
+} = require('../utils/eventBroadcasts');
 
 /**
  * The public URL of an event's poster artwork, or null when it has none.
@@ -516,9 +518,6 @@ exports.cancelEventById = async (req, res, next) => {
 /** The places a podium can hold, in the order they read. Any number of worlds may share one. */
 const PLACES = [1, 2, 3];
 
-/** How each place reads wherever the server has to name one. */
-const PLACE_NAMES = { 1: 'First place', 2: 'Second place', 3: 'Third place' };
-
 /**
  * Whether a podium's places follow competition ranking.
  *
@@ -642,10 +641,54 @@ const readPodium = (event, body, actor) => {
   return { placements };
 };
 
-/** The podium as one line, for a log entry and nothing else. */
-const podiumSnippet = (placements) => placements
-  .map((row) => `${PLACE_NAMES[row.place]}: ${row.world_name} by ${row.author_name}`)
-  .join('; ');
+/**
+ * The podium as one line, for a log entry and nothing else.
+ *
+ * The same place lines the broadcast writes, run together, so the log and the announcement describe a tie
+ * in one form rather than two.
+ *
+ * @param {Array<Object>} placements - The stored placement rows, ordered by place then position
+ * @returns {string} One line naming every place held
+ */
+const podiumSnippet = (placements) => placeLines(placements).join('; ');
+
+/**
+ * Which worlds an edit moved, and where each one came from.
+ *
+ * Keyed by world rather than by place, because a place now holds any number of worlds: a per-place diff
+ * would name one holder of a shared place and drop the other silently. A world whose place is unchanged
+ * leaves no line even when its position inside that place moved — that order is the server's, read off
+ * publish time, so no one decided it and no one is accountable for it.
+ *
+ * A row whose listing was deleted has no world id to match on, so it counts as removed. That is what an
+ * edit does to it: the replace writes the sent podium, and a world nobody can send is not in it.
+ *
+ * @param {Array<Object>} before - The stored rows before the edit
+ * @param {Array<Object>} after - The stored rows after it
+ * @returns {Array<Object>} `[{ row, was, now }]`, the worlds still placed first
+ */
+const placeChanges = (before, after) => {
+  const wasAt = new Map(before.filter((row) => row.world_id).map((row) => [row.world_id, row.place]));
+  const stillPlaced = new Set(after.map((row) => row.world_id));
+  const changes = [];
+
+  for (const row of after) {
+    const was = wasAt.has(row.world_id) ? wasAt.get(row.world_id) : null;
+    if (was !== row.place) changes.push({ row, was, now: row.place });
+  }
+
+  for (const row of before) {
+    if (row.world_id && stillPlaced.has(row.world_id)) continue;
+    changes.push({ row, was: row.place, now: null });
+  }
+
+  return changes;
+};
+
+/** How one moved world reads in the log: where it stands now, and where it stood before. */
+const changeSnippet = ({ row, was, now }) => (now === null
+  ? `Removed: ${worldPhrase(row)} (was ${PLACE_LABELS[was]})`
+  : `${PLACE_LABELS[now]}: ${worldPhrase(row)}${was ? ` (was ${PLACE_LABELS[was]})` : ''}`);
 
 /**
  * Announce a contest's podium, and tell everyone.
@@ -733,21 +776,16 @@ exports.editPlacements = async (req, res, next) => {
     const before = Event.placements(event.id);
     const placements = Event.setPlacements(event.id, podium);
 
-    for (const place of PLACES) {
-      const was = before.find((row) => row.place === place);
-      const now = placements.find((row) => row.place === place);
-      if ((was ? was.world_id : null) === (now ? now.world_id : null)) continue;
-
-      const holder = now ? World.findById(now.world_id) : null;
+    for (const change of placeChanges(before, placements)) {
+      const moved = change.row.world_id ? World.findById(change.row.world_id) : null;
 
       AuditLog.tryRecord({
         action: 'podium_edited',
         actor: req.user,
-        targetUser: holder ? User.findById(holder.author_id) : null,
+        targetUser: moved ? User.findById(moved.author_id) : null,
         targetKind: 'event',
         targetName: event.title,
-        snippet: `${PLACE_NAMES[place]}: ${now ? `${now.world_name} by ${now.author_name}` : 'cleared'}`
-          + (was ? ` (was ${was.world_name})` : '')
+        snippet: changeSnippet(change)
       });
     }
 

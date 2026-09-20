@@ -66,9 +66,37 @@ const cancelBroadcast = (event) => compose({
 /** How each place reads in the announcement. */
 const PLACE_LABELS = { 1: 'First place', 2: 'Second place', 3: 'Third place' };
 
-/** One place, as its own line of the results. */
-const placeLine = ({ world_name: name, author_name: authorName, place }) =>
-  `${PLACE_LABELS[place]}: ${name} by ${authorName}`;
+/** One world, as it reads wherever the server names it. */
+const worldPhrase = ({ world_name: name, author_name: authorName }) => `${name} by ${authorName}`;
+
+/** Phrases joined the way a sentence joins them: "A", "A and B", "A, B and C". */
+const joinPhrases = (phrases) => (phrases.length < 2
+  ? phrases.join('')
+  : `${phrases.slice(0, -1).join(', ')} and ${phrases[phrases.length - 1]}`);
+
+/**
+ * The podium as one line per place, with the worlds that share a place joined on that place's line.
+ *
+ * Grouped by place rather than written one row at a time, because a per-row line would say "First place:"
+ * twice for a tie and read as two results rather than one shared honor.
+ *
+ * @param {Array<Object>} placements - The stored placement rows, ordered by place then position
+ * @returns {string[]} One line per place held, gold first
+ */
+const placeLines = (placements) => {
+  const order = [];
+  const phrases = new Map();
+
+  for (const row of placements) {
+    if (!phrases.has(row.place)) {
+      phrases.set(row.place, []);
+      order.push(row.place);
+    }
+    phrases.get(row.place).push(worldPhrase(row));
+  }
+
+  return order.map((place) => `${PLACE_LABELS[place]}: ${joinPhrases(phrases.get(place))}`);
+};
 
 /**
  * The notice posted when a contest's results are announced.
@@ -86,12 +114,20 @@ const podiumBroadcast = (event, placements) => compose({
   subject: `${event.title} — the results`,
   body: [
     `${event.title} has been judged.`,
-    placements.map(placeLine).join('\n'),
+    placeLines(placements).join('\n'),
     'Congratulations, and thank you to everyone who entered.'
   ].join('\n\n'),
   scope: 'new'
 });
 
 module.exports = {
-  startBroadcast, endBroadcast, cancelBroadcast, podiumBroadcast, PLACE_LABELS, SUBJECT_MAX, BODY_MAX
+  startBroadcast,
+  endBroadcast,
+  cancelBroadcast,
+  podiumBroadcast,
+  placeLines,
+  worldPhrase,
+  PLACE_LABELS,
+  SUBJECT_MAX,
+  BODY_MAX
 };
