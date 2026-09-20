@@ -67,6 +67,8 @@ describe('who liked this listing', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.total).toBe(2);
+    // The account total, with the listing's Anonymous Likes counted beside it rather than into it.
+    expect(res.body.data.anonymous).toBe(0);
     expect(res.body.data.rows.map((r) => r.id)).toEqual([later.id, reader.id]);
     expect(res.body.data.rows[0]).toEqual({
       id: later.id,
@@ -75,6 +77,8 @@ describe('who liked this listing', () => {
       status: 'normal',
       createdAt: expect.any(String),
       likedAt: expect.any(String),
+      // Given as an account rather than moved off an Install, so there is no claim to mark.
+      claimedAt: null,
       accountAgeAtLikeSeconds: expect.any(Number)
     });
   });

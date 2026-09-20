@@ -140,8 +140,8 @@ const Signal = {
   },
 
   /**
-   * Which of a set of accounts acted from the same address as each other, and which of them acted from
-   * one more account's address.
+   * Which of a set of nodes acted from the same address as each other, and which of them acted from one
+   * more account's address.
    *
    * The likes audit's question, asked of a listing's Likers with its author as the account to check them
    * against. Grouping is transitive: a ring that moves between two addresses is one person twice over,
@@ -153,19 +153,27 @@ const Signal = {
    * Cut at the retention edge for the reason `linkedAccounts` is: the sweeper runs hourly, and a row it
    * would delete must not still be grouping accounts on a staff screen.
    *
+   * A node need not be an account. `extraNodes` carries the ones that are not — an Anonymous Like has
+   * no account behind it, only the address it came from — and each groups and links the way an account
+   * does. The caller names them, and must name them something no account id can be. A node with no
+   * address shares nothing, so it comes back listed and in no group.
+   *
    * @param {Array<string>} userIds - The accounts to group against each other
-   * @param {string} [againstUserId] - One more account each of them is separately checked against
-   * @returns {Object} `{ groupOf, linkedToTarget }` — a Map from account to its group number, holding
-   *   only accounts that are in a group of two or more, and a Set of the accounts sharing an address
-   *   with `againstUserId`
+   * @param {string} [againstUserId] - One more account each node is separately checked against
+   * @param {Array<Object>} [extraNodes] - `{ id, hash }` for each node that is not an account
+   * @returns {Object} `{ groupOf, linkedToTarget }` — a Map from node to its group number, holding only
+   *   nodes that are in a group of two or more, and a Set of the nodes sharing an address with
+   *   `againstUserId`
    */
-  sharedAddressGroups: (userIds, againstUserId = null) => {
+  sharedAddressGroups: (userIds, againstUserId = null, extraNodes = []) => {
     const ids = [...new Set(userIds)];
+    // Accounts first, then the rest: a group takes its number from where its first node falls here.
+    const nodes = [...ids, ...extraNodes.map((node) => node.id)];
     const empty = { groupOf: new Map(), linkedToTarget: new Set() };
-    if (ids.length === 0) return empty;
+    if (nodes.length === 0) return empty;
 
     const wanted = againstUserId && !ids.includes(againstUserId) ? [...ids, againstUserId] : ids;
-    const rows = db.prepare(`
+    const rows = wanted.length === 0 ? [] : db.prepare(`
       SELECT DISTINCT user_id, address_hash
       FROM signals
       WHERE created_at >= ? AND user_id IN (${wanted.map(() => '?').join(',')})
@@ -173,20 +181,23 @@ const Signal = {
 
     const hashesOf = new Map();
     const sharing = new Map();
-    for (const { user_id: userId, address_hash: hash } of rows) {
-      if (!hashesOf.has(userId)) hashesOf.set(userId, new Set());
-      hashesOf.get(userId).add(hash);
+    const actedFrom = (nodeId, hash) => {
+      if (!hashesOf.has(nodeId)) hashesOf.set(nodeId, new Set());
+      hashesOf.get(nodeId).add(hash);
 
       if (!sharing.has(hash)) sharing.set(hash, []);
-      sharing.get(hash).push(userId);
-    }
+      sharing.get(hash).push(nodeId);
+    };
+
+    for (const { user_id: userId, address_hash: hash } of rows) actedFrom(userId, hash);
+    for (const node of extraNodes) if (node.hash) actedFrom(node.id, node.hash);
 
     const targetHashes = againstUserId ? hashesOf.get(againstUserId) ?? new Set() : new Set();
-    const linkedToTarget = new Set(ids.filter((id) =>
+    const linkedToTarget = new Set(nodes.filter((id) =>
       id !== againstUserId && [...(hashesOf.get(id) ?? [])].some((hash) => targetHashes.has(hash))));
 
-    // Union-find over the accounts asked about, so sharing reaches through a third account.
-    const parent = new Map(ids.map((id) => [id, id]));
+    // Union-find over the nodes asked about, so sharing reaches through a third node.
+    const parent = new Map(nodes.map((id) => [id, id]));
     const find = (id) => {
       let root = id;
       while (parent.get(root) !== root) root = parent.get(root);
@@ -206,16 +217,16 @@ const Signal = {
     }
 
     const size = new Map();
-    for (const id of ids) {
+    for (const id of nodes) {
       const root = find(id);
       size.set(root, (size.get(root) ?? 0) + 1);
     }
 
-    // Numbered by where a group's first account falls in the order asked about, so the numbers read down
+    // Numbered by where a group's first node falls in the order asked about, so the numbers read down
     // the screen the list is drawn in rather than out of whatever order the rows came back in.
     const groupOf = new Map();
     const numbers = new Map();
-    for (const id of ids) {
+    for (const id of nodes) {
       const root = find(id);
       if ((size.get(root) ?? 0) < 2) continue;
       if (!numbers.has(root)) numbers.set(root, numbers.size + 1);

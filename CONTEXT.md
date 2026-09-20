@@ -13,7 +13,8 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Comment** | A reader's remark on a listing. Editable and deletable by its own author, deletable by the listing's author and by staff. |
 | **Like** | One account's revocable mark on a listing. The count the room sees is the sum of these and the Anonymous Likes; staff see the likers, and can remove a like or clear an account's likes. |
 | **Install** | One copy of the app's local storage, named by a random id it makes once and sends in the `X-Formamorph-Install` header. It names a copy of the app and nothing else: not a person, not a device. Never shown, never put in a URL. |
-| **Anonymous Like** | One Install's revocable mark on a listing, given without an account, counted into the number the room sees. It carries the address hash the per-listing cap counts; the hourly sweep empties that hash at the Signal retention period and the like stays. |
+| **Anonymous Like** | One Install's revocable mark on a listing, given without an account, counted into the number the room sees. It carries the address hash the per-listing cap counts; the hourly sweep empties that hash at the Signal retention period and the like stays. Staff read these beside the account likers, grouped by shared address, and can remove one address group or all of them. |
+| **Address key** | How staff name one address inside one listing, to remove the marks that came from it. A digest of the stored address hash with the listing id: it means nothing on another listing, it cannot be read back into the hash, and it is never stored. Null once the sweep has emptied the hash, which leaves the clear-all route as the only way those marks go. |
 | **Claim** | Moving an Install's Anonymous Likes onto an account and linking the two, on sign-in. Each mark becomes a Like that keeps the time it was first given, unless the account already likes the listing or wrote it; every mark goes either way. A mark that becomes a Like leaves the listing's total where it was. A skipped one lowers that total by exactly one, which is the point in both cases: an overlap was one person counted twice, and nobody may like their own work. The link is what makes the guest route follow the account's rules afterwards, so signing out is not a second like. |
 | **Image asset** | An uploaded image served back by filename: a listing's thumbnail, an account's avatar, or an event's poster. |
 
@@ -40,7 +41,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Quarantine** | A listing hidden from everyone but its author and staff, deleted when its deadline passes unless staff release it. The author gets one grace extension per episode. |
 | **Report** | A private note from a reader to staff about a listing, a comment, or a profile. Resolved as actioned or dismissed; the reporter is told which. |
 | **Feedback** | A public bug report or suggestion thread, with a status, replies, and votes. Distinct from a report, which is never public. |
-| **Audit log** | The append-only record of what staff did to accounts and to published work, including a like removed (`like_removed`) or an account's likes cleared (`likes_cleared`). Every name in it is a snapshot, never a join. |
+| **Audit log** | The append-only record of what staff did to accounts and to published work, including a like removed (`like_removed`), an account's likes cleared (`likes_cleared`), and the same two on the guest half of a listing's number (`anonymous_likes_removed`, `anonymous_likes_cleared`). Every name in it is a snapshot, never a join. |
 
 ## Leaving
 

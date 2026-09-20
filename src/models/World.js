@@ -15,8 +15,9 @@ const { parseModels } = require('../utils/modelList');
 const AUTHOR_LIST_LIMIT = 1000;
 
 /**
- * Ceiling for a staff like list, in either direction. Enough to read a burst; a viral listing's full
- * roll would turn the endpoint into a table dump. The list's `total` says when it bites.
+ * Ceiling for a staff like list, in either direction, and for the Anonymous Likes read beside it. Enough
+ * to read a burst; a viral listing's full roll would turn the endpoint into a table dump. The list's
+ * `total` says when it bites. Exported on `World` so the two halves of one screen share one number.
  */
 const LIKE_LIST_LIMIT = 500;
 
@@ -57,6 +58,8 @@ const parseModelLicense = (stored) => {
 };
 
 const World = {
+  LIKE_LIST_LIMIT,
+
   /**
    * Find a world by ID
    * @param {string} id - World ID
@@ -818,15 +821,18 @@ const World = {
    * different shapes — SQLite's CURRENT_TIMESTAMP for the account, an ISO string for the like — and
    * SQLite's date functions read both. Whole seconds, since the account stamp has no finer resolution.
    *
+   * The claim time rides along because a Like moved off an Install keeps the instant the heart was first
+   * pressed. Without it a fresh account holding likes older than itself reads like a ring.
+   *
    * @param {string} worldId - World ID
    * @param {number} [limit] - Row ceiling
    * @returns {Object} `{ total, rows }` — `total` is the full count; each row is the account plus
-   *   `liked_at` and `account_age_seconds`
+   *   `liked_at`, `claimed_at` and `account_age_seconds`
    */
   likers: (worldId, limit = LIKE_LIST_LIMIT) => {
     const rows = db.prepare(`
       SELECT u.id, u.username, u.avatar_file, u.status, u.created_at,
-        l.created_at AS liked_at,
+        l.created_at AS liked_at, l.claimed_at,
         CAST(strftime('%s', l.created_at) AS INTEGER) - CAST(strftime('%s', u.created_at) AS INTEGER)
           AS account_age_seconds
       FROM world_likes l

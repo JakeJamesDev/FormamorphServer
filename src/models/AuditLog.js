@@ -36,6 +36,11 @@ const ACTIONS = [
   // A like taken off a listing by staff, and every like an account gave cleared in one action.
   'like_removed',
   'likes_cleared',
+  // The same two on the guest half of a listing's number: one address's Anonymous Likes, and every
+  // Anonymous Like on the listing. The entry names the listing and the count and never the address —
+  // the hash behind a group is the one thing here that would follow a person from listing to listing.
+  'anonymous_likes_removed',
+  'anonymous_likes_cleared',
   // How an account ended: the request, the login that took it back, and the erasure itself. The last is
   // written by the sweeper or by the command-line tool, so it names no actor — only who it was done to,
   // which is the one row where keeping the username is the entire point.

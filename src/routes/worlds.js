@@ -1,7 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, removeAnonymousLikeGroup, removeAnonymousLikes, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
@@ -115,10 +115,16 @@ router.put('/:id/anonymous-like', smallJson, likeLimiter, setAnonymousLikeStatus
 router.get('/:id/likes', protect, staff, getLikers);
 router.delete('/:id/likes/:userId', protect, staff, removeLike);
 
-// The same likes with the Signals behind them read across: who liked from the same address as whom, and
-// who from the author's. Its own route because every call is written to the audit log, and counting the
-// likes on a listing must not file a look at the people who gave them.
+// The same likes with the addresses behind them read across, account and anonymous together: who liked
+// from the same address as whom, and who from the author's. Its own route because it is the expensive
+// half, and counting the likes on a listing should not pay for the grouping.
 router.get('/:id/likes/audit', protect, staff, getLikersAudit);
+
+// Taking the guest half of the number off: one address's marks, or all of them. By address rather than
+// by Install, because an address is what the audit groups by and what inflation arrives from. All of
+// them is for a flood whose addresses retention has already taken.
+router.delete('/:id/anonymous-likes/address/:addressKey', protect, staff, removeAnonymousLikeGroup);
+router.delete('/:id/anonymous-likes', protect, staff, removeAnonymousLikes);
 
 // Delete world
 // Quarantine a listing, or lift one (staff only). Out of the catalog for everyone but its author, and

@@ -21,6 +21,7 @@ const InstallClaim = require('../models/InstallClaim');
 const {
   ANONYMOUS_LIKES, CODES, NO_INSTALL, INSTALL_HEADER_NAME, installIdFrom
 } = require('../config/anonymousLikes');
+const { addressKeyFor } = require('../utils/addressKey');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
 const { avatarUrlFor } = require('../utils/avatarUrl');
@@ -84,7 +85,30 @@ const likerRow = (row) => ({
   status: row.status,
   createdAt: row.created_at,
   likedAt: row.liked_at,
+  // When a Claim moved this like off an Install, and null when it was given as an account. `likedAt`
+  // stays the first press either way, so the pair reads as "liked then, arrived on this account later".
+  claimedAt: row.claimed_at || null,
   accountAgeAtLikeSeconds: row.account_age_seconds
+});
+
+/**
+ * One Anonymous Like's name inside the address grouping.
+ *
+ * Prefixed because the grouping numbers accounts and marks together, so a node name has to be unique
+ * across both. An account id is a bare UUID, which nothing spelled this way can collide with.
+ */
+const markNode = (mark) => `install:${mark.install_id}`;
+
+/**
+ * What both removal routes answer with: what went, and the two numbers the staff screen is showing.
+ *
+ * The summed count so the listing's number can be redrawn, and the anonymous count so the audit beside
+ * it can. Both read after the delete, so they are what a fresh read would say.
+ */
+const anonymousResult = (worldId, removed) => ({
+  removed,
+  likes: World.likeCount(worldId),
+  anonymous: AnonymousLike.countFor(worldId)
 });
 
 /** How long a quarantine runs by default, and the bounds an admin may set instead. */
@@ -940,7 +964,12 @@ exports.getLikers = async (req, res, next) => {
 
     const { total, rows } = World.likers(world.id);
 
-    res.status(200).json({ success: true, data: { total, rows: rows.map(likerRow) } });
+    // The number under the rows is the account total; the room's number is higher by this. Without it a
+    // staff member reading a listing with four rows and a count of forty has no idea where forty is from.
+    res.status(200).json({
+      success: true,
+      data: { total, rows: rows.map(likerRow), anonymous: AnonymousLike.countFor(world.id) }
+    });
   } catch (error) {
     next(error);
   }
@@ -956,9 +985,17 @@ exports.getLikers = async (req, res, next) => {
  *
  * A separate route rather than a field on the list, so the plain list stays cheap and staff-only data
  * stays off it. Reading it is routine staff work and writes no audit entry. `models/Signal.sharedAddressGroups`
- * explains what a group means. Nothing here acts — the removal route beside it is what staff act with.
+ * explains what a group means. Nothing here acts — the removal routes beside it are what staff act with.
  *
- * @desc    List the accounts that liked a listing, grouped by shared network address
+ * Anonymous Likes are on the same screen and in the same grouping. They are half the number a listing
+ * shows, so an audit that read only the account side would miss a flood entirely — and with no account
+ * behind one, the address it came from is the only thing that can link it to anything. A mark joins a
+ * group through its hash. A mark the retention sweep has emptied is listed and joins nothing, because
+ * past ninety days the server no longer knows where it came from.
+ *
+ * Staff see neither the hash nor the Install id. `utils/addressKey` says what they get instead and why.
+ *
+ * @desc    List the likes on a listing, account and anonymous, grouped by shared network address
  * @route   GET /api/worlds/:id/likes/audit
  * @access  Private/Staff
  */
@@ -970,9 +1007,11 @@ exports.getLikersAudit = async (req, res, next) => {
     }
 
     const { total, rows } = World.likers(world.id);
+    const marks = AnonymousLike.auditRows(world.id, World.LIKE_LIST_LIMIT);
     const { groupOf, linkedToTarget } = Signal.sharedAddressGroups(
       rows.map((row) => row.id),
-      world.author_id
+      world.author_id,
+      marks.map((mark) => ({ id: markNode(mark), hash: mark.address_hash }))
     );
 
     res.status(200).json({
@@ -983,6 +1022,14 @@ exports.getLikersAudit = async (req, res, next) => {
           ...likerRow(row),
           groupId: groupOf.get(row.id) ?? null,
           linkedToAuthor: linkedToTarget.has(row.id)
+        })),
+        anonymous: AnonymousLike.countFor(world.id),
+        anonymousRows: marks.map((mark) => ({
+          likedAt: mark.created_at,
+          browserFamily: mark.browser_family,
+          groupId: groupOf.get(markNode(mark)) ?? null,
+          linkedToAuthor: linkedToTarget.has(markNode(mark)),
+          addressKey: addressKeyFor(world.id, mark.address_hash)
         }))
       }
     });
@@ -990,6 +1037,93 @@ exports.getLikersAudit = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Both ways of taking Anonymous Likes off a listing, which differ only in what they take.
+ *
+ * Written once because the four steps around the delete are the part worth keeping identical: staff do
+ * not moderate each other, the log records corrections rather than attempts, and both numbers the screen
+ * is showing come back either way.
+ *
+ * The author stands where the liker stands on the account removal. There is no account behind a mark to
+ * protect, and the listing the marks are on is another staff member's work when its author is one.
+ *
+ * @param {Object} route - `{ action, take, describe }`: the audit action, what to delete, and how the
+ *   entry says how much went. Nothing reaching the log names an address — the hash behind a group is the
+ *   one thing here that would follow a person from listing to listing.
+ * @returns {Function} An Express handler
+ */
+const removeMarks = ({ action, take, describe }) => async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    const author = User.findById(world.author_id);
+    if (!canModerate(req.user, author)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
+    const removed = take(world, req);
+
+    if (removed > 0) {
+      AuditLog.tryRecord({
+        action,
+        actor: req.user,
+        targetUser: world.author_id === req.user.id ? null : author,
+        targetKind: world.kind || 'world',
+        targetName: world.name,
+        snippet: describe(removed)
+      });
+    }
+
+    res.status(200).json({ success: true, data: anonymousResult(world.id, removed) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** How much went, for a log entry somebody reads. */
+const marksRemoved = (count) => `Removed ${count} Anonymous ${count === 1 ? 'Like' : 'Likes'}`;
+
+/**
+ * Take one address's Anonymous Likes off a listing.
+ *
+ * The narrow half of the pair, and the one staff should reach for: a group that came from one place goes
+ * and the marks around it stay. A group the audit drew across two addresses takes two presses, because
+ * what is removable is an address rather than a drawing — the group is what the screen shows, the address
+ * is what the rows have in common.
+ *
+ * A key that matches nothing removes nothing and says so, rather than answering 404: a group somebody
+ * else removed a moment ago is gone rather than missing.
+ *
+ * @desc    Remove one address group's Anonymous Likes from a listing
+ * @route   DELETE /api/worlds/:id/anonymous-likes/address/:addressKey
+ * @access  Private/Staff
+ */
+exports.removeAnonymousLikeGroup = removeMarks({
+  action: 'anonymous_likes_removed',
+  take: (world, req) => AnonymousLike.removeByAddressKey(world.id, req.params.addressKey),
+  describe: (removed) => `${marksRemoved(removed)} from one address`
+});
+
+/**
+ * Take every Anonymous Like off a listing.
+ *
+ * The blunt half, for the flood the address grouping can no longer see. Once the retention sweep has
+ * emptied a mark's hash there is no address left to name it by, so a months-old flood has nothing the
+ * narrow route can act on. Staff keep a way to clear it; the account Likes are untouched.
+ *
+ * @desc    Remove every Anonymous Like from a listing
+ * @route   DELETE /api/worlds/:id/anonymous-likes
+ * @access  Private/Staff
+ */
+exports.removeAnonymousLikes = removeMarks({
+  action: 'anonymous_likes_cleared',
+  take: (world) => AnonymousLike.removeAll(world.id),
+  describe: marksRemoved
+});
 
 /**
  * Take one account's like off a listing. The public count drops on the next read: it is counted per
