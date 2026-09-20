@@ -13,8 +13,15 @@ const { flagDeletedListing } = require('./reportController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
-const { recordSignal } = require('../utils/recordSignal');
+const { recordSignal, addressHash } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
+const Setting = require('../models/Setting');
+const AnonymousLike = require('../models/AnonymousLike');
+const {
+  ANONYMOUS_LIKES, CODES, INSTALL_HEADER_NAME, installIdFrom
+} = require('../config/anonymousLikes');
+const { clientAddress } = require('../utils/clientAddress');
+const { browserFamily } = require('../utils/browserFamily');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { modelList } = require('../utils/modelList');
 const { appVersionOf } = require('../utils/appVersion');
@@ -24,6 +31,40 @@ const { judgingContest, contestLockedBody } = require('../utils/judgingContest')
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
+
+/**
+ * Whether this server lets a guest press the heart at all.
+ *
+ * Rides on the catalog and on a listing so a client knows before the press, rather than finding out by
+ * being refused. It says what the server allows and never what this reader may do, so it is the same
+ * value for everyone and adds nothing to a response's `Vary`.
+ *
+ * @returns {boolean} Whether the setting is on
+ */
+const anonymousLikesEnabled = () => Setting.get(ANONYMOUS_LIKES) === true;
+
+/**
+ * Fill in `liked` for a guest who named their Install.
+ *
+ * A signed-in reader's hearts are already filled from their account and are not touched here — the
+ * account is the answer for somebody who has one, whatever Install they happen to be on. A guest who
+ * sends no Install keeps the flag absent, exactly as they do today: having no account is not a decision
+ * against liking anything.
+ *
+ * Reads the whole page in one query, so a catalog costs the same one look however many cards it holds.
+ *
+ * @param {Object} req - The Express request
+ * @param {Array<Object>} worlds - The rows about to be sent, edited in place
+ */
+const markGuestLikes = (req, worlds) => {
+  if (req.user || worlds.length === 0) return;
+
+  const installId = installIdFrom(req);
+  if (!installId) return;
+
+  const liked = AnonymousLike.likedAmong(worlds.map((world) => world.id), installId);
+  for (const world of worlds) world.liked = liked.has(world.id);
+};
 
 /** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
 const likerRow = (row) => ({
@@ -222,16 +263,22 @@ exports.getWorlds = async (req, res, next) => {
       viewer: req.user || null
     });
 
+    markGuestLikes(req, result.worlds);
+
     // The catalog reads differently for every reader — liked marks, and an author's own quarantined
-    // listings — so it is one reader's to hold, and it is only ever held against a revalidation.
+    // listings — so it is one reader's to hold, and it is only ever held against a revalidation. A guest's
+    // marks come from the Install header, so a cache keyed on the token alone would hand one guest's
+    // hearts to another.
     res.setHeader('Cache-Control', 'private, no-cache');
     res.vary('Authorization');
+    res.vary(INSTALL_HEADER_NAME);
 
     res.status(200).json({
       success: true,
       count: result.worlds.length,
       pagination: result.pagination,
       total: result.total,
+      anonymousLikes: anonymousLikesEnabled(),
       data: result.worlds
     });
   } catch (error) {
@@ -281,8 +328,12 @@ exports.getWorld = async (req, res, next) => {
     world.thumbnail = await getThumbnailBase64(world.thumbnail_file);
     delete world.thumbnail_file;
 
+    markGuestLikes(req, [world]);
+    res.vary(INSTALL_HEADER_NAME);
+
     res.status(200).json({
       success: true,
+      anonymousLikes: anonymousLikesEnabled(),
       data: world
     });
   } catch (error) {
@@ -721,6 +772,81 @@ exports.setLikeStatus = async (req, res, next) => {
     // Recorded whichever way the heart went. The Signal is about the account acting from an address, and a
     // ring that could clear its trail by unliking would be a ring this table could not see.
     recordSignal(req, req.user.id, 'like');
+
+    res.status(200).json({
+      success: true,
+      data: { liked, likes: World.likeCount(world.id) }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Set or clear an Anonymous Like, for somebody who has not signed in.
+ *
+ * The heart used to send a guest to sign-in, and most of them stopped there — so a listing somebody was
+ * glad they downloaded looked unloved. This is the same press with somewhere to land: a mark against the
+ * Install, added into the same number an account Like is added into.
+ *
+ * Takes no token at all. A token that arrives anyway changes nothing, because the mark belongs to the
+ * Install and the account route is what a signed-in client uses.
+ *
+ * Every refusal carries a code as well as its wording. The client picks a different message for each —
+ * a switched-off server sends the guest to sign-in as it always did, and a listing that has gone quiet
+ * needs no message — and a code lets the wording change without changing what the client does.
+ *
+ * The cap on how many Anonymous Likes one address may give a listing, and the guards that follow an
+ * Install's linked account, are separate work. This route is the press and nothing more.
+ *
+ * @desc    Set whether this Install likes a listing
+ * @route   PUT /api/worlds/:id/anonymous-like
+ * @access  Public
+ */
+exports.setAnonymousLikeStatus = async (req, res, next) => {
+  try {
+    // First, and before anything else is read: the switch is the operator's emergency stop, and what
+    // else might be wrong with a request is not something a switched-off server should answer.
+    if (Setting.get(ANONYMOUS_LIKES) !== true) {
+      return res.status(403).json({
+        success: false,
+        code: CODES.OFF,
+        error: 'Liking without an account is switched off on this server'
+      });
+    }
+
+    // As the room sees it, with no viewer: this route has no account behind it, so a quarantined or
+    // unlisted listing is as absent here as a deleted one.
+    const world = World.findById(req.params.id);
+    if (!World.isVisibleTo(world, null)) {
+      return res.status(404).json({ success: false, code: CODES.NOT_VISIBLE, error: 'World not found' });
+    }
+
+    const installId = installIdFrom(req);
+    if (!installId) {
+      return res.status(400).json({
+        success: false,
+        code: CODES.BAD_INSTALL,
+        error: 'This request carried no usable install id'
+      });
+    }
+
+    const { liked } = req.body;
+    if (typeof liked !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        code: CODES.BAD_LIKED,
+        error: 'Liked must be a boolean value'
+      });
+    }
+
+    // Where the mark came from, in the form a Signal holds it: the address is hashed with the same salt
+    // and never stored, and the browser family is the same coarse tiebreaker. Both are for the cap and
+    // the staff audit; the like itself needs neither.
+    AnonymousLike.set(world.id, installId, liked, {
+      addressHash: addressHash(clientAddress(req)),
+      browserFamily: browserFamily(req.headers['user-agent'])
+    });
 
     res.status(200).json({
       success: true,

@@ -173,10 +173,12 @@ const World = {
       // Base query
       // `like_count` is counted per row rather than kept as a column beside `downloads`: the catalog is
       // sortable by it, and a denormalized counter that drifts would rank the whole catalog wrongly rather
-      // than merely display one bad number. Takes no parameter, so it can sit ahead of the WHERE clause
-      // without disturbing the positional params below.
+      // than merely display one bad number. Both kinds of like are added here, so the Likes sort orders by
+      // the number on the card. Takes no parameter, so it can sit ahead of the WHERE clause without
+      // disturbing the positional params below.
       let query = `SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type,
-        (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id) AS like_count
+        (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id)
+          + (SELECT COUNT(*) FROM anonymous_likes a WHERE a.world_id = w.id) AS like_count
         FROM worlds w JOIN users u ON w.author_id = u.id`;
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
@@ -716,15 +718,20 @@ const World = {
    * @returns {Object} `{ likes, downloads }`, both zero for an account that has published nothing
    */
   authorTotals: (authorId) => {
+    // Both kinds of like, under the same public-only rule, so a profile total matches the numbers on the
+    // author's own cards.
     const row = db.prepare(`
       SELECT
         COALESCE(SUM(w.downloads), 0) AS downloads,
         (SELECT COUNT(*) FROM world_likes l
           JOIN worlds lw ON lw.id = l.world_id
-          WHERE lw.author_id = ? AND lw.quarantined_at IS NULL AND lw.visibility = 'public') AS likes
+          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND lw.visibility = 'public')
+        + (SELECT COUNT(*) FROM anonymous_likes a
+          JOIN worlds aw ON aw.id = a.world_id
+          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND aw.visibility = 'public') AS likes
       FROM worlds w
-      WHERE w.author_id = ? AND w.quarantined_at IS NULL AND w.visibility = 'public'
-    `).get(authorId, authorId);
+      WHERE w.author_id = @authorId AND w.quarantined_at IS NULL AND w.visibility = 'public'
+    `).get({ authorId });
 
     return { likes: row.likes || 0, downloads: row.downloads || 0 };
   },
@@ -749,11 +756,30 @@ const World = {
   },
 
   /**
-   * How many accounts have liked a listing.
+   * The number the room sees: account Likes and Anonymous Likes added together.
+   *
+   * One number rather than two, because a visitor has no reason to know there are two kinds of like —
+   * both say somebody was glad they downloaded something. Staff read the account side on its own through
+   * `accountLikeCount`, which is what the Likers list counts.
+   *
    * @param {string} worldId - World ID
    * @returns {number} The count
    */
-  likeCount: (worldId) =>
+  likeCount: (worldId) => db.prepare(`
+    SELECT (SELECT COUNT(*) FROM world_likes WHERE world_id = @worldId)
+         + (SELECT COUNT(*) FROM anonymous_likes WHERE world_id = @worldId) AS count
+  `).get({ worldId }).count,
+
+  /**
+   * How many accounts have liked a listing, with no Anonymous Likes in it.
+   *
+   * The staff lists' number: they read accounts, and a total counting marks with no account behind them
+   * would not match the rows under it.
+   *
+   * @param {string} worldId - World ID
+   * @returns {number} The count
+   */
+  accountLikeCount: (worldId) =>
     db.prepare('SELECT COUNT(*) AS count FROM world_likes WHERE world_id = ?').get(worldId).count,
 
   /**
@@ -810,7 +836,7 @@ const World = {
       LIMIT ?
     `).all(worldId, limit);
 
-    return { total: World.likeCount(worldId), rows };
+    return { total: World.accountLikeCount(worldId), rows };
   },
 
   /**

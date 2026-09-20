@@ -28,7 +28,7 @@ const TABLES = [
   'messages', 'message_states',
   'policies', 'policy_acceptances',
   'feedback', 'feedback_comments', 'feedback_reads', 'feedback_votes',
-  'audit_log', 'follows', 'world_likes',
+  'audit_log', 'follows', 'world_likes', 'anonymous_likes',
   'events', 'event_placements',
   'world_changelog',
   'reports',

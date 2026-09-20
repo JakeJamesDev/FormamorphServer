@@ -347,6 +347,28 @@ const apply = (database) => {
     )
   `);
 
+  // One Anonymous Like per Install per listing. The guest half of the same number: a mark from a copy of
+  // the app rather than from an account, summed with `world_likes` everywhere the room sees a count.
+  //
+  // The Install id is stored plain, because it is a random id the app made for itself and names nothing
+  // else. The address is not stored at all, only `sha256(salt + address)` the way a Signal holds one, and
+  // the hash is blanked once it is past retention while the like itself stays — the like is the person's,
+  // the hash only limits abuse. The browser family is the same coarse tiebreaker it is on a Signal.
+  //
+  // Cascades on the listing, which is the only side there is: there is no account to cascade from, and
+  // that is exactly what a Claim exists to fix.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS anonymous_likes (
+      world_id TEXT NOT NULL,
+      install_id TEXT NOT NULL,
+      address_hash TEXT NOT NULL,
+      browser_family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (world_id, install_id),
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+    )
+  `);
+
   // Who follows whom. The pair is the key, so following twice is a no-op rather than a second row, and
   // both sides cascade — a deleted account leaves neither dangling followers nor a feed of a ghost.
   //

@@ -1,14 +1,29 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, getLikers, getLikersAudit, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
 const { protect, staff, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
+const { LIKE_WINDOW_MS, LIKE_LIMIT } = require('../config/likeLimit');
+const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
+
+// One budget over both like routes, keyed on the address rather than the account: the guest route has no
+// account to key on, and one budget over the pair is the point — signing out must not hand anybody a
+// second allowance. Under the server-wide limiter, which a script aimed at the heart would sit inside.
+const likeLimiter = rateLimit({
+  windowMs: LIKE_WINDOW_MS,
+  limit: LIKE_LIMIT,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: clientIpKeyGenerator,
+  message: { success: false, error: 'Too many likes at once. Try again later.' }
+});
 
 // World content can be large (up to 100MB); the parser cap sits above that so the thumbnail and
 // envelope around a world at the limit are never refused by the parser first.
@@ -91,9 +106,11 @@ router.put(
   setSpoilerStatus
 );
 
-// Like a listing, or take it back. Signed in only — a like is one account's, which is what makes it
-// revocable and countable, unlike the anonymous download tally.
-router.put('/:id/like', smallJson, protect, setLikeStatus);
+// Like a listing, or take it back. Two routes and one budget: an account's like, and a guest's mark
+// against the copy of the app they are holding. Both are revocable and countable, unlike the download
+// tally, and the room is shown their sum.
+router.put('/:id/like', smallJson, likeLimiter, protect, setLikeStatus);
+router.put('/:id/anonymous-like', smallJson, likeLimiter, setAnonymousLikeStatus);
 
 // Who liked it, and taking one of those likes off (staff only). The public count is a count and nothing
 // more; the names behind it are the team's, for telling a popular listing from an inflated one.

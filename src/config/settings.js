@@ -1,4 +1,5 @@
 const { validateClientMinimums } = require('./clientVersion');
+const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 
 /**
  * The settings staff can change without a deploy.
@@ -23,7 +24,10 @@ const SETTINGS_PATH = '/api/settings';
 
 /** Every setting there is, by key. */
 const SETTINGS = {
-  [CLIENT_MINIMUMS]: { default: {}, validate: validateClientMinimums }
+  [CLIENT_MINIMUMS]: { default: {}, validate: validateClientMinimums },
+  // Off until the privacy text that states the collection is live, then the operator's to turn on — and
+  // the emergency stop if a flood ever needs one. `config/anonymousLikes` says what it gates.
+  [ANONYMOUS_LIKES]: { default: false, validate: validateAnonymousLikes }
 };
 
 /**

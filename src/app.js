@@ -6,6 +6,7 @@ const morgan = require('morgan');
 const { errorHandler } = require('./middleware/error');
 const { readClient, requireClientVersion } = require('./middleware/clientVersion');
 const { CLIENT_HEADER_NAME } = require('./config/clientVersion');
+const { INSTALL_HEADER_NAME } = require('./config/anonymousLikes');
 const { SETTINGS_PATH } = require('./config/settings');
 const { clientIpKeyGenerator } = require('./utils/rateLimitKey');
 
@@ -49,10 +50,10 @@ app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   // If-None-Match so a browser can ask the catalog whether its copy is still current; ETag so it can
-  // read the answer back; the client header so a browser build can say which version it is. A preflight
-  // refuses a header it was not told to allow, and a cross-origin fetch cannot see a response header it
-  // was not told to expose.
-  allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match', CLIENT_HEADER_NAME],
+  // read the answer back; the client header so a browser build can say which version it is; the install
+  // header so a guest can press the heart. A preflight refuses a header it was not told to allow, and a
+  // cross-origin fetch cannot see a response header it was not told to expose.
+  allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match', CLIENT_HEADER_NAME, INSTALL_HEADER_NAME],
   exposedHeaders: ['ETag']
 }));
 // urlencoded only acts on form posts (world uploads are JSON), so a tight cap here is safe
