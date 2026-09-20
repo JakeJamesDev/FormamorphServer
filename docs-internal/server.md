@@ -182,12 +182,18 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-20** — deployed `038c50f`: `npm run publish-policy`, which puts the authored Privacy Policy into
+  the live row. All 1,691 tests passed in 22.1 s wall time. Pre-deploy backup
+  `pre-deploy-247fb75-2026-09-20T13-11-54.152Z.db` in `backups/`, integrity `ok`. No schema step ran. Published
+  the 20 September text with re-accept, acceptance version 2 to 3. The dry run showed no Policies tab edit.
+  The public policy route serves the new date line. Service active with zero restarts, public route 200.
 - **2026-09-20** — deployed `247fb75`: anonymous likes with a per-connection cap and claim on sign-in, contest
   ties on the podium, and prompt listings stamped with their models and app version. All 1,678 tests passed in
   30.9 s wall time. Pre-deploy backup `pre-deploy-759334f-2026-09-20T12-55-27.022Z.db` in `backups/`, integrity
   `ok`. Boot applied `tables`, `promptModels`, `promptAppVersion`, `placementTies`, `likeClaims`, and `indexes`.
   `placementTies` rebuilds `event_placements`, so a rollback past it restores the backup first. The table held
-  0 rows before and after. The privacy policy text changed. Service active with zero restarts, public route 200.
+  0 rows before and after. The privacy policy seed file changed, but the live row did not until `038c50f`.
+  Service active with zero restarts, public route 200.
 - **2026-09-17** — deployed `759334f`: an add-on offer dated by when it was made, and the likes audit no
   longer logged. All 1,484 tests passed in 15.9 s wall time. No schema change, so no pre-deploy backup.
   Service active with zero restarts, public route 200.
