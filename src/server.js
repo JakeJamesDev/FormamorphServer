@@ -14,7 +14,7 @@ const { migrate } = require('./schema');
 const { initStorage } = require('./utils/fileStorage');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
-const { sweepSignals, startSignalSweeper } = require('./utils/sweepSignals');
+const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
 const app = require('./app');
 
@@ -49,8 +49,8 @@ startEventSweeper();
 // And for the addresses: let go of whatever passed its 90 days while the server was down, then keep
 // letting go. Retention is a promise the privacy policy makes in writing, so nothing here waits for a
 // reader.
-sweepSignals();
-startSignalSweeper();
+sweepRetention();
+startRetentionSweeper();
 
 // And for the accounts that asked to go: erase whatever came due while the server was down, then keep
 // erasing. A user was told a date, so the wait must not depend on the process having stayed up.

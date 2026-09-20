@@ -25,7 +25,7 @@ const MATCH_EVENT_LIMIT = 20;
  * Rows arrive and expire and are never edited. Nothing here decides anything: a shared Signal is evidence
  * for a person to weigh, never a hold, a block or a score. That is a design decision, not an omission.
  *
- * @see utils/recordSignal for how a row is written, and utils/sweepSignals for how it expires
+ * @see utils/recordSignal for how a row is written, and utils/sweepRetention for how it expires
  */
 const Signal = {
   EVENTS,

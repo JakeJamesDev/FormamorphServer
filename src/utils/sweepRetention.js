@@ -12,20 +12,29 @@ const AnonymousLike = require('../models/AnonymousLike');
  *
  * Two steps, because the two rows expire differently. A Signal is nothing but where an account acted
  * from, so the whole row goes. An Anonymous Like is a like as well as an address, and the like is not
- * the operator's to quietly take away at ninety days, so only the hash goes and the number a listing
- * shows does not move.
+ * the operator's to take away with it, so only the hash goes and the number a listing shows does not
+ * move. One deadline over both, which is the Signal's: an address is an address whichever table it sits
+ * in, and two windows would be two promises.
  *
- * Each step is caught on its own, the way the event sweeper catches each transition. They share a
+ * Each step is caught on its own, the way the event sweeper catches each transition. They share the
  * deadline and nothing else, and a table that will not write must not keep the other one from expiring.
  *
- * Never throws. This runs on a timer nobody is watching; a failure to purge must not take the process down.
+ * Never throws, down to reading the deadline. This runs on a timer nobody is watching; a failure to
+ * purge must not take the process down.
  *
  * @param {string} [now] - The instant to measure retention back from, for tests
  * @returns {{signals: number, hashes: number}} Rows deleted, and marks that lost their hash
  */
-const sweepSignals = (now = undefined) => {
-  const cutoff = Signal.cutoff(now);
+const sweepRetention = (now = undefined) => {
   const swept = { signals: 0, hashes: 0 };
+
+  let cutoff;
+  try {
+    cutoff = Signal.cutoff(now);
+  } catch (error) {
+    console.error('Retention sweep could not read its deadline:', error);
+    return swept;
+  }
 
   try {
     swept.signals = Signal.deleteBefore(cutoff);
@@ -42,6 +51,6 @@ const sweepSignals = (now = undefined) => {
   return swept;
 };
 
-const startSignalSweeper = () => hourly(sweepSignals);
+const startRetentionSweeper = () => hourly(sweepRetention);
 
-module.exports = { sweepSignals, startSignalSweeper };
+module.exports = { sweepRetention, startRetentionSweeper };

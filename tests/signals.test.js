@@ -6,7 +6,7 @@ import { createUser, authHeader, worldPayload } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const { browserFamily } = require('../src/utils/browserFamily');
-const { sweepSignals } = require('../src/utils/sweepSignals');
+const { sweepRetention } = require('../src/utils/sweepRetention');
 const Signal = require('../src/models/Signal');
 const { DAY_MS } = require('../src/config/time');
 const deleteUser = require('../src/utils/deleteUser');
@@ -520,7 +520,7 @@ describe('purging Signals after ninety days', () => {
     age(old, 91, NOW);
     age(recent, 89, NOW);
 
-    const swept = sweepSignals(NOW);
+    const swept = sweepRetention(NOW);
 
     expect(swept.signals).toBe(1);
     expect(rowsFor(old)).toEqual([]);
@@ -531,7 +531,7 @@ describe('purging Signals after ninety days', () => {
     const user = createUser({ username: 'here-now' });
     await login(user);
 
-    sweepSignals();
+    sweepRetention();
 
     expect(rowsFor(user)).toHaveLength(1);
   });

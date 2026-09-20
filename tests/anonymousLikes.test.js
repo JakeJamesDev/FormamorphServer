@@ -2,15 +2,16 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import request from 'supertest';
 import { createRequire } from 'module';
 import { app, db } from './context.js';
-import { createUser, authHeader, worldPayload, fromItsOwnAddress } from './helpers.js';
+import { createUser, authHeader, worldPayload, fromAddress, fromItsOwnAddress } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Setting = require('../src/models/Setting');
 const Signal = require('../src/models/Signal');
+const AnonymousLike = require('../src/models/AnonymousLike');
 const { ANONYMOUS_LIKES, INSTALL_HEADER_NAME } = require('../src/config/anonymousLikes');
 const { LIKE_LIMIT } = require('../src/config/likeLimit');
 const { DAY_MS } = require('../src/config/time');
-const { sweepSignals } = require('../src/utils/sweepSignals');
+const { sweepRetention } = require('../src/utils/sweepRetention');
 
 /**
  * Anonymous Likes — the heart a guest can press.
@@ -43,15 +44,7 @@ const anonLike = (id, installId, liked) => {
 const accountLike = (user, id, liked) =>
   request(app).put(`/api/worlds/${id}/like`).set(authHeader(user)).send({ liked });
 
-/**
- * Send a request from a named address, the way one arrives through Cloudflare.
- *
- * The cap counts a connection, so a test about it has to put several presses in one place and one press
- * somewhere else. Named addresses rather than `fromItsOwnAddress`, which is for spreading requests out.
- */
-const from = (address, req) => req.set('CF-Connecting-IP', address);
-
-/** Two connections, each documentation range, so neither is a real address anybody holds. */
+/** Two addresses from the documentation range, so neither is one anybody holds. */
 const HOUSE = '198.51.100.7';
 const ELSEWHERE = '198.51.100.8';
 
@@ -65,10 +58,10 @@ const ageMarks = (worldId, days, now) => db.prepare(`
   UPDATE anonymous_likes SET created_at = ? WHERE world_id = ?
 `).run(new Date(new Date(now).getTime() - days * DAY_MS).toISOString(), worldId);
 
-/** Fill a listing's cap from one connection, and answer with the three Installs that did it. */
+/** Fill a listing's cap from one address, and answer with the three Installs that did it. */
 const fillCap = async (worldId, address = HOUSE) => {
   const installs = [install(), install(), install()];
-  for (const installId of installs) await from(address, anonLike(worldId, installId, true));
+  for (const installId of installs) await fromAddress(address, anonLike(worldId, installId, true));
 
   return installs;
 };
@@ -502,20 +495,20 @@ describe('the budget on the like routes', () => {
   });
 });
 
-describe('the cap on how many Anonymous Likes one connection may give a listing', () => {
+describe('the cap on how many Anonymous Likes one address may give a listing', () => {
   // An Install is free to make: clearing local storage makes a new one. The address behind them is the
   // one thing that is harder to change, so the count is held against that. Three rather than one,
   // because a household and a dorm both look like one address and a family is not a ring. Nothing
   // beyond the refusal happens to a shared address.
 
-  it('refuses the fourth Install on one connection and names why', async () => {
+  it('refuses the fourth Install on one address and names why', async () => {
     enable();
     const { id } = await seed();
     await fillCap(id);
 
-    const res = await from(HOUSE, anonLike(id, install(), true));
+    const res = await fromAddress(HOUSE, anonLike(id, install(), true));
 
-    expect(res.status).toBe(429);
+    expect(res.status).toBe(403);
     expect(res.body.code).toBe('anonymous_likes_address_cap');
   });
 
@@ -524,7 +517,7 @@ describe('the cap on how many Anonymous Likes one connection may give a listing'
     const { id } = await seed();
     await fillCap(id);
 
-    await from(HOUSE, anonLike(id, install(), true));
+    await fromAddress(HOUSE, anonLike(id, install(), true));
 
     expect((await readOne(id)).body.data.likes).toBe(3);
   });
@@ -537,22 +530,22 @@ describe('the cap on how many Anonymous Likes one connection may give a listing'
     const second = await seed({ name: 'Somewhere Else' });
     await fillCap(first.id);
     const refused = install();
-    await from(HOUSE, anonLike(first.id, refused, true));
+    await fromAddress(HOUSE, anonLike(first.id, refused, true));
 
-    const res = await from(HOUSE, anonLike(second.id, refused, true));
+    const res = await fromAddress(HOUSE, anonLike(second.id, refused, true));
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: true, likes: 1 });
   });
 
-  it('counts the connection rather than the Installs', async () => {
+  it('counts the address rather than the Installs', async () => {
     // Three marks on the listing already, and a fourth press that is allowed: the guard is not counting
     // rows, it is counting the ones that came from the same place.
     enable();
     const { id } = await seed();
     await fillCap(id);
 
-    const res = await from(ELSEWHERE, anonLike(id, install(), true));
+    const res = await fromAddress(ELSEWHERE, anonLike(id, install(), true));
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: true, likes: 4 });
@@ -565,7 +558,7 @@ describe('the cap on how many Anonymous Likes one connection may give a listing'
     const { id } = await seed();
     const [mine] = await fillCap(id);
 
-    const res = await from(HOUSE, anonLike(id, mine, true));
+    const res = await fromAddress(HOUSE, anonLike(id, mine, true));
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: true, likes: 3 });
@@ -577,9 +570,9 @@ describe('the cap on how many Anonymous Likes one connection may give a listing'
     enable();
     const { id } = await seed();
     const [mine] = await fillCap(id);
-    await from(HOUSE, anonLike(id, mine, false));
+    await fromAddress(HOUSE, anonLike(id, mine, false));
 
-    const res = await from(HOUSE, anonLike(id, mine, true));
+    const res = await fromAddress(HOUSE, anonLike(id, mine, true));
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: true, likes: 3 });
@@ -592,7 +585,7 @@ describe('the cap on how many Anonymous Likes one connection may give a listing'
     const { id } = await seed();
     await fillCap(id);
 
-    const res = await from(HOUSE, anonLike(id, install(), false));
+    const res = await fromAddress(HOUSE, anonLike(id, install(), false));
 
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: false, likes: 3 });
@@ -604,6 +597,9 @@ describe('letting go of an address after ninety days', () => {
 
   afterEach(() => { vi.restoreAllMocks(); });
 
+  /** These tests make a step fail on purpose, and the sweep says so on the console by design. */
+  const quiet = () => vi.spyOn(console, 'error').mockImplementation(() => {});
+
   it('keeps the like and stops it holding a place once its hash is gone', async () => {
     // Retention is a promise the privacy policy makes in writing: the address goes at ninety days. The
     // like is not the operator's to take away with it, so the number stays and only the cap lets go.
@@ -612,8 +608,8 @@ describe('letting go of an address after ninety days', () => {
     await fillCap(id);
     ageMarks(id, 91, NOW);
 
-    const swept = sweepSignals(NOW);
-    const res = await from(HOUSE, anonLike(id, install(), true));
+    const swept = sweepRetention(NOW);
+    const res = await fromAddress(HOUSE, anonLike(id, install(), true));
 
     expect(swept.hashes).toBe(3);
     expect(res.status).toBe(200);
@@ -626,11 +622,11 @@ describe('letting go of an address after ninety days', () => {
     await fillCap(id);
     ageMarks(id, 89, NOW);
 
-    const swept = sweepSignals(NOW);
-    const res = await from(HOUSE, anonLike(id, install(), true));
+    const swept = sweepRetention(NOW);
+    const res = await fromAddress(HOUSE, anonLike(id, install(), true));
 
     expect(swept.hashes).toBe(0);
-    expect(res.status).toBe(429);
+    expect(res.status).toBe(403);
   });
 
   it('reports nothing the second time over the same marks', async () => {
@@ -638,9 +634,9 @@ describe('letting go of an address after ninety days', () => {
     const { id } = await seed();
     await fillCap(id);
     ageMarks(id, 91, NOW);
-    sweepSignals(NOW);
+    sweepRetention(NOW);
 
-    expect(sweepSignals(NOW).hashes).toBe(0);
+    expect(sweepRetention(NOW).hashes).toBe(0);
   });
 
   it('empties the hashes even when the Signal purge throws', async () => {
@@ -650,11 +646,38 @@ describe('letting go of an address after ninety days', () => {
     const { id } = await seed();
     await fillCap(id);
     ageMarks(id, 91, NOW);
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    quiet();
     vi.spyOn(Signal, 'deleteBefore').mockImplementation(() => { throw new Error('the table is locked'); });
 
-    const swept = sweepSignals(NOW);
+    const swept = sweepRetention(NOW);
 
     expect(swept).toEqual({ signals: 0, hashes: 3 });
+  });
+
+  it('purges the Signals even when emptying the hashes throws', async () => {
+    // The other direction of the same bargain. The hash step runs second, so nothing about the order
+    // protects the purge; only the catch around each step does.
+    const user = createUser({ username: 'long-ago' });
+    db.prepare(`
+      INSERT INTO signals (user_id, event, address_hash, browser_family, created_at)
+      VALUES (?, 'login', 'a-hash', 'Other/Other', ?)
+    `).run(user.id, new Date(new Date(NOW).getTime() - 91 * DAY_MS).toISOString());
+    quiet();
+    vi.spyOn(AnonymousLike, 'blankHashesBefore').mockImplementation(() => {
+      throw new Error('the table is locked');
+    });
+
+    const swept = sweepRetention(NOW);
+
+    expect(swept).toEqual({ signals: 1, hashes: 0 });
+  });
+
+  it('answers with nothing swept rather than throwing when the deadline cannot be read', async () => {
+    // `hourly` calls this with no argument and never looks at what comes back, so a throw here would
+    // be an unhandled rejection on a timer nobody is watching.
+    quiet();
+    vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
+
+    expect(sweepRetention(NOW)).toEqual({ signals: 0, hashes: 0 });
   });
 });

@@ -18,7 +18,7 @@ const Signal = require('../models/Signal');
 const Setting = require('../models/Setting');
 const AnonymousLike = require('../models/AnonymousLike');
 const {
-  ANONYMOUS_LIKES, ADDRESS_CAP, CODES, INSTALL_HEADER_NAME, installIdFrom
+  ANONYMOUS_LIKES, CODES, INSTALL_HEADER_NAME, installIdFrom
 } = require('../config/anonymousLikes');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
@@ -846,11 +846,15 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
 
     // Last of the refusals, and only on the way in: taking a like back is never refused, and an Install
     // does not count against itself, so pressing again is as free as pressing the first time.
-    if (liked && AnonymousLike.countFromAddress(world.id, hash, installId) >= ADDRESS_CAP) {
-      return res.status(429).json({
+    //
+    // 403 rather than 429, though the route's own limiter also answers 429 here. This is not "slow
+    // down": waiting changes nothing, and a client backing off a 429 would retry a press that can
+    // never land.
+    if (liked && !AnonymousLike.addressHasRoom(world.id, hash, installId)) {
+      return res.status(403).json({
         success: false,
         code: CODES.ADDRESS_CAP,
-        error: 'This connection has already liked this listing as many times as it can without an account'
+        error: 'This address has already liked this listing as many times as it can without an account'
       });
     }
 

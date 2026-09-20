@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { ADDRESS_CAP } = require('../config/anonymousLikes');
 
 /**
  * A mark one Install left on a listing.
@@ -55,24 +56,27 @@ const AnonymousLike = {
       .run(worldId, installId).changes > 0,
 
   /**
-   * How many other Installs have marked this listing from the same address.
+   * Whether this address has a place left on this listing.
    *
-   * The Install asking is left out of its own count, so a repeat press and a press after a clear are
-   * always allowed: the question is how many places under the cap the rest have taken, not how many
-   * rows exist.
+   * The rule lives with the rows it counts rather than with the route that refuses. The route turns a
+   * no into a status and a code, and that is all of it the route decides.
+   *
+   * Only other Installs are counted, so a repeat press and a press after a clear are always allowed.
+   * The question is how many places the rest have taken, not how many rows exist, and an Install must
+   * never be what stands in its own way.
    *
    * Blanked rows fall out on their own. A hash the sweep has emptied matches no address, so a mark past
    * its retention stops holding a place while the like itself stays and stays counted.
    *
    * @param {string} worldId - The listing
    * @param {string} addressHash - The salted hash of the address pressing now
-   * @param {string} installId - The Install pressing now, excluded
-   * @returns {number} How many other Installs share the address on this listing
+   * @param {string} installId - The Install pressing now, which never counts against itself
+   * @returns {boolean} Whether a mark from this address may be added
    */
-  countFromAddress: (worldId, addressHash, installId) => db.prepare(`
+  addressHasRoom: (worldId, addressHash, installId) => db.prepare(`
     SELECT COUNT(*) AS n FROM anonymous_likes
     WHERE world_id = ? AND address_hash = ? AND install_id <> ?
-  `).get(worldId, addressHash, installId).n,
+  `).get(worldId, addressHash, installId).n < ADDRESS_CAP,
 
   /**
    * Empty the address hash on every mark older than the cutoff, and say how many were emptied.
