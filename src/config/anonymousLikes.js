@@ -64,7 +64,6 @@ const validateAnonymousLikes = (value) =>
 
 module.exports = {
   ANONYMOUS_LIKES,
-  INSTALL_HEADER,
   INSTALL_HEADER_NAME,
   CODES,
   installIdFrom,

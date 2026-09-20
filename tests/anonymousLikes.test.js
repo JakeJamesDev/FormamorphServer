@@ -249,6 +249,22 @@ describe('the number the room sees', () => {
     expect(res.body.data.likes).toBe(0);
   });
 
+  it('takes its Anonymous Likes with it when the listing goes', async () => {
+    // Deleting the listing must leave nothing behind. A cascade is silently a no-op without the foreign
+    // keys pragma, so the count is read back through a listing published afresh under the same id.
+    enable();
+    const { author, id } = await seed();
+    await anonLike(id, install(), true);
+
+    await request(app).delete(`/api/worlds/${id}`).set(authHeader(author));
+    db.prepare(`
+      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file)
+      VALUES (?, 'Sedge Landing', 'again', ?, 't.png', 'c.json')
+    `).run(id, author.id);
+
+    expect((await readOne(id)).body.data.likes).toBe(0);
+  });
+
   it('keeps counting stored Anonymous Likes after the feature is switched off', async () => {
     // Switching off is a stop, not a delete: it refuses new marks and keeps the ones already given.
     enable();
@@ -271,6 +287,21 @@ describe('the staff lists', () => {
     await anonLike(id, install(), true);
 
     const res = await request(app).get(`/api/worlds/${id}/likes`).set(authHeader(staffUser));
+
+    expect(res.body.data.total).toBe(1);
+    expect(res.body.data.rows).toHaveLength(1);
+  });
+
+  it('leaves Anonymous Likes out of what an account has given', async () => {
+    // The other half of the same rule: this list answers for one account, and a mark with no account
+    // behind it belongs to nobody it could be listed under.
+    enable();
+    const staffUser = createUser({ username: `mod-${Math.random().toString(36).slice(2, 8)}`, accountType: 'mod' });
+    const { reader, id } = await seed();
+    await accountLike(reader, id, true);
+    await anonLike(id, install(), true);
+
+    const res = await request(app).get(`/api/users/${reader.id}/likes`).set(authHeader(staffUser));
 
     expect(res.body.data.total).toBe(1);
     expect(res.body.data.rows).toHaveLength(1);
@@ -422,5 +453,18 @@ describe('the budget on the like routes', () => {
     for (const res of [guest, account]) {
       expect(Number(res.headers['ratelimit-limit'])).toBe(LIKE_LIMIT);
     }
+  });
+
+  it('gives each address its own budget rather than one bucket for everyone', async () => {
+    // Keyed on the client address: a busy household must not spend the budget of the next person to
+    // press, and one client must not be able to hide behind another's quiet.
+    enable();
+    const { id } = await seed();
+
+    const first = await fromItsOwnAddress(anonLike(id, install(), true));
+    const second = await fromItsOwnAddress(anonLike(id, install(), true));
+
+    expect(Number(first.headers['ratelimit-remaining'])).toBe(LIKE_LIMIT - 1);
+    expect(Number(second.headers['ratelimit-remaining'])).toBe(LIKE_LIMIT - 1);
   });
 });

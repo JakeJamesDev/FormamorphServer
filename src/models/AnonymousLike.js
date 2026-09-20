@@ -55,18 +55,6 @@ const AnonymousLike = {
       .run(worldId, installId).changes > 0,
 
   /**
-   * Whether this Install has marked a listing.
-   *
-   * @param {string} worldId - The listing
-   * @param {string} installId - The Install
-   * @returns {boolean} True when its mark is on it
-   */
-  has: (worldId, installId) => Boolean(
-    db.prepare('SELECT 1 AS found FROM anonymous_likes WHERE world_id = ? AND install_id = ?')
-      .get(worldId, installId)
-  ),
-
-  /**
    * Which of the given listings this Install has marked, so a page of cards can fill every heart in
    * without a query per card. The account side's `World.likedAmong` does the same job for a reader.
    *
@@ -83,17 +71,7 @@ const AnonymousLike = {
     `).all(installId, ...ids);
 
     return new Set(rows.map((row) => row.world_id));
-  },
-
-  /**
-   * How many Installs have marked a listing. The account side's count is `World.accountLikeCount`, and
-   * the room is shown the two added together.
-   *
-   * @param {string} worldId - The listing
-   * @returns {number} The count
-   */
-  countFor: (worldId) =>
-    db.prepare('SELECT COUNT(*) AS count FROM anonymous_likes WHERE world_id = ?').get(worldId).count
+  }
 };
 
 module.exports = AnonymousLike;

@@ -807,7 +807,7 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
   try {
     // First, and before anything else is read: the switch is the operator's emergency stop, and what
     // else might be wrong with a request is not something a switched-off server should answer.
-    if (Setting.get(ANONYMOUS_LIKES) !== true) {
+    if (!anonymousLikesEnabled()) {
       return res.status(403).json({
         success: false,
         code: CODES.OFF,

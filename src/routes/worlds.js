@@ -13,9 +13,7 @@ const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
 
-// One budget over both like routes, keyed on the address rather than the account: the guest route has no
-// account to key on, and one budget over the pair is the point — signing out must not hand anybody a
-// second allowance. Under the server-wide limiter, which a script aimed at the heart would sit inside.
+// The budget both like routes share; `config/likeLimit` says why it is one budget on the address.
 const likeLimiter = rateLimit({
   windowMs: LIKE_WINDOW_MS,
   limit: LIKE_LIMIT,
