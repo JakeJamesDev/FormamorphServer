@@ -33,7 +33,7 @@ The publish route refuses a world listing whose content matches a bundled world,
 
 - **Scope**: the `world` and `model` kinds only, on publish. Updates to an existing listing are checked the same way as a new publish.
 - **World check**: fingerprint the published content and look it up in the world fingerprint set. On a match, refuse before storing anything.
-- **Fingerprint function**: collect every string value of 40 or more characters from the content, at any depth, except values under a `code` key. Collapse each whitespace run to one space and trim. Remove duplicates, sort, join with a newline, and take a lowercase hex SHA-256. It must give the same result as the client's function.
+- **Fingerprint function**: collect every string value from the content, at any depth, except values under a `code` key. Collapse each whitespace run to one space and trim. Keep only results of 40 or more characters. Remove duplicates, sort, join with a newline, and take a lowercase hex SHA-256. It must give the same result as the client's function.
 - **Avatar check**: the route already decodes the VRM bytes to read the license. Take the SHA-256 of those same bytes and look it up in the Avatar hash set, before the license gate.
 - **Fingerprint list**: a generated JSON file with a world fingerprint list and an Avatar hash list. It is copied in from the client repo at each release. The server loads it once at start into two sets.
 - **Cost**: one pass over the world content per publish, the same order as the existing size check. No database change.
