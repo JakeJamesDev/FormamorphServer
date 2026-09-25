@@ -104,6 +104,7 @@ const World = {
     
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
+    world.placeholder = world.placeholder === 1;
 
     world.models = parseModels(world.models);
 
@@ -274,6 +275,7 @@ const World = {
         
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
+        world.placeholder = world.placeholder === 1;
 
         world.models = parseModels(world.models);
 
@@ -385,9 +387,9 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          model_license, contest_event_id, visibility, models, app_version, created_at, updated_at
+          model_license, contest_event_id, visibility, models, app_version, placeholder, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -407,6 +409,7 @@ const World = {
         worldData.visibility || DEFAULT_VISIBILITY,
         JSON.stringify(worldData.models || []),
         worldData.app_version || null,
+        worldData.placeholder ? 1 : 0,
         now,
         now
       );
@@ -855,11 +858,11 @@ const World = {
    * @param {string} userId - User ID
    * @param {number} [limit] - Row ceiling
    * @returns {Object} `{ total, rows }` — `total` is the full count; each row is the listing's id,
-   *   name, author id and username, `quarantined_at`, and `liked_at`
+   *   name, author id and username, `quarantined_at`, `placeholder`, and `liked_at`
    */
   likesGiven: (userId, limit = LIKE_LIST_LIMIT) => {
     const rows = db.prepare(`
-      SELECT w.id, w.name, w.author_id, a.username AS author_username, w.quarantined_at,
+      SELECT w.id, w.name, w.author_id, a.username AS author_username, w.quarantined_at, w.placeholder,
         l.created_at AS liked_at
       FROM world_likes l
       JOIN worlds w ON w.id = l.world_id

@@ -89,6 +89,9 @@ const apply = (database) => {
       -- Bumped by every update that changes what a downloader receives. A client compares it with the
       -- one it downloaded to know the source changed; the server keeps no version behind it.
       revision INTEGER NOT NULL DEFAULT 1,
+      -- Whether the thumbnail is the server's stand-in for an entity published without art. A client
+      -- draws its own art for a flagged listing instead of the stored copy.
+      placeholder INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id),

@@ -52,6 +52,7 @@ const KIND_RULES = {
     requiresThumbnail: false,
     maxContentBytes: 25 * 1024 * 1024, // a portrait is base64 inside the content
     canEnterContest: true,
+    flagsPlaceholder: true, // the client draws its own art over a stand-in thumbnail
     label: 'Character',
   },
   dictionary: {

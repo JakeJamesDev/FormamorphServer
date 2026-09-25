@@ -202,6 +202,7 @@ describe('what this account liked', () => {
       authorId: two.id,
       authorUsername: two.username,
       quarantined: false,
+      placeholder: false,
       likedAt: expect.any(String)
     });
     expect(res.body.data.rows[1].quarantined).toBe(true);

@@ -533,6 +533,7 @@ exports.getUserLikes = async (req, res, next) => {
           authorUsername: row.author_username,
           // Flagged rather than dropped: a like on a hidden listing is still a like somebody gave.
           quarantined: Boolean(row.quarantined_at),
+          placeholder: row.placeholder === 1,
           likedAt: row.liked_at
         }))
       }

@@ -13,6 +13,7 @@
     "list-backups": "node src/utils/listBackups.js",
     "cleanup-backups": "node src/utils/cleanupBackups.js",
     "publish-policy": "node src/utils/runPublishPolicy.js",
+    "backfill-placeholders": "node src/utils/runBackfillPlaceholders.js",
     "snapshot": "node src/utils/runSnapshot.js",
     "list-snapshots": "node src/utils/listSnapshots.js",
     "cleanup-snapshots": "node src/utils/cleanupSnapshots.js",

@@ -1,6 +1,7 @@
 # 04: Placeholder Flag and Backfill
 
-Status: ready-for-agent
+Status: ready-for-human
+Base: eb6cdce
 Blocked by: None (can start immediately)
 Recommended model: Claude Sonnet 5 (`claude-sonnet-5`)
 Reasoning effort: high
@@ -13,17 +14,21 @@ Reasoning effort: high
 
 ## Acceptance criteria
 
-- [ ] A schema step adds `placeholder INTEGER NOT NULL DEFAULT 0` to the listings table through `addColumns`.
-- [ ] Publish: an entity published without a thumbnail gets `placeholder = 1`. The server still stores its stand-in copy, so older clients keep working.
-- [ ] Update: an update that sends a thumbnail sets `placeholder = 0`. An update without one leaves the flag as it is.
-- [ ] Every response that carries a listing includes `placeholder` as a boolean: lists, the slim list, details, profiles and likes.
-- [ ] Backfill: entity rows whose stored thumbnail bytes equal the stored copy of `assets/placeholders/entity.png` get `placeholder = 1`. First check whether `saveThumbnail` re-encodes its input. If it does, compare against the re-encoded bytes. The backfill is safe to run twice, and it reports how many rows it flagged.
-- [ ] The backfill runs only when the user starts it. It never runs by itself at startup.
-- [ ] Avatar listings are never flagged.
-- [ ] Tests cover publish with and without a thumbnail, an update that adds art, the response field, and the backfill on a matching row, a non-matching row and an avatar row.
-- [ ] Server tests pass. Report their wall time.
+- [x] A schema step adds `placeholder INTEGER NOT NULL DEFAULT 0` to the listings table through `addColumns`.
+- [x] Publish: an entity published without a thumbnail gets `placeholder = 1`. The server still stores its stand-in copy, so older clients keep working.
+- [x] Update: an update that sends a thumbnail sets `placeholder = 0`. An update without one leaves the flag as it is.
+- [x] Every response that carries a listing includes `placeholder` as a boolean: lists, the slim list, details, profiles and likes.
+- [x] Backfill: entity rows whose stored thumbnail bytes equal the stored copy of `assets/placeholders/entity.png` get `placeholder = 1`. First check whether `saveThumbnail` re-encodes its input. If it does, compare against the re-encoded bytes. The backfill is safe to run twice, and it reports how many rows it flagged.
+- [x] The backfill runs only when the user starts it. It never runs by itself at startup.
+- [x] Avatar listings are never flagged.
+- [x] Tests cover publish with and without a thumbnail, an update that adds art, the response field, and the backfill on a matching row, a non-matching row and an avatar row.
+- [x] Server tests pass. Report their wall time.
 
 ## Scope notes
 
 - API shape change only: the listing gains `placeholder`. Nothing in world or save files changes.
 - The user runs the backfill on the live server after deploy.
+
+## Comments
+
+- **2026-09-24, implementation:** `saveThumbnail` writes the decoded upload unchanged, so the backfill compares against the asset's bytes. Run on the live server after deploy: `npm run backfill-placeholders` shows the count, `-- --write` stores it. On a copy of the local database it flagged 7 of 9 entities; all 7 hashed to the stand-in, and a second run found 0. Server tests: 1,707 passed, 26.0 s wall. No "slim list" of listings exists on the server; the staff likes list carries the flag.

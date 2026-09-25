@@ -530,7 +530,8 @@ exports.createWorld = async (req, res, next) => {
           contest_event_id: contestEventId || null,
           visibility: linked.visibility,
           models,
-          app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null
+          app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null,
+          placeholder: !thumbnail && Boolean(rules.flagsPlaceholder)
         },
         contentFile,
         thumbnailFile
@@ -694,6 +695,7 @@ exports.updateWorld = async (req, res, next) => {
         // Save new thumbnail
         const thumbnailFile = await saveThumbnail(thumbnail);
         updateData.thumbnail_file = thumbnailFile;
+        updateData.placeholder = 0;
       }
 
       // If content data is provided, update it
