@@ -1,0 +1,23 @@
+{
+  "worldOverview": {
+    "name": "Fixture Harbor",
+    "description": "A small harbor town where the tide decides who may leave and who must stay.",
+    "tags": ["harbor"]
+  },
+  "stats": [
+    {
+      "name": "Tide",
+      "code": "return self.value + 1;",
+      "description": "Rises each turn until the harbor floods and every boat is lifted free."
+    }
+  ],
+  "locations": [],
+  "entities": [
+    {
+      "name": "Mara",
+      "aiDescription": "Mara runs the ferry and never takes a passenger across after dark."
+    }
+  ],
+  "traits": [],
+  "statUpdates": []
+}

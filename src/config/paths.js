@@ -31,6 +31,11 @@ const AVATARS_DIR = path.join(STORAGE_ROOT, 'avatars');
 /** Event poster artwork. Its own directory so deleting an event can never reach a listing's thumbnail. */
 const EVENT_POSTERS_DIR = path.join(STORAGE_ROOT, 'event-posters');
 
+/** The bundled fingerprint list, copied in from the client repo. Tests point it at a fixture list. */
+const BUNDLED_FINGERPRINTS_PATH = process.env.BUNDLED_FINGERPRINTS_PATH
+  ? path.resolve(PROJECT_ROOT, process.env.BUNDLED_FINGERPRINTS_PATH)
+  : path.join(PROJECT_ROOT, 'src', 'config', 'bundledFingerprints.json');
+
 module.exports = {
   PROJECT_ROOT,
   DATA_DIR,
@@ -40,4 +45,5 @@ module.exports = {
   THUMBNAILS_DIR,
   AVATARS_DIR,
   EVENT_POSTERS_DIR,
+  BUNDLED_FINGERPRINTS_PATH,
 };

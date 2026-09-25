@@ -7,6 +7,7 @@ const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense } = require('../utils/vrmLicenseGate');
+const { isBundledWorld, BUNDLED_WORLD_ERROR } = require('../utils/bundledFingerprint');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedListing } = require('./reportController');
@@ -487,6 +488,11 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: modelsError });
     }
 
+    // After the size cap, so the one pass over the content is over bounded content.
+    if (kind === 'world' && isBundledWorld(contentData)) {
+      return res.status(400).json({ success: false, error: BUNDLED_WORLD_ERROR });
+    }
+
     // Held from the gate's own parse, so the terms a reader is shown are stored without decoding the
     // file a second time.
     let modelLicense = null;
@@ -647,6 +653,10 @@ exports.updateWorld = async (req, res, next) => {
     const { models, error: modelsError } = modelsField(req.body, rulesFor(kind), false);
     if (modelsError) {
       return res.status(400).json({ success: false, error: modelsError });
+    }
+
+    if (kind === 'world' && isBundledWorld(contentData)) {
+      return res.status(400).json({ success: false, error: BUNDLED_WORLD_ERROR });
     }
 
     let modelLicense = null;

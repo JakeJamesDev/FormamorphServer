@@ -17,6 +17,8 @@ export default defineConfig({
       // The server refuses to boot without this, so the suite supplies one the way it supplies the token
       // secret. Fixed rather than random, so a hash is the same value across a run.
       SIGNAL_SALT: 'test-salt',
+      // Holds only the fixture world's fingerprint, so no test carries bundled world text.
+      BUNDLED_FINGERPRINTS_PATH: 'tests/fixtures/test-fingerprint-list.json',
     },
     coverage: {
       provider: 'v8',

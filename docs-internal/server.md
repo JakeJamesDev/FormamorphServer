@@ -103,6 +103,7 @@ snapshot from the morning it ran, and the 14-day prune deleted it on 2026-09-18.
 | Backup schedule or steps | `crontab -e` as `formamorph`, script at `/usr/local/bin/formamorph-backup` | nothing, cron reads it live |
 | R2 credentials for rclone | `~/.config/rclone/rclone.conf` (remote `r2:`) | test with `rclone lsd r2:` |
 | Minimum client version per route | `PUT /api/settings/client_minimums` as staff | nothing, the next request reads it |
+| Bundled world and Avatar list | `src/config/bundledFingerprints.json`, copied from the client repo by its release step | commit and deploy; the server reads it once at start |
 
 ### Requiring a newer client on one route
 
