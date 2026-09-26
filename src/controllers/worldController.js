@@ -7,7 +7,12 @@ const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense } = require('../utils/vrmLicenseGate');
-const { isBundledWorld, BUNDLED_WORLD_ERROR } = require('../utils/bundledFingerprint');
+const {
+  isBundledWorld,
+  BUNDLED_WORLD_ERROR,
+  isDefaultAvatar,
+  DEFAULT_AVATAR_ERROR,
+} = require('../utils/bundledFingerprint');
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedListing } = require('./reportController');
@@ -155,7 +160,7 @@ function modelsField(body, rules, required) {
 }
 
 /**
- * Read an Avatar publish's file once, for both the gate and the terms a reader is shown.
+ * Read an Avatar publish's file once, for the default Avatar check, the gate, and the terms a reader is shown.
  *
  * This is the only kind whose content the server parses. `contentData.vrm` is a data URL of the file's own
  * bytes; the client-sent `contentData.license` is never read here — it is stored verbatim for readers of
@@ -175,7 +180,10 @@ function readModelContent(contentData) {
   const match = typeof dataUrl === 'string' && dataUrl.match(/^data:[^;,]*;base64,(.+)$/);
   if (!match) return { error: { error: 'Avatar content must include a vrm data URL' } };
 
-  const meta = readVrmLicenseMeta(Buffer.from(match[1], 'base64'));
+  const bytes = Buffer.from(match[1], 'base64');
+  if (isDefaultAvatar(bytes)) return { error: { error: DEFAULT_AVATAR_ERROR } };
+
+  const meta = readVrmLicenseMeta(bytes);
   const { allowed, failedRequirements } = licenseGate(meta);
   if (!allowed) {
     return { error: { error: 'That Avatar does not have a Permissive License', failedRequirements } };

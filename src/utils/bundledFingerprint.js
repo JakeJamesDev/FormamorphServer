@@ -75,4 +75,23 @@ const isBundledWorld = (content) => BUNDLED.worlds.has(worldFingerprint(content)
 /** The refusal body for a publish or update that carries a bundled world. */
 const BUNDLED_WORLD_ERROR = 'This is a bundled world. Edit it to make it your own, then publish.';
 
-module.exports = { sha256Hex, worldFingerprint, loadBundledFingerprints, isBundledWorld, BUNDLED_WORLD_ERROR };
+/**
+ * Whether a VRM file is a default Avatar some build shipped.
+ *
+ * @param {Buffer} bytes - The decoded VRM file
+ * @returns {boolean}
+ */
+const isDefaultAvatar = (bytes) => BUNDLED.avatars.has(sha256Hex(bytes));
+
+/** The refusal body for a publish or update that carries a default Avatar. */
+const DEFAULT_AVATAR_ERROR = 'This is the default avatar. Upload your own VRM.';
+
+module.exports = {
+  sha256Hex,
+  worldFingerprint,
+  loadBundledFingerprints,
+  isBundledWorld,
+  BUNDLED_WORLD_ERROR,
+  isDefaultAvatar,
+  DEFAULT_AVATAR_ERROR,
+};

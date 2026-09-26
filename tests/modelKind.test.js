@@ -10,6 +10,7 @@ import { makeVrm1, makeVrm0, makePlainGltf } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
 const { KIND_RULES, MODEL_LICENSE_REQUIREMENTS } = require('../src/config/kinds');
+const { readVrmLicenseMeta, licenseGate } = require('../src/utils/vrmLicenseGate');
 const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
 
 /**
@@ -406,17 +407,11 @@ describe('the bundled Formamorph avatars', () => {
     ['alternate-avatar.vrm', path.resolve(TESTS_DIR, '..', '..', 'formamorph', 'build-assets', 'alternate-avatar.vrm')],
   ];
 
+  // The gate alone: the route refuses these files as default Avatars before the gate runs.
   for (const [name, filePath] of files) {
     const runner = fs.existsSync(filePath) ? it : it.skip;
-    runner(`passes the gate: ${name}`, async () => {
-      const user = createUser();
-      const bytes = fs.readFileSync(filePath);
-      const res = await post(user, modelPayload({
-        name,
-        contentData: { vrm: vrmDataUrl(bytes), license: { metaVersion: '1' }, hash: name },
-      }));
-
-      expect(res.status).toBe(201);
+    runner(`passes the gate: ${name}`, () => {
+      expect(licenseGate(readVrmLicenseMeta(fs.readFileSync(filePath)))).toMatchObject({ allowed: true });
     });
   }
 });
