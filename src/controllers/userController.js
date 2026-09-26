@@ -30,11 +30,14 @@ exports.getUsers = async (req, res, next) => {
     const sort = Object.prototype.hasOwnProperty.call(User.SORT_FIELDS, req.query.sort) ? req.query.sort : null;
     const order = req.query.order === 'desc' ? 'desc' : 'asc';
 
-    const result = User.getAll({ page, limit, search, sort, order });
+    // Email is an administrator's alone; other staff get neither the field nor a search or sort on it.
+    const includeEmail = isAdmin(req.user);
+    const result = User.getAll({ page, limit, search, sort, order, includeEmail });
 
     // One query each for the page rather than a per-row lookup.
     const ids = result.users.map(user => user.id);
     const responses = Policy.responsesBy(Policy.UPLOAD_GATE, ids);
+    const privacyResponses = Policy.responsesBy(Policy.PRIVACY_POLICY, ids);
     const messageCounts = Message.countsByRecipient(ids);
 
     res.status(200).json({
@@ -47,7 +50,7 @@ exports.getUsers = async (req, res, next) => {
       data: result.users.map(user => ({
         id: user.id,
         username: user.username,
-        email: user.email,
+        ...(includeEmail ? { email: user.email } : {}),
         status: user.status,
         accountType: user.account_type,
         avatarUrl: avatarUrlFor(user.avatar_file),
@@ -56,6 +59,8 @@ exports.getUsers = async (req, res, next) => {
         // How they last answered the upload gate: 'accepted', 'declined', or 'unanswered' — which
         // covers never being asked and an answer a version bump has since invalidated.
         termsResponse: responses.get(user.id) || 'unanswered',
+        // The Privacy Policy answer, bucketed the same way.
+        privacyResponse: privacyResponses.get(user.id) || 'unanswered',
         // Direct messages sent to them, so the history button can say how much is behind it.
         messageCount: messageCounts.get(user.id) || 0
       }))
@@ -395,7 +400,8 @@ exports.updateUserStatus = async (req, res, next) => {
       user: {
         id: updatedUser.id,
         username: updatedUser.username,
-        email: updatedUser.email,
+        // Email is an administrator's alone, as in the users list.
+        ...(isAdmin(req.user) ? { email: updatedUser.email } : {}),
         status: updatedUser.status,
         accountType: updatedUser.account_type,
         avatarUrl: avatarUrlFor(updatedUser.avatar_file),

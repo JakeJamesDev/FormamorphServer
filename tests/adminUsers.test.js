@@ -445,3 +445,117 @@ describe('GET /api/users message counts', () => {
     expect(countFor(await list(root), 'reader')).toBe(0);
   });
 });
+
+describe('GET /api/users email visibility', () => {
+  const moderator = () => createUser({ username: 'a-moderator', accountType: 'mod' });
+
+  it('gives an administrator every email', async () => {
+    const root = admin();
+    createUser({ username: 'carol', email: 'carol@example.com' });
+
+    const res = await list(root, '?search=carol');
+
+    expect(res.body.data[0].email).toBe('carol@example.com');
+  });
+
+  it('leaves the email out for staff who are not administrators', async () => {
+    const mod = moderator();
+    createUser({ username: 'carol', email: 'carol@example.com' });
+
+    const res = await list(mod, '?search=carol');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0]).not.toHaveProperty('email');
+  });
+
+  it('does not match an email for a non-administrator search', async () => {
+    // A substring search would let a moderator find an address one guess at a time.
+    const mod = moderator();
+    createUser({ username: 'carol', email: 'carol@example.com' });
+
+    const res = await list(mod, '?search=example.com');
+
+    expect(res.body.data).toEqual([]);
+    expect(res.body.total).toBe(0);
+  });
+
+  it('ignores an email sort for a non-administrator', async () => {
+    // Ordered by address, adjacent rows would give away how each address begins.
+    const mod = moderator();
+    createUser({ username: 'b-user', email: 'a@example.com' });
+    createUser({ username: 'a-user', email: 'b@example.com' });
+
+    const byEmail = await list(mod, '?sort=email&order=asc');
+    const unsorted = await list(mod);
+
+    expect(byEmail.body.data.map((u) => u.username)).toEqual(unsorted.body.data.map((u) => u.username));
+  });
+});
+
+describe('GET /api/users privacy answers', () => {
+  const enablePrivacy = (root) =>
+    request(app).put('/api/policies/privacy_policy').set(authHeader(root))
+      .send({ enabled: true, title: 'Privacy Policy', body: 'What we store about you.' });
+  const answerPrivacy = (user, answer) =>
+    request(app).post(`/api/policies/privacy-policy/${answer}`).set(authHeader(user));
+
+  it('reports how each user answered the privacy policy', async () => {
+    const root = admin();
+    await enablePrivacy(root);
+    await answerPrivacy(root, 'accept');
+    const yes = createUser({ username: 'agreed' });
+    const no = createUser({ username: 'refused' });
+    createUser({ username: 'silent' });
+    await answerPrivacy(yes, 'accept');
+    await answerPrivacy(no, 'decline');
+
+    const res = await list(root);
+    const answerOf = (name) => res.body.data.find((u) => u.username === name).privacyResponse;
+
+    expect(answerOf('agreed')).toBe('accepted');
+    expect(answerOf('refused')).toBe('declined');
+    expect(answerOf('silent')).toBe('unanswered');
+  });
+
+  it('orders by the privacy answer, worst first', async () => {
+    const root = admin();
+    await enablePrivacy(root);
+    await answerPrivacy(root, 'accept');
+    const yes = createUser({ username: 'z-accepted' });
+    const no = createUser({ username: 'y-declined' });
+    createUser({ username: 'x-unanswered' });
+    await answerPrivacy(yes, 'accept');
+    await answerPrivacy(no, 'decline');
+
+    const res = await list(root, '?sort=privacy&order=asc');
+    const answers = res.body.data.map((user) => user.privacyResponse);
+
+    expect(answers.indexOf('unanswered')).toBeLessThan(answers.indexOf('declined'));
+    expect(answers.indexOf('declined')).toBeLessThan(answers.indexOf('accepted'));
+  });
+});
+
+describe('PUT /api/users/:id/status email visibility', () => {
+  const suspend = (actor, target) =>
+    request(app).put(`/api/users/${target.id}/status`).set(authHeader(actor)).send({ status: 'suspended' });
+
+  it('returns the email to an administrator', async () => {
+    const target = createUser({ username: 'carol', email: 'carol@example.com' });
+
+    const res = await suspend(admin(), target);
+
+    expect(res.body.user.email).toBe('carol@example.com');
+  });
+
+  it('leaves the email out for staff who are not administrators', async () => {
+    const mod = createUser({ username: 'a-moderator', accountType: 'mod' });
+    const target = createUser({ username: 'carol', email: 'carol@example.com' });
+
+    const res = await suspend(mod, target);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.status).toBe('suspended');
+    expect(res.body.user).not.toHaveProperty('email');
+  });
+});

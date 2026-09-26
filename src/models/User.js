@@ -16,19 +16,26 @@ const { foldedAddress } = require('../utils/emailAddress');
  *
  * `terms` has no column of its own — it is how the user last answered the upload gate, which is only an
  * answer at all while it matches the policy's current version. The buckets read worst-first ascending:
- * unanswered, then declined, then accepted.
+ * unanswered, then declined, then accepted. `privacy` buckets the Privacy Policy answer the same way.
  */
+/** One policy answer as a sort bucket; a stale version counts as unanswered. */
+const answerBucket = (acceptance, policy) => `CASE
+    WHEN ${acceptance}.accepted_version IS NULL OR ${acceptance}.accepted_version <> ${policy}.acceptance_version THEN 0
+    WHEN ${acceptance}.response = 'declined' THEN 1
+    ELSE 2
+  END`;
+
 const SORT_FIELDS = Object.assign(Object.create(null), {
   username: 'u.username COLLATE NOCASE',
   email: 'u.email COLLATE NOCASE',
   type: 'u.account_type COLLATE NOCASE',
   status: 'u.status COLLATE NOCASE',
-  terms: `CASE
-    WHEN a.accepted_version IS NULL OR a.accepted_version <> p.acceptance_version THEN 0
-    WHEN a.response = 'declined' THEN 1
-    ELSE 2
-  END`
+  terms: answerBucket('a', 'p'),
+  privacy: answerBucket('pa', 'pp')
 });
+
+/** Sort keys that read an email, so a caller without email access cannot order by it. */
+const EMAIL_SORT_FIELDS = ['email'];
 
 const User = {
   /**
@@ -359,19 +366,22 @@ const User = {
    * Sorting is server-side because the table is paged: ordering only what a page happens to contain
    * would sort ten rows rather than the userbase.
    *
-   * @param {Object} [options] - `{ page, limit, search, sort, order }`; `sort` is a `SORT_FIELDS` key
+   * @param {Object} [options] - `{ page, limit, search, sort, order, includeEmail }`; `sort` is a
+   *   `SORT_FIELDS` key. Without `includeEmail`, search and sort do not read the email.
    * @returns {Object} `{ users, count, pagination, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
-    const { page = 1, limit = 10, search = '', sort = null, order = 'asc' } = options;
+    const { page = 1, limit = 10, search = '', sort = null, order = 'asc', includeEmail = false } = options;
     const offset = (page - 1) * limit;
 
-    // The terms column is not on `users`, so ordering by it needs the answer joined in. The join is
-    // always present rather than conditional: one shape is easier to reason about than two.
+    // The policy answers are not on `users`, so ordering by them needs the answers joined in. The joins
+    // are always present rather than conditional: one shape is easier to reason about than two.
     const from = `
       FROM users u
       LEFT JOIN policy_acceptances a ON a.user_id = u.id AND a.policy_id = 'upload_gate'
       LEFT JOIN policies p ON p.id = a.policy_id
+      LEFT JOIN policy_acceptances pa ON pa.user_id = u.id AND pa.policy_id = 'privacy_policy'
+      LEFT JOIN policies pp ON pp.id = pa.policy_id
     `;
 
     let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
@@ -385,8 +395,13 @@ const User = {
     if (search) {
       // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
       const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
-      filter += " AND (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
-      params.push(term, term);
+      if (includeEmail) {
+        filter += " AND (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
+        params.push(term, term);
+      } else {
+        filter += " AND u.username LIKE ? ESCAPE '\\'";
+        params.push(term);
+      }
     }
 
     query += filter;
@@ -396,7 +411,7 @@ const User = {
     // the tie: without it a tied row's page is a query-plan detail, and a page could repeat or skip a user.
     const direction = String(order).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
     // Only a known key reaches the SQL — `sort` is a request parameter, and these are interpolated.
-    const column = SORT_FIELDS[sort];
+    const column = includeEmail || !EMAIL_SORT_FIELDS.includes(sort) ? SORT_FIELDS[sort] : undefined;
     query += column
       ? ` ORDER BY ${column} ${direction}, u.id ASC LIMIT ? OFFSET ?`
       : ' ORDER BY u.created_at DESC, u.id ASC LIMIT ? OFFSET ?';
