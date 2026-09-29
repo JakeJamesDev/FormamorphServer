@@ -18,6 +18,39 @@ const escapeHtml = (value) => value
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+/** The site's light-theme primary green. */
+const BUTTON_COLOR = '#3a7e41';
+
+/**
+ * One account mail as HTML: a lead line, a button, a note, then the raw link as a labeled fallback.
+ *
+ * Inline styles and a table button, because mail clients drop `<style>` blocks and pad `<a>` unevenly.
+ *
+ * @param {Object} parts - What the mail says
+ * @param {string} parts.lead - The sentence above the button
+ * @param {string} parts.label - The button text
+ * @param {string} parts.link - Where the button goes
+ * @param {string} parts.note - The sentence under the button
+ * @returns {string} The HTML body
+ */
+const accountMailHtml = ({ lead, label, link, note }) => {
+  const href = escapeHtml(link);
+
+  return [
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1f2937;max-width:520px;">',
+    `<p style="margin:0 0 20px;">${escapeHtml(lead)}</p>`,
+    '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;"><tr>',
+    `<td style="border-radius:6px;background:${BUTTON_COLOR};">`,
+    `<a href="${href}" style="display:inline-block;padding:12px 22px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:6px;">${escapeHtml(label)}</a>`,
+    '</td></tr></table>',
+    `<p style="margin:0 0 24px;">${escapeHtml(note)}</p>`,
+    '<hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 16px;">',
+    '<p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Button not working? Paste this link into your browser:</p>',
+    `<p style="margin:0;font-size:13px;color:#6b7280;word-break:break-all;"><a href="${href}" style="color:#6b7280;">${href}</a></p>`,
+    '</div>'
+  ].join('\n');
+};
+
 /**
  * Mint a verification link for an account and mail it to the address on file.
  *
@@ -29,23 +62,14 @@ const escapeHtml = (value) => value
 const sendVerificationEmail = async ({ userId, email }) => {
   const token = AccountToken.issue({ userId, purpose: VERIFY });
   const link = `${SITE_URL}/verify-email?token=${encodeURIComponent(token)}`;
+  const lead = 'Confirm this address so it can recover your account.';
+  const note = "The link works once. If you didn't ask for it, ignore this mail.";
 
   await sendMail({
     to: email,
     subject: 'Verify your Formamorph email address',
-    text: [
-      'Confirm this address so it can recover your account:',
-      '',
-      link,
-      '',
-      'The link works once. If you did not ask for it, nothing happens when you ignore it.'
-    ].join('\n'),
-    html: [
-      '<p>Confirm this address so it can recover your account:</p>',
-      `<p><a href="${escapeHtml(link)}">Verify my email address</a></p>`,
-      `<p>${escapeHtml(link)}</p>`,
-      '<p>The link works once. If you did not ask for it, nothing happens when you ignore it.</p>'
-    ].join('\n')
+    text: [lead, '', link, '', note].join('\n'),
+    html: accountMailHtml({ lead, label: 'Verify My Email Address', link, note })
   });
 };
 
@@ -63,24 +87,14 @@ const sendVerificationEmail = async ({ userId, email }) => {
 const sendPasswordResetEmail = async ({ userId, email }) => {
   const token = AccountToken.issue({ userId, purpose: RESET });
   const link = `${SITE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+  const lead = 'Set a new password for your account.';
+  const note = "The link works once and expires in an hour. If you didn't ask for it, ignore this mail. Your password stays as it is.";
 
   await sendMail({
     to: email,
     subject: 'Reset your Formamorph password',
-    text: [
-      'Set a new password for your account:',
-      '',
-      link,
-      '',
-      'The link works once and expires in an hour. If you did not ask for it, nothing happens when you',
-      'ignore it — your password stays as it is.'
-    ].join('\n'),
-    html: [
-      '<p>Set a new password for your account:</p>',
-      `<p><a href="${escapeHtml(link)}">Set a new password</a></p>`,
-      `<p>${escapeHtml(link)}</p>`,
-      '<p>The link works once and expires in an hour. If you did not ask for it, nothing happens when you ignore it — your password stays as it is.</p>'
-    ].join('\n')
+    text: [lead, '', link, '', note].join('\n'),
+    html: accountMailHtml({ lead, label: 'Set a New Password', link, note })
   });
 };
 
