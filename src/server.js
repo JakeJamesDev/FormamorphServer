@@ -16,7 +16,13 @@ const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuaran
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
+const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
+
+// Not fatal: the game works without mail. Verification and password reset do not.
+if (!mailEnabled) {
+  console.error('RESEND_API_KEY is not set: no verification or reset mail will be sent.');
+}
 
 // Bring the schema up to date before serving, so a deploy that adds a table or a column needs nothing run
 // by hand. Without this, forgetting `npm run init-db` leaves the new endpoints answering `no such table` —

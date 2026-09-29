@@ -53,8 +53,8 @@ npm install
    SITE_URL=https://formamorph.ai
    ```
 
-   > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs each message's
-   > subject and recipient instead of sending it, so nothing reaches a real inbox from a dev box.
+   > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot
+   > and refuses every message, so the site says the mail could not be sent. Nothing reaches a real inbox.
    > `MAIL_FROM` must be an address Resend is configured to sign for, and `SITE_URL` is where the
    > links in those messages point.
 

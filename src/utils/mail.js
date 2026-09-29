@@ -4,7 +4,7 @@ const { MAIL_FROM } = require('../config/mail');
  * The one way this server sends mail, and the seam a test replaces.
  *
  * A transport is any object with `send({ from, to, subject, text, html })` returning a promise. Which one
- * the process uses is decided once, here, from the environment: a key means Resend, no key means the log.
+ * the process uses is decided once, here, from the environment: a key means Resend, no key means refusal.
  * Callers never choose, so nothing can reach the real API from a test or a development box by mistake.
  */
 
@@ -35,16 +35,15 @@ const resendTransport = (apiKey) => ({
 });
 
 /**
- * What a box with no key does: print the subject and the recipient, and drop the body.
+ * What a box with no key does: refuse every message, so callers report it as not sent.
  *
- * The link is in the body, so this is not a way to read one — a developer who needs the link reads it out
- * of the database or runs with a key. What it is for is the line in the journal saying mail was reached.
+ * A developer who needs the link reads it out of the database or runs with a key.
  *
  * @returns {{send: (message: Object) => Promise<void>}} A transport
  */
-const logTransport = () => ({
-  send: async ({ to, subject }) => {
-    console.log(`Mail (no RESEND_API_KEY, not sent): "${subject}" to ${to}`);
+const noKeyTransport = () => ({
+  send: async () => {
+    throw new Error('Mail is off: RESEND_API_KEY is unset');
   }
 });
 
@@ -62,7 +61,10 @@ const captureTransport = () => {
 /** Chosen once, at load, from the environment. */
 const startupTransport = process.env.RESEND_API_KEY
   ? resendTransport(process.env.RESEND_API_KEY)
-  : logTransport();
+  : noKeyTransport();
+
+/** Whether this process can send real mail. */
+const mailEnabled = Boolean(process.env.RESEND_API_KEY);
 
 let transport = startupTransport;
 
@@ -81,4 +83,4 @@ const resetMailTransport = () => { transport = startupTransport; };
 const sendMail = ({ to, subject, text, html }) =>
   transport.send({ from: MAIL_FROM, to, subject, text, html });
 
-module.exports = { sendMail, setMailTransport, resetMailTransport, captureTransport };
+module.exports = { sendMail, setMailTransport, resetMailTransport, captureTransport, mailEnabled };

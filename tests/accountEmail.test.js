@@ -434,6 +434,17 @@ describe('asking for the verification mail again', () => {
     expect(response.body.mailSent).toBe(false);
   });
 
+  it('says the mail did not go when the server has no Resend key', async () => {
+    // The suite runs without a key, so the startup transport is the no-key one.
+    const user = createUser({ username: 'keyless', email: 'keyless@example.test' });
+    resetMailTransport();
+
+    const response = await resend(user);
+
+    expect(response.status).toBe(200);
+    expect(response.body.mailSent).toBe(false);
+  });
+
   it('needs a session', async () => {
     const response = await fromItsOwnAddress(request(app).post('/api/auth/resend-verification'));
 
