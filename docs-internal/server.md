@@ -183,6 +183,12 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-29** — deployed `b05d8e1`: the stand-in thumbnail flag for listings and Avatars, refusal of
+  bundled worlds and the default Avatar on publish and update, admin-only user emails, and account mail with a
+  button. All 1,737 tests passed in 30.6 s wall time. Pre-deploy backup
+  `pre-deploy-038c50f-2026-09-29T18-40-05.600Z.db` in `backups/`, integrity `ok`. Boot applied
+  `placeholderFlag`, an additive column, so a rollback needs no restore. `npm run backfill-placeholders` did not
+  run. The journal shows no missing mail key. Service active with zero restarts, public route 200.
 - **2026-09-20** — deployed `038c50f`: `npm run publish-policy`, which puts the authored Privacy Policy into
   the live row. All 1,691 tests passed in 22.1 s wall time. Pre-deploy backup
   `pre-deploy-247fb75-2026-09-20T13-11-54.152Z.db` in `backups/`, integrity `ok`. No schema step ran. Published
