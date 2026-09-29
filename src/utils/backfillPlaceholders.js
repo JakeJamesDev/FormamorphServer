@@ -36,7 +36,7 @@ const storedBytesEqual = (fileName, expected) => {
 /**
  * Flag the listings published before the flag existed whose thumbnail is still the stand-in.
  *
- * Only kinds whose rules say `flagsPlaceholder`, so an avatar carrying the same picture is never touched.
+ * Only kinds whose rules say `flagsPlaceholder`, so a dictionary is never touched.
  * Already-flagged rows are skipped, so a second run finds nothing. Leaves `updated_at` and `revision`
  * alone: nothing a downloader receives has changed.
  *

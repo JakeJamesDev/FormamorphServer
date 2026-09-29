@@ -67,6 +67,7 @@ const KIND_RULES = {
     requiresThumbnail: false,
     maxContentBytes: 64 * 1024 * 1024, // a VRM's mesh and textures, base64 inside the content
     canEnterContest: true,
+    flagsPlaceholder: true, // the client draws its own portrait over a stand-in thumbnail
     label: 'Avatar',
   },
   // A shared prompt preset.

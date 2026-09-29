@@ -23,6 +23,27 @@ const update = (user, id, body) =>
 
 const storedFlag = (id) => db.prepare('SELECT placeholder FROM worlds WHERE id = ?').get(id).placeholder;
 
+/** Publishes an avatar through the API; a thumbnail is optional. */
+const createAvatar = (user, overrides = {}) => {
+  const meta = {
+    avatarPermission: 'everyone',
+    allowRedistribution: true,
+    modification: 'allowModificationRedistribution',
+    commercialUsage: 'corporation',
+  };
+
+  return request(app).post('/api/worlds').set(authHeader(user)).send({
+    name: 'Avatar',
+    kind: 'model',
+    contentData: {
+      vrm: `data:model/vnd.vrm;base64,${makeVrm1(meta).toString('base64')}`,
+      license: { metaVersion: '1', ...meta },
+      hash: 'test-hash',
+    },
+    ...overrides,
+  });
+};
+
 /** An entity published before the flag existed: the stand-in copy on disk, the flag at its default. */
 const publishedWithoutArt = async (user, overrides = {}) => {
   const res = await create(user, { kind: 'entity', thumbnail: undefined, ...overrides });
@@ -97,28 +118,36 @@ describe('placeholder flag on publish and update', () => {
     expect(res.body.data.placeholder).toBe(false);
   });
 
-  it('never flags an avatar, though its stand-in is the entity picture', async () => {
+  it('flags an avatar published without a thumbnail, and still stores its stand-in copy', async () => {
     const author = createUser();
-    const meta = {
-      avatarPermission: 'everyone',
-      allowRedistribution: true,
-      modification: 'allowModificationRedistribution',
-      commercialUsage: 'corporation',
-    };
 
-    const res = await request(app).post('/api/worlds').set(authHeader(author)).send({
-      name: 'Avatar',
-      kind: 'model',
-      contentData: {
-        vrm: `data:model/vnd.vrm;base64,${makeVrm1(meta).toString('base64')}`,
-        license: { metaVersion: '1', ...meta },
-        hash: 'test-hash',
-      },
-    });
+    const res = await createAvatar(author);
 
     expect(res.status).toBe(201);
     expect(res.body.data.thumbnail).toBe(placeholderFor('model'));
+    expect(res.body.data.placeholder).toBe(true);
+    expect(storedFlag(res.body.data.id)).toBe(1);
+  });
+
+  it('leaves an avatar published with a thumbnail unflagged', async () => {
+    const author = createUser();
+
+    const res = await createAvatar(author, { thumbnail: TINY_PNG });
+
+    expect(res.status).toBe(201);
     expect(res.body.data.placeholder).toBe(false);
+  });
+
+  it('clears the flag when an avatar update sends art', async () => {
+    const author = createUser();
+    const { body } = await createAvatar(author);
+    expect(storedFlag(body.data.id)).toBe(1);
+
+    const res = await update(author, body.data.id, { thumbnail: TINY_PNG });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.placeholder).toBe(false);
+    expect(storedFlag(body.data.id)).toBe(0);
   });
 
   it('clears the flag when an update sends art', async () => {
@@ -189,12 +218,24 @@ describe('backfillPlaceholders', () => {
     expect(storedFlag(drawn)).toBe(0);
   });
 
-  it('never flags an avatar, though its stand-in is the same picture', async () => {
+  it('flags an avatar carrying the stand-in, and not one with its own art', async () => {
     const author = createUser();
-    const avatar = await insertRow(author, 'model', placeholderFor('model'));
+    const blank = await insertRow(author, 'model', placeholderFor('model'));
+    const drawn = await insertRow(author, 'model', TINY_PNG);
+
+    expect(backfillPlaceholders({ write: true })).toEqual({ found: 1, flagged: 1 });
+    expect(storedFlag(blank)).toBe(1);
+    expect(storedFlag(drawn)).toBe(0);
+  });
+
+  it('never flags a dictionary or a world, whatever its thumbnail', async () => {
+    const author = createUser();
+    const dictionary = await insertRow(author, 'dictionary', placeholderFor('dictionary'));
+    const world = await insertRow(author, 'world', placeholderFor('entity'));
 
     expect(backfillPlaceholders({ write: true })).toEqual({ found: 0, flagged: 0 });
-    expect(storedFlag(avatar)).toBe(0);
+    expect(storedFlag(dictionary)).toBe(0);
+    expect(storedFlag(world)).toBe(0);
   });
 
   it('only reports what it would flag until asked to write', async () => {
