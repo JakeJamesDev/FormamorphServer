@@ -183,6 +183,10 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-30** — deployed `f7b4e60`: listing details skip the inlined thumbnail. All 1,738 tests passed in
+  21.3 s wall time. No schema, policy, or env change, so no backup. `npm ci` warned that npm 11 skipped the
+  `better-sqlite3` install script; the package loads its bundled `linux-x64` prebuild, so no rebuild is needed.
+  Service active with zero restarts, public route 200.
 - **2026-09-29** — deployed `b05d8e1`: the stand-in thumbnail flag for listings and Avatars, refusal of
   bundled worlds and the default Avatar on publish and update, admin-only user emails, and account mail with a
   button. All 1,737 tests passed in 30.6 s wall time. Pre-deploy backup
