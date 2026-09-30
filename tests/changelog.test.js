@@ -360,6 +360,17 @@ describe('reading a changelog', () => {
     expect(response.body.data.changelog[0]).toMatchObject({ title: 'Update 1', entry_date: '2026-08-01' });
   });
 
+  it('leaves the inlined thumbnail out, and names the file instead', async () => {
+    const { id } = await seed();
+
+    const withChangelog = (await readOne(id, null, '?includeChangelog=true')).body.data;
+    const plain = (await readOne(id)).body.data;
+
+    expect(withChangelog.thumbnail).toBeUndefined();
+    expect(withChangelog.thumbnail_file).toEqual(expect.any(String));
+    expect(plain.thumbnail).toMatch(/^data:image\//);
+  });
+
   it('is an empty list on a listing with none, which is how a client tells that from an old server', async () => {
     const { id } = await seed();
 

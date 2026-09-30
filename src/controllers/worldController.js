@@ -367,9 +367,12 @@ exports.getWorld = async (req, res, next) => {
     // one needs it to know what a download will install.
     attachRelationships(world, req.user);
 
-    // Get thumbnail as base64
-    world.thumbnail = await getThumbnailBase64(world.thumbnail_file);
-    delete world.thumbnail_file;
+    // The details modal asks for the changelog and shows the art from `/thumbnails/`, so it skips the
+    // inlined copy, which is most of this response.
+    if (req.query.includeChangelog !== 'true') {
+      world.thumbnail = await getThumbnailBase64(world.thumbnail_file);
+      delete world.thumbnail_file;
+    }
 
     markGuestLikes(req, [world]);
     res.vary(INSTALL_HEADER_NAME);
