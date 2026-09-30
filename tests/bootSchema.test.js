@@ -384,6 +384,46 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('gives an existing database the changelog count, set from the entries each listing already has', () => {
+    // Without the count, every listing with entries from before the column would read as having none.
+    const legacy = oldestDatabase();
+    legacy.exec(`
+      CREATE TABLE world_changelog (
+        id TEXT PRIMARY KEY,
+        world_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        entry_date TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+      );
+      INSERT INTO users (id, username, password) VALUES ('u1', 'author', 'x');
+      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file, updated_at)
+        VALUES ('w-two', 'Sedge Landing', 'd', 'u1', 't', '', 'c', '2026-01-01T00:00:00.000Z'),
+               ('w-none', 'Second Landing', 'd', 'u1', 't', '', 'c', '2026-01-01T00:00:00.000Z');
+      INSERT INTO world_changelog (id, world_id, title, body, entry_date, created_at, updated_at)
+        VALUES ('e1', 'w-two', 'Update 1', 'b', '2026-08-01', 'x', 'x'),
+               ('e2', 'w-two', 'Update 2', 'b', '2026-08-02', 'x', 'x');
+    `);
+    expect(columnNames(legacy, 'worlds')).not.toContain('changelog_count');
+
+    expect(migrate(legacy)).toContain('changelogCount');
+
+    const counts = legacy.prepare('SELECT id, changelog_count, updated_at FROM worlds ORDER BY id').all();
+    expect(counts).toEqual([
+      { id: 'w-none', changelog_count: 0, updated_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'w-two', changelog_count: 2, updated_at: '2026-01-01T00:00:00.000Z' }
+    ]);
+
+    // Once only: a later boot must not count again over a live counter.
+    legacy.prepare("UPDATE worlds SET changelog_count = 7 WHERE id = 'w-two'").run();
+    expect(migrate(legacy)).toEqual([]);
+    expect(legacy.prepare("SELECT changelog_count FROM worlds WHERE id = 'w-two'").get().changelog_count).toBe(7);
+
+    legacy.close();
+  });
+
   it('runs the podium rebuild before the framing column, or the rebuild would drop it', () => {
     // The one pair of steps with an order between them: the podium step rebuilds `events` from a fixed
     // column list, so a column added to that table before it goes with the old table.

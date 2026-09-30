@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import { app, db, Event } from './context.js';
+import { app, db, Event, Changelog } from './context.js';
 import { createUser, authHeader, worldPayload } from './helpers.js';
 
 /**
@@ -440,17 +440,104 @@ describe('reading a changelog', () => {
   });
 });
 
+describe('the count the catalog carries', () => {
+  /** The listing's `changelog_count` as the catalog list serves it. */
+  const catalogCount = async (id) => {
+    const response = await request(app).get('/api/worlds');
+    return response.body.data.find((world) => world.id === id).changelog_count;
+  };
+
+  it('is zero on a listing with no entries', async () => {
+    const { id } = await seed();
+
+    expect(await catalogCount(id)).toBe(0);
+  });
+
+  it('goes up with each entry added', async () => {
+    const { author, id } = await seed();
+    await add(author, id, entry({ title: 'Update 1' }));
+    await add(author, id, entry({ title: 'Update 2' }));
+
+    expect(await catalogCount(id)).toBe(2);
+  });
+
+  it('goes down with an entry deleted', async () => {
+    const { author, id } = await seed();
+    const first = (await add(author, id, entry({ title: 'Update 1' }))).body.data.id;
+    await add(author, id, entry({ title: 'Update 2' }));
+
+    await remove(author, id, first);
+
+    expect(await catalogCount(id)).toBe(1);
+  });
+
+  it('stays put when an entry is rewritten', async () => {
+    const { author, id } = await seed();
+    const entryId = (await add(author, id, entry())).body.data.id;
+
+    await edit(author, id, entryId, entry({ body: 'Rewritten.' }));
+
+    expect(await catalogCount(id)).toBe(1);
+  });
+
+  it('stays put when a refused add or delete writes nothing', async () => {
+    const { author, id } = await seed();
+    const entryId = (await add(author, id, entry())).body.data.id;
+
+    expect((await add(author, id, entry({ title: '' }))).status).toBe(400);
+    expect((await remove(named('stranger'), id, entryId)).status).toBe(403);
+
+    expect(await catalogCount(id)).toBe(1);
+  });
+
+  it('never goes below zero when the count has drifted low', async () => {
+    const { author, id } = await seed();
+    const entryId = (await add(author, id, entry())).body.data.id;
+    db.prepare('UPDATE worlds SET changelog_count = 0 WHERE id = ?').run(id);
+
+    expect((await remove(author, id, entryId)).status).toBe(200);
+
+    expect(await catalogCount(id)).toBe(0);
+  });
+
+  it('moves once for an entry deleted twice', async () => {
+    // The route checks the entry first; the model must still refuse a second delete on its own.
+    const { author, id } = await seed();
+    await add(author, id, entry({ title: 'Kept' }));
+    const entryId = (await add(author, id, entry())).body.data.id;
+
+    expect(Changelog.delete(entryId)).toBe(true);
+    expect(Changelog.delete(entryId)).toBe(false);
+
+    expect(await catalogCount(id)).toBe(1);
+  });
+
+  it('only counts the listing the entry belongs to', async () => {
+    const { author, id } = await seed();
+    const other = (await publish(author, { name: 'Second Landing' })).body.data.id;
+
+    await add(author, id, entry());
+
+    expect(await catalogCount(other)).toBe(0);
+  });
+});
+
 describe('what a changelog write leaves alone', () => {
   it('does not mark the listing as updated', async () => {
-    // The whole reason this is not a column on `worlds`: fixing a typo must not resurface a listing as
-    // freshly updated, nor flash "Update Available" at everyone holding a copy.
+    // Fixing a typo must not resurface a listing as freshly updated, nor flash "Update Available" at
+    // everyone holding a copy. The entry count on `worlds` moves; `updated_at` must not move with it.
     const { author, id } = await seed();
-    const before = updatedAtOf(id);
+    // Set far in the past, so a write that restamped it inside the same millisecond still shows.
+    const before = '2020-01-01T00:00:00.000Z';
+    db.prepare('UPDATE worlds SET updated_at = ? WHERE id = ?').run(before, id);
 
     const entryId = (await add(author, id, entry())).body.data.id;
-    await edit(author, id, entryId, entry({ body: 'Rewritten.' }));
-    await remove(author, id, entryId);
+    expect(updatedAtOf(id)).toBe(before);
 
+    await edit(author, id, entryId, entry({ body: 'Rewritten.' }));
+    expect(updatedAtOf(id)).toBe(before);
+
+    await remove(author, id, entryId);
     expect(updatedAtOf(id)).toBe(before);
   });
 });

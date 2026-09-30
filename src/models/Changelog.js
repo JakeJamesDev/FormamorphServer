@@ -4,9 +4,9 @@ const { v4: uuidv4 } = require('uuid');
 /**
  * Listing Changelog model — the Changelog Entries on one published listing.
  *
- * Nothing here touches `worlds`. That is the whole point of the table: a changelog write is metadata, so
- * it must not move the listing's `updated_at` and resurface it as freshly updated (the spoiler toggle and
- * the contest withdrawal leave it alone for the same reason).
+ * A changelog write is metadata, so it must not move the listing's `updated_at` and resurface it as
+ * freshly updated (the spoiler toggle and the contest withdrawal leave it alone for the same reason). The
+ * one thing it writes on `worlds` is `changelog_count`, in the same transaction as the entry.
  */
 const Changelog = {
   /**
@@ -54,10 +54,14 @@ const Changelog = {
     const id = entry.id || uuidv4();
     const now = new Date().toISOString();
 
-    db.prepare(`
-      INSERT INTO world_changelog (id, world_id, title, body, entry_date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, entry.world_id, entry.title, entry.body, entry.entry_date, now, now);
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO world_changelog (id, world_id, title, body, entry_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, entry.world_id, entry.title, entry.body, entry.entry_date, now, now);
+
+      db.prepare('UPDATE worlds SET changelog_count = changelog_count + 1 WHERE id = ?').run(entry.world_id);
+    })();
 
     return Changelog.findById(id);
   },
@@ -86,7 +90,15 @@ const Changelog = {
    * @param {string} id - Entry ID
    * @returns {boolean} Whether a row went
    */
-  delete: (id) => db.prepare('DELETE FROM world_changelog WHERE id = ?').run(id).changes > 0
+  delete: (id) => db.transaction(() => {
+    const gone = db.prepare('DELETE FROM world_changelog WHERE id = ? RETURNING world_id').get(id);
+    if (!gone) return false;
+
+    db.prepare('UPDATE worlds SET changelog_count = MAX(0, changelog_count - 1) WHERE id = ?')
+      .run(gone.world_id);
+
+    return true;
+  })()
 };
 
 module.exports = Changelog;

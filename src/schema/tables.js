@@ -64,6 +64,8 @@ const apply = (database) => {
       content_file TEXT NOT NULL,
       downloads INTEGER DEFAULT 0,
       comment_count INTEGER DEFAULT 0,
+      -- How many Changelog Entries the listing has, kept by the changelog writes.
+      changelog_count INTEGER NOT NULL DEFAULT 0,
       tags TEXT,
       spoiler INTEGER DEFAULT 0,
       kind TEXT NOT NULL DEFAULT 'world',

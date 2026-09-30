@@ -1,6 +1,8 @@
 # Spec: Listing details speed (server)
 
-Status: ready-for-agent
+Status: ready-for-human
+Status note: implemented in "Count Changelog Entries on Catalog Rows"; needs a deploy, which runs the backfill at boot.
+Base: 53ccded
 
 Client side: the Formamorph repo, `docs-internal/specs/listing-details-speed/spec.md`. This spec is the server half.
 

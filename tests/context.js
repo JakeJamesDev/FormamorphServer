@@ -25,4 +25,5 @@ export const app = require('../src/app');
 export const { migrate } = require('../src/schema');
 export const { initStorage } = require('../src/utils/fileStorage');
 export const Event = require('../src/models/Event');
+export const Changelog = require('../src/models/Changelog');
 export const { sweepEvents, cancelEvent } = require('../src/utils/sweepEvents');

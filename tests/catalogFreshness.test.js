@@ -46,6 +46,14 @@ const comment = (who, id, content) =>
 const uncomment = (who, commentId) =>
   request(app).delete(`/api/comments/${commentId}`).set(authHeader(who));
 
+const CHANGELOG_ENTRY = { title: 'Update 1', body: 'The drowned quarter is walkable now.', date: '2026-08-01' };
+
+const addChangelog = (author, id) =>
+  request(app).post(`/api/worlds/${id}/changelog`).set(authHeader(author)).send(CHANGELOG_ENTRY);
+
+const removeChangelog = (author, id, entryId) =>
+  request(app).delete(`/api/worlds/${id}/changelog/${entryId}`).set(authHeader(author));
+
 const download = (id) => request(app).get(`/api/worlds/${id}/content`);
 
 const quarantine = (staffer, id) =>
@@ -124,6 +132,15 @@ const changes = [
     change: ({ reader, commentId }) => uncomment(reader, commentId),
   },
   {
+    name: 'a Changelog Entry added',
+    change: ({ author, id }) => addChangelog(author, id),
+  },
+  {
+    name: 'a Changelog Entry deleted',
+    prepare: async ({ author, id }) => ({ entryId: (await addChangelog(author, id)).body.data.id }),
+    change: ({ author, id, entryId }) => removeChangelog(author, id, entryId),
+  },
+  {
     name: 'a download counted',
     change: ({ id }) => download(id),
   },
@@ -172,6 +189,21 @@ describe('a catalog that has changed', () => {
     const before = await tagOf();
     const res = await revalidate(before);
     expect(res.status).toBe(304);
+  });
+
+  // A rewrite moves nothing a list row carries, so the catalog a client holds is still the current one.
+  it('answers 304 after a Changelog Entry is rewritten', async () => {
+    const { author, id } = await seed();
+    const entryId = (await addChangelog(author, id)).body.data.id;
+
+    const before = await tagOf();
+    const edited = await request(app)
+      .put(`/api/worlds/${id}/changelog/${entryId}`)
+      .set(authHeader(author))
+      .send({ ...CHANGELOG_ENTRY, body: 'Rewritten.' });
+    expect(edited.status).toBe(200);
+
+    expect((await revalidate(before)).status).toBe(304);
   });
 });
 
