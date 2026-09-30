@@ -3,10 +3,9 @@ const { ipKeyGenerator } = require('express-rate-limit');
 const { clientAddress } = require('./clientAddress');
 const { foldedAddress } = require('./emailAddress');
 
-// Key the rate limiters on the real client rather than on the tunnel that delivered the request — see
-// `clientAddress` for why `req.ip` alone would throttle every user as one bucket. `ipKeyGenerator`
-// normalizes IPv6 to a /56 block so one client can't cycle addresses within its prefix to dodge a limit;
-// that normalization is a bucketing rule and belongs here rather than in the shared resolver.
+// Key the rate limiters on the real client rather than on the proxy that delivered it (see `clientAddress`).
+// `ipKeyGenerator` normalizes IPv6 to a /56 block so one client can't cycle addresses within its prefix to
+// dodge a limit; that normalization is a bucketing rule and belongs here rather than in the shared resolver.
 const clientIpKeyGenerator = (req) => ipKeyGenerator(clientAddress(req));
 
 // Bucket a reset request by the name it typed, whichever kind of name that is. Folding the case is what

@@ -33,7 +33,7 @@ const rowsFor = (user) =>
   db.prepare('SELECT * FROM signals WHERE user_id = ? ORDER BY id').all(user.id);
 
 /** Every request in a test carries an address, so a test can put two accounts in one place or two places. */
-const from = (address, req) => req.set('CF-Connecting-IP', address);
+const from = (address, req) => req.set('X-Forwarded-For', address);
 
 const register = (username, address = '203.0.113.10') =>
   from(address, request(app).post('/api/auth/register')).send({ username, password: 'password123' });

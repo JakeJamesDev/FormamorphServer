@@ -28,22 +28,12 @@ const settingsRoutes = require('./routes/settings');
 
 const app = express();
 
-// cloudflared reaches this origin from loopback; trust only that hop so `req.ip` / `req.protocol`
-// derive from the proxy without letting a direct client spoof `X-Forwarded-For`. The rate limiters
-// key on `CF-Connecting-IP` (see clientIpKeyGenerator), not on the trusted-proxy chain.
+// Caddy reaches this origin from loopback; trust only that hop so `req.ip` / `req.protocol` come from
+// the proxy without letting a direct client spoof `X-Forwarded-For`.
 app.set('trust proxy', 'loopback');
 
 // Security headers
 app.use(helmet());
-
-// Loose global rate limit (defense-in-depth; auth routes add a tighter one)
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: clientIpKeyGenerator
-}));
 
 // Middleware
 app.use(cors({
@@ -54,8 +44,17 @@ app.use(cors({
   // header so a guest can press the heart. A preflight refuses a header it was not told to allow, and a
   // cross-origin fetch cannot see a response header it was not told to expose.
   allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match', CLIENT_HEADER_NAME, INSTALL_HEADER_NAME],
-  exposedHeaders: ['ETag']
+  exposedHeaders: ['ETag', 'Retry-After']
 }));
+// Loose global rate limit (auth routes add a tighter one). After CORS, so a browser can read the 429.
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: clientIpKeyGenerator
+}));
+
 // urlencoded only acts on form posts (world uploads are JSON), so a tight cap here is safe
 app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 

@@ -82,12 +82,12 @@ export function authHeader(user) {
 }
 
 /**
- * Send a request from a named address, exactly as a request through Cloudflare arrives with one.
+ * Send a request from a named address, exactly as a request through Caddy arrives with one.
  *
  * For a test that needs two requests in one place, or one request somewhere else: the address is what
  * the rate limiters key on and what an Anonymous Like's hash is taken from.
  */
-export const fromAddress = (address, req) => req.set('CF-Connecting-IP', address);
+export const fromAddress = (address, req) => req.set('X-Forwarded-For', address);
 
 /**
  * Give a request an address of its own.

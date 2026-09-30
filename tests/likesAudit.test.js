@@ -30,7 +30,7 @@ const mod = () => createUser({ username: `mod-${rnd()}`, accountType: 'mod' });
 const HOME = '203.0.113.10';
 const ELSEWHERE = '198.51.100.7';
 
-const from = (address, req) => req.set('CF-Connecting-IP', address);
+const from = (address, req) => req.set('X-Forwarded-For', address);
 
 const publish = (author, address = ELSEWHERE, over = {}) =>
   from(address, request(app).post('/api/worlds').set(authHeader(author))).send(worldPayload(over));
