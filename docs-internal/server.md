@@ -183,6 +183,12 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-30** — deployed `21b0063`: hidden like counts on contest listings, profiles, and like replies,
+  rate limits keyed on the proxied address, new bundled world fingerprints, and mail from the `mail.`
+  subdomain with a Reply-To. All 1,813 tests passed in 31.6 s wall time. No schema or policy change, so no
+  backup. `MAIL_FROM` and `MAIL_REPLY_TO` have defaults and the server `.env` already sets both. `npm ci`
+  showed the same skipped `better-sqlite3` install-script warning. Service active with zero restarts, public
+  route 200.
 - **2026-09-30** — deployed `f7b4e60`: listing details skip the inlined thumbnail. All 1,738 tests passed in
   21.3 s wall time. No schema, policy, or env change, so no backup. `npm ci` warned that npm 11 skipped the
   `better-sqlite3` install script; the package loads its bundled `linux-x64` prebuild, so no rebuild is needed.
