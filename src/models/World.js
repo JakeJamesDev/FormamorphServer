@@ -801,6 +801,32 @@ const World = {
   `).get({ worldId }).count,
 
   /**
+   * What a like press answers with: the heart's new state and the count, shaped for this reader.
+   *
+   * A hidden count is left out, so pressing the heart cannot be used to read it.
+   *
+   * @param {string} worldId - World ID
+   * @param {boolean} liked - The heart's state after the press
+   * @param {Object} [reader] - The signed-in user, or null for a guest
+   * @returns {Object} `{ liked, likes }`, or `{ liked, likesHidden }` for a hidden count
+   */
+  likeReply: (worldId, liked, reader = null) => {
+    const world = World.findById(worldId);
+    const contest = world && world.contest_event_id ? Event.findById(world.contest_event_id) : null;
+    const counted = {
+      likes: World.likeCount(worldId),
+      contest_event_id: world ? world.contest_event_id : null,
+      author_id: world ? world.author_id : null
+    };
+
+    shapeLikes(counted, contest ? contest.results_announced_at : null, reader);
+    delete counted.contest_event_id;
+    delete counted.author_id;
+
+    return { liked, ...counted };
+  },
+
+  /**
    * How many accounts have liked a listing, with no Anonymous Likes in it.
    *
    * The staff lists' number: they read accounts, and a total counting marks with no account behind them

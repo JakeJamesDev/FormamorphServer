@@ -834,7 +834,7 @@ exports.setLikeStatus = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: { liked, likes: World.likeCount(world.id) }
+      data: World.likeReply(world.id, liked, req.user)
     });
   } catch (error) {
     next(error);
@@ -855,7 +855,7 @@ exports.setLikeStatus = async (req, res, next) => {
 const accountAlreadyLikes = (worldId) => ({
   success: true,
   code: CODES.ACCOUNT_ALREADY_LIKED,
-  data: { liked: true, likes: World.likeCount(worldId) }
+  data: World.likeReply(worldId, true)
 });
 
 /**
@@ -888,7 +888,7 @@ const answerForClearedMark = (req) => {
   const claimedBy = InstallClaim.accountFor(installId);
   if (claimedBy && World.hasLiked(worldId, claimedBy.id)) return accountAlreadyLikes(worldId);
 
-  return { success: true, data: { liked: false, likes: World.likeCount(worldId) } };
+  return { success: true, data: World.likeReply(worldId, false) };
 };
 
 /**
@@ -1011,7 +1011,7 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: { liked, likes: World.likeCount(world.id) }
+      data: World.likeReply(world.id, liked)
     });
   } catch (error) {
     next(error);
