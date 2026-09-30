@@ -150,9 +150,9 @@ const publicProfile = (user, viewer) => ({
   // one rather than false — a signed-out visitor is not somebody who has decided not to.
   followers: Follow.followerCount(user.id),
   following: viewer ? Follow.isFollowing(viewer.id, user.id) : undefined,
-  // What their published work has earned, counted over the catalog rather than over what this
-  // reader may see — see `World.authorTotals`.
-  ...World.authorTotals(user.id)
+  // What their published work has earned; hidden contest likes are left out for a reader who may not
+  // see them — see `World.authorTotals`.
+  ...World.authorTotals(user.id, viewer)
 });
 
 /** Whether an account may be read through either public profile lookup. */

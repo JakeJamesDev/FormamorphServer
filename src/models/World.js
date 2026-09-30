@@ -731,15 +731,19 @@ const World = {
   /**
    * What an author's published work adds up to, across every kind.
    *
-   * Deliberately public-only, with no viewer: this is what the room sees an account as having earned, and
-   * a total that moved depending on who was reading would make an author's own profile disagree with the
-   * one they hand somebody else. Their hidden work — quarantined or unlisted — still appears in their own
-   * listing, with its own numbers; it just doesn't count here while it is out of the catalog.
+   * Public-only work counts: their quarantined or unlisted work still appears in their own listing, but
+   * not here while it is out of the catalog. Likes on a contest entry hidden from this reader are left
+   * out, so subtracting totals cannot reveal a count; the author and staff get the full total.
    *
    * @param {string} authorId - Author ID
+   * @param {Object} [viewer] - Who is asking, for whether hidden contest likes count
    * @returns {Object} `{ likes, downloads }`, both zero for an account that has published nothing
    */
-  authorTotals: (authorId) => {
+  authorTotals: (authorId, viewer = null) => {
+    const [readerId, readerRole] = likesHiddenReaderParams(viewer);
+    const params = { authorId, readerId, readerRole };
+    const visible = (w, ce) => `AND NOT likes_hidden(${w}.contest_event_id, ${ce}.results_announced_at, ${w}.author_id, @readerId, @readerRole)`;
+
     // Both kinds of like, under the same public-only rule, so a profile total matches the numbers on the
     // author's own cards.
     const row = db.prepare(`
@@ -747,13 +751,17 @@ const World = {
         COALESCE(SUM(w.downloads), 0) AS downloads,
         (SELECT COUNT(*) FROM world_likes l
           JOIN worlds lw ON lw.id = l.world_id
-          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND lw.visibility = 'public')
+          LEFT JOIN events lce ON lce.id = lw.contest_event_id
+          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND lw.visibility = 'public'
+          ${visible('lw', 'lce')})
         + (SELECT COUNT(*) FROM anonymous_likes a
           JOIN worlds aw ON aw.id = a.world_id
-          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND aw.visibility = 'public') AS likes
+          LEFT JOIN events ace ON ace.id = aw.contest_event_id
+          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND aw.visibility = 'public'
+          ${visible('aw', 'ace')}) AS likes
       FROM worlds w
       WHERE w.author_id = @authorId AND w.quarantined_at IS NULL AND w.visibility = 'public'
-    `).get({ authorId });
+    `).get(params);
 
     return { likes: row.likes || 0, downloads: row.downloads || 0 };
   },
