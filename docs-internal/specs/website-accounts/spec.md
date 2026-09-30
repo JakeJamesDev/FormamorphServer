@@ -19,7 +19,7 @@ The server has never sent an email. The `email` column exists but no client ever
 
 ## Solution
 
-Email becomes unique and verifiable. Registration and an authenticated endpoint accept an optional email and send a verification link. Password reset works by email, but only to a verified address. Mail goes out through Resend from `noreply@formamorph.ai`, behind an injectable transport so tests capture mail instead of sending it. The reset and verification endpoints are rate-limited in memory, with no IP stored, so the no-IP policy holds.
+Email becomes unique and verifiable. Registration and an authenticated endpoint accept an optional email and send a verification link. Password reset works by email, but only to a verified address. Mail goes out through Resend from `account@mail.formamorph.ai`, with replies to `support@formamorph.ai`, behind an injectable transport so tests capture mail instead of sending it. The reset and verification endpoints are rate-limited in memory, with no IP stored, so the no-IP policy holds.
 
 ## User Stories
 

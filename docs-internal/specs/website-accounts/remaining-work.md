@@ -28,7 +28,7 @@ Checked implementation boxes do not establish deployment. Explicitly approved de
 2. **Resolve policy acceptance on the site.** [Client 08](../../../../formamorph/docs-internal/specs/website-accounts/issues/08-site-register-privacy-acceptance.md) needs a choice of acceptance experience. The [register page](../../../../formamorph/site/pages/RegisterPage.tsx) registers and navigates without accepting the policy. Authenticated email settings use the policy-gated server middleware.
 3. **Update and publish the mail disclosure.** [Server 06](issues/06-update-email-privacy-policy.md) tracks the seed text, required acceptance-version bump, and live policy row. Renewed acceptance is approved.
 4. **Finish server review.** In particular, ticket 03's tests establish matching responses and independence from delivery latency, not a complete timing non-enumeration guarantee. Its remaining validation is now explicit.
-5. **Configure and deploy real mail.** [Server 04](issues/04-deploy-mail-to-the-box.md) now includes Resend/DNS, environment values and site URL, duplicate-email preflight, database backup and schema verification, policy publication, and live verification/reset/session-invalidation checks. Production state is unverified.
+5. **Move the sender to a subdomain.** [Server 04](issues/04-deploy-mail-to-the-box.md) is closed: production mail is live. [Server 09](issues/09-sender-subdomain-and-replies.md) moves the sender to `mail.formamorph.ai` and routes replies to `support@formamorph.ai`.
 
 ## Follow-up disposition
 

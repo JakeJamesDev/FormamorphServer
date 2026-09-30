@@ -10,7 +10,10 @@
 const { HOUR_MS } = require('./time');
 
 /** The sender Resend is configured to sign for. A mail from any other address is refused by the API. */
-const MAIL_FROM = process.env.MAIL_FROM || 'noreply@formamorph.ai';
+const MAIL_FROM = process.env.MAIL_FROM || 'Formamorph <account@mail.formamorph.ai>';
+
+/** Where a reply to a mail goes. Unset leaves the header off, so a reply goes back to the sender. */
+const MAIL_REPLY_TO = process.env.MAIL_REPLY_TO || undefined;
 
 /** The site the links open. Trailing slash trimmed, so a link is never built with two. */
 const SITE_URL = (process.env.SITE_URL || 'https://formamorph.ai').replace(/\/+$/, '');
@@ -45,4 +48,4 @@ const MAIL_WINDOW_MS = HOUR_MS;
 const RESET_LIMIT = 3;
 const RESET_WINDOW_MS = HOUR_MS;
 
-module.exports = { MAIL_FROM, SITE_URL, MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS };
+module.exports = { MAIL_FROM, MAIL_REPLY_TO, SITE_URL, MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS };

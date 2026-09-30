@@ -1,9 +1,9 @@
-const { MAIL_FROM } = require('../config/mail');
+const { MAIL_FROM, MAIL_REPLY_TO } = require('../config/mail');
 
 /**
  * The one way this server sends mail, and the seam a test replaces.
  *
- * A transport is any object with `send({ from, to, subject, text, html })` returning a promise. Which one
+ * A transport is any object with `send({ from, replyTo, to, subject, text, html })` returning a promise. Which one
  * the process uses is decided once, here, from the environment: a key means Resend, no key means refusal.
  * Callers never choose, so nothing can reach the real API from a test or a development box by mistake.
  */
@@ -21,11 +21,11 @@ const RESEND_ENDPOINT = 'https://api.resend.com/emails';
  * @returns {{send: (message: Object) => Promise<void>}} A transport
  */
 const resendTransport = (apiKey) => ({
-  send: async ({ from, to, subject, text, html }) => {
+  send: async ({ from, replyTo, to, subject, text, html }) => {
     const response = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, text, html })
+      body: JSON.stringify({ from, reply_to: replyTo, to, subject, text, html })
     });
 
     if (!response.ok) {
@@ -81,6 +81,6 @@ const resetMailTransport = () => { transport = startupTransport; };
  * @returns {Promise<void>} Resolves when the transport has taken it
  */
 const sendMail = ({ to, subject, text, html }) =>
-  transport.send({ from: MAIL_FROM, to, subject, text, html });
+  transport.send({ from: MAIL_FROM, replyTo: MAIL_REPLY_TO, to, subject, text, html });
 
-module.exports = { sendMail, setMailTransport, resetMailTransport, captureTransport, mailEnabled };
+module.exports = { sendMail, setMailTransport, resetMailTransport, captureTransport, resendTransport, mailEnabled };
