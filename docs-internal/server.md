@@ -183,6 +183,12 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-09-30** — deployed `fd8928a`: a stored Changelog Entry count on catalog rows. All 1,825 tests
+  passed in 22.1 s wall time. Schema step `changelogCount` added `worlds.changelog_count` and backfilled it;
+  the journal shows `Schema: applied changelogCount`. Backup
+  `backups/pre-deploy-21b0063-2026-09-30T21-33-53.137Z.db`, integrity `ok`. The step is additive, so a
+  rollback needs no restore. `npm ci` showed the same skipped `better-sqlite3` install-script warning.
+  Service active with zero restarts, public route 200.
 - **2026-09-30** — deployed `21b0063`: hidden like counts on contest listings, profiles, and like replies,
   rate limits keyed on the proxied address, new bundled world fingerprints, and mail from the `mail.`
   subdomain with a Reply-To. All 1,813 tests passed in 31.6 s wall time. No schema or policy change, so no
