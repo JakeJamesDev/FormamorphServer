@@ -61,6 +61,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Event** | A timed community happening with a window, a banner, and a poster: a contest or an announcement. State is read off the window, never stored. |
 | **Contest** | An event listings can be published into. A listing enters at most one contest, on the day it appears. |
 | **Entry** | A listing published into a contest. Locked against edits once the contest is being judged. |
+| **Hidden count** | An entry's like count while its contest has no announced results. Left out for everyone but the entry's author and staff, who get it marked private. |
 | **Podium** | A contest's result: a list of placements, each a listing at a place of 1, 2 or 3 with its name and author snapshotted. |
 | **Place** | Where a listing finished. Any number of listings can share one, and a shared place pushes the next down by as many as shared it: 1, 1, 3. |
 | **Position** | The order inside a shared place, from 0. The server sets it from publish time, earliest first, so the judge's own list order never reaches the archive. |

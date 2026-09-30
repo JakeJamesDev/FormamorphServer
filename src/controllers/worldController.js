@@ -25,9 +25,10 @@ const Setting = require('../models/Setting');
 const AnonymousLike = require('../models/AnonymousLike');
 const InstallClaim = require('../models/InstallClaim');
 const {
-  ANONYMOUS_LIKES, CODES, NO_INSTALL, INSTALL_HEADER_NAME, installIdFrom
+  ANONYMOUS_LIKES, CODES, NO_INSTALL, installIdFrom
 } = require('../config/anonymousLikes');
 const { addressKeyFor } = require('../utils/addressKey');
+const { perReader } = require('../utils/perReader');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
 const { avatarUrlFor } = require('../utils/avatarUrl');
@@ -312,9 +313,7 @@ exports.getWorlds = async (req, res, next) => {
     // listings — so it is one reader's to hold, and it is only ever held against a revalidation. A guest's
     // marks come from the Install header, so a cache keyed on the token alone would hand one guest's
     // hearts to another.
-    res.setHeader('Cache-Control', 'private, no-cache');
-    res.vary('Authorization');
-    res.vary(INSTALL_HEADER_NAME);
+    perReader(res, { byInstall: true });
 
     res.status(200).json({
       success: true,
@@ -375,7 +374,9 @@ exports.getWorld = async (req, res, next) => {
     }
 
     markGuestLikes(req, [world]);
-    res.vary(INSTALL_HEADER_NAME);
+
+    // A contest entry's count differs per reader, as the catalog's hearts do.
+    perReader(res, { byInstall: true });
 
     res.status(200).json({
       success: true,
@@ -408,7 +409,7 @@ exports.getWorldContent = async (req, res, next) => {
     World.incrementDownloads(req.params.id);
 
     // Get world with content
-    const world = await World.getContent(req.params.id);
+    const world = await World.getContent(req.params.id, req.user);
 
     if (!world) {
       return res.status(404).json({
@@ -417,6 +418,7 @@ exports.getWorldContent = async (req, res, next) => {
       });
     }
 
+    perReader(res);
     res.status(200).json({
       success: true,
       data: world
@@ -562,7 +564,7 @@ exports.createWorld = async (req, res, next) => {
       recordSignal(req, req.user.id, 'publish');
 
       // Get full world data for response
-      const fullWorld = attachRelationships(await World.getContent(worldId), req.user);
+      const fullWorld = attachRelationships(await World.getContent(worldId, req.user), req.user);
 
       res.status(201).json({
         success: true,
@@ -763,7 +765,7 @@ exports.updateWorld = async (req, res, next) => {
       recordSignal(req, req.user.id, 'publish');
 
       // Get full world data for response
-      const fullWorld = attachRelationships(await World.getContent(req.params.id), req.user);
+      const fullWorld = attachRelationships(await World.getContent(req.params.id, req.user), req.user);
 
       res.status(200).json({
         success: true,

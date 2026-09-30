@@ -7,6 +7,8 @@ const Comment = require('./Comment');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { isStaff, badgeRole } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
+const Event = require('./Event');
+const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -72,9 +74,11 @@ const World = {
   /**
    * Find a world by ID and populate with author data
    * @param {string} id - World ID
+   * @param {Object} [viewer] - The reader, for `liked` and whether the count is theirs to see
+   * @param {Object} [options] - `withLiked: false` leaves the reader's heart off, as a download does
    * @returns {Object|null} World object with author data or null if not found
    */
-  findByIdWithAuthor: (id, viewer = null) => {
+  findByIdWithAuthor: (id, viewer = null, { withLiked = true } = {}) => {
     const world = World.findById(id);
 
     if (!world) {
@@ -84,7 +88,9 @@ const World = {
     // The same pair the catalog rows carry, so a listing read on its own says the same thing as the card
     // it was opened from. `liked` is absent rather than false without a reader — see `getAll`.
     world.likes = World.likeCount(id);
-    if (viewer) world.liked = World.hasLiked(id, viewer.id);
+    const contest = world.contest_event_id ? Event.findById(world.contest_event_id) : null;
+    shapeLikes(world, contest ? contest.results_announced_at : null, viewer);
+    if (viewer && withLiked) world.liked = World.hasLiked(id, viewer.id);
 
     // Get author data
     const authorRow = db.prepare('SELECT id, username, avatar_file, account_type FROM users WHERE id = ?').get(world.author_id);
@@ -182,8 +188,10 @@ const World = {
       // disturbing the positional params below.
       let query = `SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type,
         (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id)
-          + (SELECT COUNT(*) FROM anonymous_likes a WHERE a.world_id = w.id) AS like_count
-        FROM worlds w JOIN users u ON w.author_id = u.id`;
+          + (SELECT COUNT(*) FROM anonymous_likes a WHERE a.world_id = w.id) AS like_count,
+        ce.results_announced_at AS contest_results_announced_at
+        FROM worlds w JOIN users u ON w.author_id = u.id
+        LEFT JOIN events ce ON ce.id = w.contest_event_id`;
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
@@ -250,18 +258,24 @@ const World = {
       }
       
       // An unknown sort falls back to newest-first, which is what an unsorted catalog has always shown.
-      const sortExpression = SORT_EXPRESSIONS[sort] || SORT_EXPRESSIONS.created_at;
+      // A count hidden from this reader sorts as 0, so the order shows no rank the rows leave out.
+      let sortExpression = SORT_EXPRESSIONS[sort] || SORT_EXPRESSIONS.created_at;
+      const orderParams = [];
+      if (sortExpression === SORT_EXPRESSIONS.likes) {
+        sortExpression = `CASE WHEN likes_hidden(w.contest_event_id, ce.results_announced_at, w.author_id, ?, ?)
+          THEN 0 ELSE like_count END`;
+        orderParams.push(...likesHiddenReaderParams(viewer));
+      }
 
       // Validate order direction
       const orderDirection = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
       // Add order by and limit to main query
       query += ` ORDER BY ${sortExpression} ${orderDirection} LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
-      
+
       // Execute queries
-      const worlds = db.prepare(query).all(...params);
-      const countResult = db.prepare(countQuery).get(...params.slice(0, params.length - 2));
+      const worlds = db.prepare(query).all(...params, ...orderParams, limit, offset);
+      const countResult = db.prepare(countQuery).get(...params);
       const total = countResult ? countResult.count : 0;
 
       // One query for the whole page rather than a correlated subquery carrying a parameter into the
@@ -284,6 +298,8 @@ const World = {
         // the heart should be a number rather than a control they cannot press.
         world.likes = world.like_count || 0;
         delete world.like_count;
+        shapeLikes(world, world.contest_results_announced_at, viewer);
+        delete world.contest_results_announced_at;
         if (viewer) world.liked = likedIds.has(world.id);
 
         // Format author
@@ -918,12 +934,13 @@ const World = {
   /**
    * Get world content
    * @param {string} id - World ID
+   * @param {Object} [reader] - Who downloads it, for whether the count is theirs to see
    * @returns {Object} World content
    */
-  getContent: async (id) => {
+  getContent: async (id, reader = null) => {
     try {
       // Get world
-      const world = World.findByIdWithAuthor(id);
+      const world = World.findByIdWithAuthor(id, reader, { withLiked: false });
       
       if (!world) {
         throw new Error('World not found');

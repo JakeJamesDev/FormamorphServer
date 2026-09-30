@@ -5,6 +5,7 @@ const Compatibility = require('../models/Compatibility');
 const { canModerate } = require('../config/roles');
 const { isValidReviewState, REVIEW_STATES, PUBLIC } = require('../config/relationships');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
+const { perReader } = require('../utils/perReader');
 const {
   NOT_FOUND, idList, dependencyRefusal, compatibilityRefusal, reviewFields, seesDeclined, compatibleWorldsFor
 } = require('../utils/linkedContent');
@@ -49,8 +50,7 @@ exports.getDependencies = async (req, res, next) => {
     const world = readableWorld(req, res);
     if (!world) return;
 
-    res.setHeader('Cache-Control', 'private, no-cache');
-    res.vary('Authorization');
+    perReader(res);
 
     res.status(200).json({
       success: true,
@@ -89,7 +89,8 @@ exports.getDependencyContent = async (req, res, next) => {
     // machine, and reaching one inside a world download is reaching one.
     World.incrementDownloads(sourceId);
 
-    res.status(200).json({ success: true, data: await World.getContent(sourceId) });
+    perReader(res);
+    res.status(200).json({ success: true, data: await World.getContent(sourceId, req.user) });
   } catch (error) {
     next(error);
   }
@@ -192,8 +193,7 @@ exports.getAddons = async (req, res, next) => {
       addons.push({ ...listing, ...reviewFields(row, row.component_revision) });
     }
 
-    res.setHeader('Cache-Control', 'private, no-cache');
-    res.vary('Authorization');
+    perReader(res);
 
     res.status(200).json({ success: true, count: addons.length, data: addons });
   } catch (error) {

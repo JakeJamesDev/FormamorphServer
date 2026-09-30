@@ -219,12 +219,8 @@ describe('what the list tells a cache', () => {
     expect(res.headers.vary).toContain('Authorization');
   });
 
-  it('leaves the Listing detail and the auth endpoints as they were', async () => {
-    const { reader, id } = await seed();
-
-    const detail = await request(app).get(`/api/worlds/${id}`);
-    expect(detail.status).toBe(200);
-    expect(detail.headers['cache-control']).toBeUndefined();
+  it('leaves the auth endpoints as they were', async () => {
+    const { reader } = await seed();
 
     const me = await request(app).get('/api/auth/me').set(authHeader(reader));
     expect(me.status).toBe(200);
