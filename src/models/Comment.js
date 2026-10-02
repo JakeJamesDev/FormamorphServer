@@ -1,6 +1,5 @@
 const db = require('../config/db');
-const { avatarUrlFor } = require('../utils/avatarUrl');
-const { badgeRole } = require('../config/roles');
+const { authorPayload } = require('../utils/authorPayload');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -33,12 +32,12 @@ const Comment = {
     // Live, not snapshotted: a catalog comment is a conversation, and the badge beside a name says who
     // that person is now. The feedback queue snapshots instead, because a reply there is a record.
     const author = authorRow
-      ? {
+      ? authorPayload({
         id: authorRow.id,
         username: authorRow.username,
-        avatarUrl: avatarUrlFor(authorRow.avatar_file),
-        role: badgeRole(authorRow.account_type)
-      }
+        avatarFile: authorRow.avatar_file,
+        role: authorRow.account_type
+      })
       : authorRow;
     
     // Return comment with author
@@ -87,12 +86,12 @@ const Comment = {
       // Process comments
       const processedComments = comments.map(comment => {
         // Format author
-        comment.author = {
+        comment.author = authorPayload({
           id: comment.author_id,
           username: comment.author_username,
-          avatarUrl: avatarUrlFor(comment.author_avatar_file),
-          role: badgeRole(comment.author_account_type)
-        };
+          avatarFile: comment.author_avatar_file,
+          role: comment.author_account_type
+        });
 
         // Remove redundant fields
         delete comment.author_id;

@@ -1,6 +1,5 @@
 const db = require('../config/db');
-const { avatarUrlFor } = require('../utils/avatarUrl');
-const { badgeRole } = require('../config/roles');
+const { authorPayload } = require('../utils/authorPayload');
 
 /** The most a feed will hand back at once. Past this it stops being a list of news. */
 const FEED_LIMIT = 50;
@@ -94,10 +93,7 @@ const Follow = {
     WHERE f.follower_id = ?
     ORDER BY f.created_at DESC, u.username COLLATE NOCASE ASC
   `).all(followerId).map((row) => ({
-    id: row.id,
-    username: row.username,
-    avatarUrl: avatarUrlFor(row.avatar_file),
-    role: badgeRole(row.account_type),
+    ...authorPayload({ id: row.id, username: row.username, avatarFile: row.avatar_file, role: row.account_type }),
     followedAt: row.created_at
   })),
 
@@ -139,12 +135,12 @@ const Follow = {
     // is news; something that did is a revision.
     event: row.created_instant > row.followed_instant ? 'published' : 'updated',
     at: row.updated_at,
-    author: {
+    author: authorPayload({
       id: row.author_id,
       username: row.author_username,
-      avatarUrl: avatarUrlFor(row.author_avatar_file),
-      role: badgeRole(row.author_account_type)
-    }
+      avatarFile: row.author_avatar_file,
+      role: row.author_account_type
+    })
   })),
 
   /**

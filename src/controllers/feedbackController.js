@@ -1,5 +1,5 @@
 const Feedback = require('../models/Feedback');
-const { avatarUrlFor } = require('../utils/avatarUrl');
+const { authorPayload } = require('../utils/authorPayload');
 const { isStaff, roleOf } = require('../config/roles');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
@@ -17,13 +17,13 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   category: row.category,
   body: row.body,
   status: row.status,
-  reporter: {
+  reporter: authorPayload({
     id: row.reporter_id,
     username: row.reporter_username || null,
-    avatarUrl: avatarUrlFor(row.reporter_avatar_file),
-    // What they were when they filed it — see `snapshotRoleOf`.
-    role: snapshotRoleOf(row.reporter_role, row.reporter_account_type)
-  },
+    avatarFile: row.reporter_avatar_file,
+    // What they were when they filed it, with the live account type as the fallback.
+    role: row.reporter_role || row.reporter_account_type
+  }),
   // Stored as JSON text; a row written by hand could be malformed, and one bad row must not fail the list.
   // A suggestion's is empty because none was ever stored — masking it here as well would be a second
   // guard for the same thing, and the dead one always looks like it is doing the work.
@@ -44,36 +44,15 @@ const toCommentDto = (row) => ({
   body: row.body,
   createdAt: row.created_at,
   editedAt: row.edited_at || null,
-  author: {
+  author: authorPayload({
     id: row.author_id,
     username: row.author_username || null,
-    avatarUrl: avatarUrlFor(row.author_avatar_file),
-    // What they were when they wrote it, which is what the badge says. Null for an ordinary reply, and
-    // for one written before the snapshot existed — those fall back to the live account type, which is
-    // the old behavior and the best that can be said about them.
-    role: snapshotRoleOf(row.author_role, row.author_account_type)
-  }
+    avatarFile: row.author_avatar_file,
+    // What they were when they wrote it, which is what the badge says. A reply written before the
+    // snapshot existed falls back to the live account type, the best that can be said about it.
+    role: row.author_role || row.author_account_type
+  })
 });
-
-/**
- * What somebody was when they wrote the thing being read.
- *
- * The snapshot when there is one; otherwise the live account type, for rows written before the column
- * existed. `normal` becomes null either way — an ordinary post wears no badge, and a caller checking for
- * one should not have to know the word.
- *
- * Shared by a reply's author and a report's reporter: both are a record of who said something at a
- * moment, so neither may be rewritten by a later promotion or demotion.
- *
- * @param {string|null} snapshot - The role recorded at write time
- * @param {string|null} live - The account's current type, as the fallback
- * @returns {string|null} The role, or null
- */
-function snapshotRoleOf(snapshot, live) {
-  const role = snapshot || live || null;
-
-  return role && role !== 'normal' ? role : null;
-}
 
 function safeParse(text) {
   try {

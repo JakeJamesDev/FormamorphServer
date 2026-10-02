@@ -6,12 +6,13 @@ const AuditLog = require('../models/AuditLog');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { saveAvatar, deleteAvatar } = require('../utils/fileStorage');
 const { avatarUrlFor } = require('../utils/avatarUrl');
+const { authorPayload } = require('../utils/authorPayload');
 const Follow = require('../models/Follow');
 const InstallClaim = require('../models/InstallClaim');
 const { NO_INSTALL, installIdFrom } = require('../config/anonymousLikes');
 const { recordSignal } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
-const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf, badgeRole } = require('../config/roles');
+const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
 
 /**
@@ -138,22 +139,29 @@ exports.getMyWorlds = async (req, res, next) => {
  * @param {Object} [viewer] - Who is asking, when a token said so
  * @returns {Object} The profile DTO
  */
-const publicProfile = (user, viewer) => ({
-  id: user.id,
-  username: user.username,
-  avatarUrl: avatarUrlFor(user.avatar_file),
-  createdAt: user.created_at,
-  // Public on purpose: being on the team is not a private fact, and a reader who can see the badge
-  // on a comment should see the same badge on the profile that comment links to.
-  role: badgeRole(roleOf(user)),
-  // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
-  // one rather than false — a signed-out visitor is not somebody who has decided not to.
-  followers: Follow.followerCount(user.id),
-  following: viewer ? Follow.isFollowing(viewer.id, user.id) : undefined,
-  // What their published work has earned; hidden contest likes are left out for a reader who may not
-  // see them — see `World.authorTotals`.
-  ...World.authorTotals(user.id, viewer)
-});
+const publicProfile = (user, viewer) => {
+  const { role, ...author } = authorPayload({
+    id: user.id,
+    username: user.username,
+    avatarFile: user.avatar_file,
+    role: roleOf(user)
+  });
+
+  return {
+    ...author,
+    createdAt: user.created_at,
+    // Public on purpose: being on the team is not a private fact, and a reader who can see the badge
+    // on a comment should see the same badge on the profile that comment links to.
+    role,
+    // Public: how many, never who. Whether *you* follow them needs a token, and is absent without
+    // one rather than false — a signed-out visitor is not somebody who has decided not to.
+    followers: Follow.followerCount(user.id),
+    following: viewer ? Follow.isFollowing(viewer.id, user.id) : undefined,
+    // What their published work has earned; hidden contest likes are left out for a reader who may not
+    // see them — see `World.authorTotals`.
+    ...World.authorTotals(user.id, viewer)
+  };
+};
 
 /** Whether an account may be read through either public profile lookup. */
 const shownPublicly = (user) => Boolean(user) && user.status !== 'suspended';

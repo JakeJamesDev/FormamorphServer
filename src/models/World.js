@@ -4,8 +4,8 @@ const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage')
 const { DEFAULT_KIND, ALL_KINDS, rulesFor } = require('../config/kinds');
 const { DEFAULT_VISIBILITY, PUBLIC, UNLISTED } = require('../config/relationships');
 const Comment = require('./Comment');
-const { avatarUrlFor } = require('../utils/avatarUrl');
-const { isStaff, badgeRole } = require('../config/roles');
+const { authorPayload } = require('../utils/authorPayload');
+const { isStaff } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
 const Event = require('./Event');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
@@ -97,12 +97,12 @@ const World = {
     // Live rather than snapshotted, unlike a feedback reply: a reply is a record of who said something
     // at a moment, but a listing's author badge says who they are now.
     const author = authorRow
-      ? {
+      ? authorPayload({
         id: authorRow.id,
         username: authorRow.username,
-        avatarUrl: avatarUrlFor(authorRow.avatar_file),
-        role: badgeRole(authorRow.account_type)
-      }
+        avatarFile: authorRow.avatar_file,
+        role: authorRow.account_type
+      })
       : authorRow;
     
     // Parse tags
@@ -303,12 +303,12 @@ const World = {
         if (viewer) world.liked = likedIds.has(world.id);
 
         // Format author
-        world.author = {
+        world.author = authorPayload({
           id: world.author_id,
           username: world.author_username,
-          avatarUrl: avatarUrlFor(world.author_avatar_file),
-          role: badgeRole(world.author_account_type)
-        };
+          avatarFile: world.author_avatar_file,
+          role: world.author_account_type
+        });
 
         // Remove redundant fields
         delete world.author_id;
