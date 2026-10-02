@@ -132,17 +132,17 @@ const Feedback = {
   /**
    * A page of threads.
    *
-   * `type` picks the branch; `reporterId` narrows to one person's own; `status` to one triage state;
+   * `type` picks the branch; `reporterId` narrows to one person's own; `statuses` to any of several triage states;
    * `category` to one area of the app. All are optional and combine, so the same query backs the
    * reporter's list, the public board and the admin's filtered queue.
    *
-   * @param {Object} [options] - `{ page, limit, type, reporterId, status, category, sort }`; `sort` is a
+   * @param {Object} [options] - `{ page, limit, type, reporterId, statuses, category, sort }`; `sort` is a
    *   `SORT_FIELDS` key, defaulting to newest
    * @returns {Object} `{ threads, count, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
     const {
-      page = 1, limit = 20, type = null, reporterId = null, status = null, category = null, sort = 'newest'
+      page = 1, limit = 20, type = null, reporterId = null, statuses = [], category = null, sort = 'newest'
     } = options;
     const offset = (page - 1) * limit;
 
@@ -156,9 +156,10 @@ const Feedback = {
       where.push('r.reporter_id = @reporterId');
       params.reporterId = reporterId;
     }
-    if (status) {
-      where.push('r.status = @status');
-      params.status = status;
+    if (statuses.length) {
+      // One bound placeholder per value, so the list is never interpolated.
+      where.push(`r.status IN (${statuses.map((_, index) => `@status${index}`).join(', ')})`);
+      statuses.forEach((value, index) => { params[`status${index}`] = value; });
     }
     if (category) {
       where.push('r.category = @category');

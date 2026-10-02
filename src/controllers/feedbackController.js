@@ -157,9 +157,10 @@ exports.getThreads = async (req, res, next) => {
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const type = typeOf(req.query.type);
-    // An unknown status is ignored rather than rejected — it falls back to every thread, which is what
-    // an unfiltered list already shows.
-    const status = Feedback.STATUSES[type].includes(req.query.status) ? req.query.status : null;
+    // A comma-separated list. Values the branch does not have drop out rather than reject the request;
+    // none left falls back to every thread, which is what an unfiltered list already shows.
+    const statuses = String(req.query.status ?? '').split(',')
+      .filter((value) => Feedback.STATUSES[type].includes(value));
     // Same for a category the branch does not have — asking a bug queue for 'interface' falls back to
     // every category rather than an empty list nobody asked for.
     const category = Feedback.CATEGORIES[type].includes(req.query.category) ? req.query.category : null;
@@ -170,7 +171,7 @@ exports.getThreads = async (req, res, next) => {
     // beats filing it twice. Without it the list is the caller's own, which is what the profile opens on.
     const reporterId = req.query.scope === 'all' ? null : req.user.id;
 
-    const result = Feedback.getAll({ page, limit, type, reporterId, status, category, sort });
+    const result = Feedback.getAll({ page, limit, type, reporterId, statuses, category, sort });
     const ids = result.threads.map((row) => row.id);
     const unread = Feedback.unreadAmong(ids, req.user);
     const voted = Feedback.votedAmong(ids, req.user.id);

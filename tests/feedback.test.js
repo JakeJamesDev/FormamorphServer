@@ -239,6 +239,78 @@ describe('listing reports', () => {
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(1);
   });
+
+  describe('with a list of statuses', () => {
+    // Four reports in four states, filed oldest first.
+    const seedStates = async () => {
+      const root = admin();
+      for (const [title, status] of [['One', 'open'], ['Two', 'confirmed'], ['Three', 'resolved'], ['Four', 'open']]) {
+        const id = (await file(reporter(`u-${title}`), { title })).body.data.id;
+        if (status !== 'open') {
+          await request(app).put(`/api/feedback/${id}/status`).set(authHeader(root)).send({ status });
+        }
+      }
+      return root;
+    };
+
+    it('returns the union of the statuses, newest first, with an exact total', async () => {
+      const root = await seedStates();
+
+      const res = await list(root, '?scope=all&status=open,confirmed&limit=2');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Four', 'Two']);
+      expect(res.body.total).toBe(3);
+    });
+
+    it('pages through the union without a gap', async () => {
+      const root = await seedStates();
+
+      const first = await list(root, '?scope=all&status=open,confirmed&limit=2');
+      const second = await list(root, '?scope=all&status=open,confirmed&limit=2&page=2');
+
+      expect([...first.body.data, ...second.body.data].map((r) => r.title)).toEqual(['Four', 'Two', 'One']);
+    });
+
+    it('drops values the type does not have', async () => {
+      const root = await seedStates();
+
+      const res = await list(root, '?scope=all&status=resolved,nonsense,constructor');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Three']);
+    });
+
+    it('treats a list of only invalid values as no filter', async () => {
+      const root = await seedStates();
+
+      const res = await list(root, '?scope=all&status=nonsense,,wrong');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Four', 'Three', 'Two', 'One']);
+      expect(res.body.total).toBe(4);
+    });
+
+    it('still filters by a single status', async () => {
+      const root = await seedStates();
+
+      const res = await list(root, '?scope=all&status=confirmed');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Two']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('combines with a category and a scope', async () => {
+      const root = admin();
+      const mine = reporter('mine');
+      await file(mine, { title: 'Mine crash', category: 'crash' });
+      await file(mine, { title: 'Mine AI', category: 'ai' });
+      await file(reporter('other'), { title: 'Their crash', category: 'crash' });
+
+      const own = await list(mine, '?status=open,confirmed&category=crash');
+      const all = await list(root, '?scope=all&status=open,confirmed&category=crash');
+
+      expect(own.body.data.map((r) => r.title)).toEqual(['Mine crash']);
+      expect(all.body.data.map((r) => r.title)).toEqual(['Their crash', 'Mine crash']);
+    });
+  });
 });
 
 describe('reading a report', () => {
