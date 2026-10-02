@@ -978,6 +978,82 @@ describe('the suggestion board', () => {
     expect(res.body.data.map((r) => r.title)).toEqual(['Newer', 'Older']);
   });
 
+  describe('the shared sorts', () => {
+    // Fixed timestamps, so the order comes from the sort and not from insertion order.
+    const stamp = (id, created, updated) =>
+      db.prepare('UPDATE feedback SET created_at = ?, updated_at = ? WHERE id = ?').run(created, updated, id);
+
+    const seedThree = async (filer) => {
+      const a = (await filer({ title: 'A' })).body.data.id;
+      const b = (await filer({ title: 'B' })).body.data.id;
+      const c = (await filer({ title: 'C' })).body.data.id;
+      // Created A, B, C; last touched B, A, C.
+      stamp(a, '2026-01-01T00:00:00.000Z', '2026-03-02T00:00:00.000Z');
+      stamp(b, '2026-01-02T00:00:00.000Z', '2026-03-03T00:00:00.000Z');
+      stamp(c, '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z');
+      return { a, b, c };
+    };
+
+    it('lists bugs oldest first', async () => {
+      const user = reporter();
+      await seedThree((over) => file(user, over));
+
+      const res = await list(user, '?type=bug&scope=all&sort=oldest');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['A', 'B', 'C']);
+    });
+
+    it('lists bugs by latest activity', async () => {
+      const user = reporter();
+      await seedThree((over) => file(user, over));
+
+      const res = await list(user, '?type=bug&scope=all&sort=active');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['B', 'A', 'C']);
+    });
+
+    it('lists suggestions oldest first and by latest activity', async () => {
+      const user = reporter();
+      await seedThree((over) => fileSuggestion(user, over));
+
+      expect((await list(user, '?type=suggestion&scope=all&sort=oldest')).body.data.map((r) => r.title))
+        .toEqual(['A', 'B', 'C']);
+      expect((await list(user, '?type=suggestion&scope=all&sort=active')).body.data.map((r) => r.title))
+        .toEqual(['B', 'A', 'C']);
+    });
+
+    it('breaks a tie on the newest-filed thread', async () => {
+      const user = reporter();
+      const { a, b, c } = await seedThree((over) => file(user, over));
+      for (const id of [a, b, c]) stamp(id, '2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
+
+      const res = await list(user, '?type=bug&scope=all&sort=active');
+
+      // Insertion order A, B, C: newest first means C, B, A.
+      expect(res.body.data.map((r) => r.title)).toEqual(['C', 'B', 'A']);
+    });
+
+    it('moves a thread up the active sort when it gets a reply', async () => {
+      const root = admin();
+      const user = reporter();
+      const { c } = await seedThree((over) => file(user, over));
+
+      await comment(root, c);
+      const res = await list(user, '?type=bug&scope=all&sort=active');
+
+      expect(res.body.data[0].title).toBe('C');
+    });
+
+    it('falls back to newest when bugs are sorted by votes', async () => {
+      const user = reporter();
+      await seedThree((over) => file(user, over));
+
+      const res = await list(user, '?type=bug&scope=all&sort=votes');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['C', 'B', 'A']);
+    });
+  });
+
   it('keeps the two branches out of each other’s lists', async () => {
     const user = reporter();
     await file(user, { title: 'A bug' });

@@ -77,6 +77,9 @@ const participationClause = (isAdmin) => `
 /** Orders the list may be asked for. A whitelist: the value is interpolated into the ORDER BY. */
 const SORT_FIELDS = Object.assign(Object.create(null), {
   newest: 'r.created_at DESC, r.rowid DESC',
+  oldest: 'r.created_at ASC, r.rowid ASC',
+  // Replies and status changes touch `updated_at`; ties fall back to newest.
+  active: 'r.updated_at DESC, r.created_at DESC, r.rowid DESC',
   // Ties on votes fall back to newest, so an unvoted board still reads in a sensible order.
   votes: 'vote_count DESC, r.created_at DESC, r.rowid DESC'
 });
@@ -137,7 +140,7 @@ const Feedback = {
    * reporter's list, the public board and the admin's filtered queue.
    *
    * @param {Object} [options] - `{ page, limit, type, reporterId, statuses, category, sort }`; `sort` is a
-   *   `SORT_FIELDS` key, defaulting to newest
+   *   `SORT_FIELDS` key (`newest`, `oldest`, `active`, `votes`), defaulting to newest
    * @returns {Object} `{ threads, count, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
@@ -171,7 +174,9 @@ const Feedback = {
     // `rowid` breaks it by real insertion order — the primary key is a random UUID, so ordering on that
     // would shuffle same-instant rows and a thread could repeat or vanish between pages.
     // Only a known key reaches the SQL; `sort` is a request parameter, and these are interpolated.
-    const order = SORT_FIELDS[sort] || SORT_FIELDS.newest;
+    // Votes rank suggestions only; a bug has none, so that sort reads as newest.
+    const key = sort === 'votes' && type === 'bug' ? 'newest' : sort;
+    const order = SORT_FIELDS[key] || SORT_FIELDS.newest;
 
     const threads = db.prepare(`
       ${FEEDBACK_SELECT}
