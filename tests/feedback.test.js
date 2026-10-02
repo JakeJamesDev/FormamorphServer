@@ -1152,6 +1152,16 @@ describe('the suggestion board', () => {
       expect(res.body.data.map((r) => r.title)).toEqual(['C', 'B', 'A']);
     });
 
+    it('breaks an oldest-first tie on the newest-filed thread', async () => {
+      const user = reporter();
+      const { a, b, c } = await seedThree((over) => file(user, over));
+      for (const id of [a, b, c]) stamp(id, '2026-01-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z');
+
+      const res = await list(user, '?type=bug&scope=all&sort=oldest');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['C', 'B', 'A']);
+    });
+
     it('moves a thread up the active sort when it gets a reply', async () => {
       const root = admin();
       const user = reporter();

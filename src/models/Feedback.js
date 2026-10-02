@@ -79,7 +79,7 @@ const participationClause = (isAdmin) => `
 /** Orders the list may be asked for. A whitelist: the value is interpolated into the ORDER BY. */
 const SORT_FIELDS = Object.assign(Object.create(null), {
   newest: 'r.created_at DESC, r.rowid DESC',
-  oldest: 'r.created_at ASC, r.rowid ASC',
+  oldest: 'r.created_at ASC, r.rowid DESC',
   // Replies and status changes touch `updated_at`; ties fall back to newest.
   active: 'r.updated_at DESC, r.created_at DESC, r.rowid DESC',
   // Ties on votes fall back to newest, so an unvoted board still reads in a sensible order.
