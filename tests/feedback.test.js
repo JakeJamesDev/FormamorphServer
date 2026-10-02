@@ -311,6 +311,125 @@ describe('listing reports', () => {
       expect(all.body.data.map((r) => r.title)).toEqual(['Their crash', 'Mine crash']);
     });
   });
+
+  describe('with a search', () => {
+    const search = (user, text, rest = '&scope=all') =>
+      list(user, `?search=${encodeURIComponent(text)}${rest}`);
+
+    it('finds a word in the title', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'It stops.' });
+      await file(reporter('b'), { title: 'Save fails', body: 'It spins.' });
+
+      const res = await search(root, 'freezes');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Map freezes']);
+      expect(res.body.total).toBe(1);
+    });
+
+    it('finds a word in the body', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'The minimap stops.' });
+      await file(reporter('b'), { title: 'Save fails', body: 'It spins.' });
+
+      const res = await search(root, 'minimap');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Map freezes']);
+    });
+
+    it('returns nothing when no thread holds the text', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'It stops.' });
+
+      const res = await search(root, 'teleport');
+
+      expect(res.body.data).toEqual([]);
+      expect(res.body.total).toBe(0);
+    });
+
+    it('ignores case', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map Freezes', body: 'It stops.' });
+
+      const res = await search(root, 'mAP fREEZES');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Map Freezes']);
+    });
+
+    it('matches % and _ literally', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Bar stuck at 100%', body: 'Never fills.' });
+      await file(reporter('b'), { title: 'Bar stuck at 1000', body: 'Never fills.' });
+      await file(reporter('c'), { title: 'Key my_save breaks', body: 'Load fails.' });
+      await file(reporter('d'), { title: 'Key myXsave breaks', body: 'Load fails.' });
+
+      const percent = await search(root, '100%');
+      const underscore = await search(root, 'my_save');
+
+      expect(percent.body.data.map((r) => r.title)).toEqual(['Bar stuck at 100%']);
+      expect(underscore.body.data.map((r) => r.title)).toEqual(['Key my_save breaks']);
+    });
+
+    it('matches a backslash literally', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Path C:\\saves fails', body: 'Load fails.' });
+      await file(reporter('b'), { title: 'Path C:saves fails', body: 'Load fails.' });
+
+      const res = await search(root, 'C:\\saves');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Path C:\\saves fails']);
+    });
+
+    it('treats blank text as no search', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'One' });
+      await file(reporter('b'), { title: 'Two' });
+
+      const res = await search(root, '   ');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Two', 'One']);
+      expect(res.body.total).toBe(2);
+    });
+
+    it('searches only the first 200 characters', async () => {
+      const root = admin();
+      const kept = 'x'.repeat(200);
+      await file(reporter('a'), { title: 'Long', body: `${kept}tail` });
+
+      const res = await search(root, `${kept}not in the body`);
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Long']);
+    });
+
+    it('combines with a status list, a category and a scope', async () => {
+      const root = admin();
+      const mine = reporter('mine');
+      await file(mine, { title: 'Mine freeze crash', category: 'crash' });
+      await file(mine, { title: 'Mine freeze AI', category: 'ai' });
+      await file(mine, { title: 'Mine other crash', category: 'crash' });
+      const done = (await file(mine, { title: 'Mine freeze resolved', category: 'crash' })).body.data.id;
+      await request(app).put(`/api/feedback/${done}/status`).set(authHeader(root)).send({ status: 'resolved' });
+      await file(reporter('other'), { title: 'Their freeze crash', category: 'crash' });
+
+      const own = await search(mine, 'freeze', '&status=open,confirmed&category=crash');
+      const all = await search(root, 'freeze', '&scope=all&status=open,confirmed&category=crash');
+
+      expect(own.body.data.map((r) => r.title)).toEqual(['Mine freeze crash']);
+      expect(own.body.total).toBe(1);
+      expect(all.body.data.map((r) => r.title)).toEqual(['Their freeze crash', 'Mine freeze crash']);
+      expect(all.body.total).toBe(2);
+    });
+
+    it('searches a suggestion board', async () => {
+      const root = admin();
+      await fileSuggestion(reporter('a'), { title: 'Rename saves', body: 'Let me rename.' });
+      await fileSuggestion(reporter('b'), { title: 'Dark map', body: 'A night theme.' });
+
+      const res = await search(root, 'night', '&scope=all&type=suggestion');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Dark map']);
+    });
+  });
 });
 
 describe('reading a report', () => {

@@ -30,6 +30,8 @@ const BODY_MAX = 4000;
 const COMMENT_MAX = 4000;
 /** Diagnostics are a small fixed blob; a cap stops the field being used as free storage. */
 const DIAGNOSTICS_MAX = 2000;
+/** Longer search text is cut to this, not refused; the client's field holds the same limit. */
+const SEARCH_MAX = 200;
 
 /**
  * The thread row, its author's name, and the two counts a list shows on it.
@@ -96,6 +98,7 @@ const Feedback = {
   BODY_MAX,
   COMMENT_MAX,
   DIAGNOSTICS_MAX,
+  SEARCH_MAX,
 
   /**
    * File a bug report or a suggestion.
@@ -136,16 +139,18 @@ const Feedback = {
    * A page of threads.
    *
    * `type` picks the branch; `reporterId` narrows to one person's own; `statuses` to any of several triage states;
-   * `category` to one area of the app. All are optional and combine, so the same query backs the
-   * reporter's list, the public board and the admin's filtered queue.
+   * `category` to one area of the app; `search` to threads whose title or body holds the text. All are
+   * optional and combine, so the same query backs the reporter's list, the public board and the admin's
+   * filtered queue.
    *
-   * @param {Object} [options] - `{ page, limit, type, reporterId, statuses, category, sort }`; `sort` is a
+   * @param {Object} [options] - `{ page, limit, type, reporterId, statuses, category, search, sort }`; `sort` is a
    *   `SORT_FIELDS` key (`newest`, `oldest`, `active`, `votes`), defaulting to newest
    * @returns {Object} `{ threads, count, total }` — `total` is the match count before paging
    */
   getAll: (options = {}) => {
     const {
-      page = 1, limit = 20, type = null, reporterId = null, statuses = [], category = null, sort = 'newest'
+      page = 1, limit = 20, type = null, reporterId = null, statuses = [], category = null, search = '',
+      sort = 'newest'
     } = options;
     const offset = (page - 1) * limit;
 
@@ -167,6 +172,12 @@ const Feedback = {
     if (category) {
       where.push('r.category = @category');
       params.category = category;
+    }
+    const term = String(search ?? '').trim().slice(0, SEARCH_MAX);
+    if (term) {
+      // Escaped so `%` and `_` match themselves. LIKE ignores ASCII case.
+      where.push("(r.title LIKE @search ESCAPE '\\' OR r.body LIKE @search ESCAPE '\\')");
+      params.search = `%${term.replace(/[\\%_]/g, '\\$&')}%`;
     }
     const filter = where.length ? `WHERE ${where.join(' AND ')}` : '';
 

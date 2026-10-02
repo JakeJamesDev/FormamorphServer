@@ -166,12 +166,14 @@ exports.getThreads = async (req, res, next) => {
     const category = Feedback.CATEGORIES[type].includes(req.query.category) ? req.query.category : null;
     // Likewise an unknown sort: `getAll` falls back to newest.
     const sort = req.query.sort;
+    // A repeated `search` arrives as an array, which counts as no text.
+    const search = typeof req.query.search === 'string' ? req.query.search : '';
 
     // The queue is public, so `scope=all` is open to anyone: checking whether something is already filed
     // beats filing it twice. Without it the list is the caller's own, which is what the profile opens on.
     const reporterId = req.query.scope === 'all' ? null : req.user.id;
 
-    const result = Feedback.getAll({ page, limit, type, reporterId, statuses, category, sort });
+    const result = Feedback.getAll({ page, limit, type, reporterId, statuses, category, search, sort });
     const ids = result.threads.map((row) => row.id);
     const unread = Feedback.unreadAmong(ids, req.user);
     const voted = Feedback.votedAmong(ids, req.user.id);
