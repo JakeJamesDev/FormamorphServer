@@ -43,7 +43,7 @@ describe('reading somebody’s profile', () => {
     const { data } = (await profile(user.id)).body;
 
     expect(Object.keys(data).sort()).toEqual([
-      'avatarUrl', 'createdAt', 'downloads', 'followers', 'id', 'likes', 'role', 'username'
+      'avatarUrl', 'createdAt', 'downloads', 'followers', 'id', 'likes', 'role', 'supporter', 'username'
     ]);
   });
 

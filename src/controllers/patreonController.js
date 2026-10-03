@@ -175,6 +175,30 @@ exports.getPatreonStatus = async (req, res, next) => {
 };
 
 /**
+ * @desc    Set the caller's Show Supporter Flair toggle
+ * @route   PATCH /api/users/me/patreon
+ * @access  Private; only a linked account
+ */
+exports.setPatreonFlair = async (req, res, next) => {
+  try {
+    const showFlair = req.body?.showFlair;
+    if (typeof showFlair !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'showFlair must be true or false' });
+    }
+
+    if (!PatreonLink.setShowFlair(req.user.id, showFlair)) {
+      return res.status(409).json({
+        success: false, code: 'PATREON_NOT_LINKED', error: 'Link a Patreon account first.'
+      });
+    }
+
+    res.status(200).json({ success: true, data: statusOf(PatreonLink.findByUser(req.user.id)) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Remove the caller's Patreon link
  * @route   DELETE /api/users/me/patreon
  * @access  Private

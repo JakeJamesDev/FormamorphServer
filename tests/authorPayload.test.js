@@ -11,7 +11,8 @@ describe('authorPayload', () => {
       id: 'u1',
       username: 'ada',
       avatarUrl: '/api/avatars/a.webp',
-      role: null
+      role: null,
+      supporter: null
     });
   });
 

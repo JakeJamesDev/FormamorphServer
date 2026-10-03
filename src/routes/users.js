@@ -5,7 +5,9 @@ const {
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
   getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes
 } = require('../controllers/userController');
-const { startPatreonLink, confirmPatreonLink, getPatreonStatus, unlinkPatreon } = require('../controllers/patreonController');
+const {
+  startPatreonLink, confirmPatreonLink, getPatreonStatus, setPatreonFlair, unlinkPatreon
+} = require('../controllers/patreonController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -46,6 +48,7 @@ router.post('/me/anonymous-likes/claim', protect, claimAnonymousLikes);
 router.get('/me/patreon', protect, getPatreonStatus);
 router.post('/me/patreon/link', protect, startPatreonLink);
 router.post('/me/patreon/confirm', smallJson, protect, confirmPatreonLink);
+router.patch('/me/patreon', smallJson, protect, setPatreonFlair);
 router.delete('/me/patreon', protect, unlinkPatreon);
 
 // The same profile, found by the name a shared `formamorph.ai/u/<username>` link carries. Grouped with

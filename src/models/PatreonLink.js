@@ -58,6 +58,28 @@ const PatreonLink = {
   },
 
   /**
+   * The link fields an author object reads, with the account's live type, or null with no link.
+   *
+   * @param {string} userId - The account
+   * @returns {{ tier: string|null, pledge_start: string|null, show_flair: number, account_type: string }|null}
+   */
+  flairOf: (userId) => db.prepare(`
+    SELECT l.tier, l.pledge_start, l.show_flair, u.account_type
+    FROM patreon_links l JOIN users u ON u.id = l.user_id
+    WHERE l.user_id = ?
+  `).get(userId) || null,
+
+  /**
+   * Set an account's flair toggle.
+   *
+   * @param {string} userId - The account
+   * @param {boolean} showFlair - Whether the flair shows
+   * @returns {boolean} Whether the account has a link to set
+   */
+  setShowFlair: (userId, showFlair) =>
+    db.prepare('UPDATE patreon_links SET show_flair = ? WHERE user_id = ?').run(showFlair ? 1 : 0, userId).changes > 0,
+
+  /**
    * Remove an account's link. Removing no link is not an error.
    *
    * @param {string} userId - The account
