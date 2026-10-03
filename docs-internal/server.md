@@ -183,6 +183,13 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-03** — deployed `c4575d3`: Patreon account links, webhooks, hourly reconcile, supporter flair on
+  author payloads, the supporters wall, and feedback list filters, search, and sorts. All 2,056 tests passed in
+  32.1 s wall time. Backup `backups/pre-deploy-fd8928a-2026-10-03T18-59-37.525Z.db`, integrity `ok`. Boot
+  applied `tables`, which added `patreon_links` and `patreon_pending_links`; the step is additive, so a rollback
+  needs no restore. The server `.env` has no `PATREON_*` key yet. Each key defaults to empty, so Patreon stays
+  off and the webhook answers 503. `npm ci` showed the same skipped `better-sqlite3` install-script warning.
+  Service active with zero restarts, public route 200.
 - **2026-09-30** — deployed `fd8928a`: a stored Changelog Entry count on catalog rows. All 1,825 tests
   passed in 22.1 s wall time. Schema step `changelogCount` added `worlds.changelog_count` and backfilled it;
   the journal shows `Schema: applied changelogCount`. Backup
