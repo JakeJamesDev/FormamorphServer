@@ -179,12 +179,14 @@ const identifyMember = (code) => client.identify(code);
 /**
  * The creator token pair: the stored one, or the environment pair before the first refresh.
  *
- * @returns {{ accessToken: string, refreshToken: string, expiresAt: string|null }} The pair to read with
+ * @returns {{ accessToken: string, refreshToken: string, expiresAt: string|null, fromEnvironment?: boolean }}
+ *   The pair to read with
  */
 const creatorTokens = () => Setting.get(PATREON_CREATOR_TOKENS) || {
   accessToken: PATREON_CREATOR_ACCESS_TOKEN,
   refreshToken: PATREON_CREATOR_REFRESH_TOKEN,
-  expiresAt: null
+  expiresAt: null,
+  fromEnvironment: true
 };
 
 // One refresh at a time: Patreon may retire a refresh token once it is used.
@@ -213,8 +215,10 @@ const refreshCreatorTokens = (tokens) => {
   return refreshing;
 };
 
-// An unknown expiry (the environment pair) refreshes too, which stores the pair and learns its expiry.
-const needsRefresh = ({ expiresAt }) => !expiresAt || Date.parse(expiresAt) - Date.now() < TOKEN_REFRESH_MARGIN_MS;
+// The environment pair refreshes once to store the pair and learn its expiry. A stored pair without an
+// expiry refreshes only on a refusal.
+const needsRefresh = ({ expiresAt, fromEnvironment }) => Boolean(fromEnvironment)
+  || (Boolean(expiresAt) && Date.parse(expiresAt) - Date.now() < TOKEN_REFRESH_MARGIN_MS);
 
 /**
  * The pair to read with, refreshed ahead of its expiry. A failed early refresh keeps the current pair,

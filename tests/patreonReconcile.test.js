@@ -210,6 +210,25 @@ describe('the creator token', () => {
     expect(Setting.get(PATREON_CREATOR_TOKENS).accessToken).toBe('creator-2');
   });
 
+  it('treats a pair Patreon sent without expires_in as not expiring', async () => {
+    nextPair.expiresIn = undefined;
+
+    await listMembers();
+    validRefresh = 'refresh-2';
+    await listMembers();
+    await listMembers();
+
+    expect(Setting.get(PATREON_CREATOR_TOKENS)).toMatchObject({ accessToken: 'creator-2', expiresAt: null });
+    expect(refreshCalls).toEqual(['test-creator-refresh']);
+    expect(memberCalls).toEqual(['creator-2', 'creator-2', 'creator-2']);
+
+    // It still refreshes when Patreon refuses it.
+    validToken = 'creator-3';
+    nextPair = { accessToken: 'creator-3', refreshToken: 'refresh-3', expiresIn: undefined };
+    await listMembers();
+    expect(refreshCalls).toEqual(['test-creator-refresh', 'refresh-2']);
+  });
+
   it('reads with the current pair when an early refresh fails', async () => {
     storePair('test-creator-token', HOUR_MS);
     members = [member('p1', ['tier-5'])];
