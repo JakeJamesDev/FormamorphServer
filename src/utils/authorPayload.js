@@ -1,12 +1,13 @@
 const { avatarUrlFor } = require('./avatarUrl');
-const { badgeRole, isStaff } = require('../config/roles');
+const { badgeRole } = require('../config/roles');
 const PatreonLink = require('../models/PatreonLink');
 
 /**
  * The Supporter Flair an author shows: `{ tier, since }`, or null.
  *
- * Read live from the link, so a lapsed or hidden supporter loses it on old records too. Staff show only
- * their staff badge: null for a live staff account and for a payload already badged with a staff role.
+ * The membership is read live, so a lapsed or hidden supporter loses it on old records too. A name never
+ * carries a staff badge and a Supporter badge together, so the payload's own role decides: a feedback
+ * snapshot there, the live role everywhere else.
  *
  * @param {string} id - The account id
  * @param {string|null} badge - The role the payload badges
@@ -16,7 +17,7 @@ const supporterOf = (id, badge) => {
   if (badge) return null;
 
   const link = PatreonLink.flairOf(id);
-  if (!link || !link.tier || !link.show_flair || isStaff(link)) return null;
+  if (!link || !link.tier || !link.show_flair) return null;
 
   return { tier: link.tier, since: link.pledge_start };
 };

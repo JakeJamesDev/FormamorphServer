@@ -26,6 +26,9 @@ const replaceLink = db.transaction(({ userId, patreonUserId, tier, pledgeStart, 
   `).run(userId, patreonUserId, tier, pledgeStart, checkedAt, now);
 });
 
+// Prepared on first use: the table exists only after the schema migration runs.
+let flairStatement;
+
 const PatreonLink = {
   PatreonUserTaken,
 
@@ -58,16 +61,17 @@ const PatreonLink = {
   },
 
   /**
-   * The link fields an author object reads, with the account's live type, or null with no link.
+   * The link fields an author object reads, or null with no link.
+   *
+   * Called once per author on every list, so the statement is prepared once.
    *
    * @param {string} userId - The account
-   * @returns {{ tier: string|null, pledge_start: string|null, show_flair: number, account_type: string }|null}
+   * @returns {{ tier: string|null, pledge_start: string|null, show_flair: number }|null}
    */
-  flairOf: (userId) => db.prepare(`
-    SELECT l.tier, l.pledge_start, l.show_flair, u.account_type
-    FROM patreon_links l JOIN users u ON u.id = l.user_id
-    WHERE l.user_id = ?
-  `).get(userId) || null,
+  flairOf: (userId) => {
+    flairStatement ||= db.prepare('SELECT tier, pledge_start, show_flair FROM patreon_links WHERE user_id = ?');
+    return flairStatement.get(userId) || null;
+  },
 
   /**
    * Set an account's flair toggle.

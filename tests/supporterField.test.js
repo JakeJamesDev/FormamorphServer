@@ -149,7 +149,8 @@ describe('a live read', () => {
     expect(lapsed.comments[0].author.role).toBe('mod');
   });
 
-  it('drops the flair from a reply written before a promotion to staff', async () => {
+  it('keeps the flair on a reply snapshotted as normal after a promotion to staff', async () => {
+    // The badge the payload shows decides, so a name never carries both badges.
     const user = createUser();
     linkAs(user, 'supporter');
     const id = await fileFeedback(user);
@@ -157,9 +158,11 @@ describe('a live read', () => {
     db.prepare("UPDATE users SET account_type = 'dev' WHERE id = ?").run(user.id);
 
     const thread = (await request(app).get(`/api/feedback/${id}`).set(authHeader(user))).body;
+    const flair = { role: null, supporter: { tier: 'supporter', since: SINCE } };
 
-    expect(thread.comments[0].author).toMatchObject({ role: null, supporter: null });
-    expect(thread.data.reporter).toMatchObject({ role: null, supporter: null });
+    expect(thread.comments[0].author).toMatchObject(flair);
+    expect(thread.data.reporter).toMatchObject(flair);
+    expect((await PATHS['profile by id'](user))).toMatchObject({ role: 'dev', supporter: null });
   });
 
   it('shows the flair again when the toggle goes back on', async () => {
