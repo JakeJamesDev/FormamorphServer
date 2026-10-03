@@ -59,7 +59,7 @@ const request = async (url, init = {}) => {
 };
 
 /**
- * One member from a member-list page, in our shape.
+ * One member resource, from a member-list page or a webhook body, in our shape.
  *
  * @param {Object} member - A JSON:API member resource
  * @returns {{ patreonUserId: string, tierIds: string[], pledgeStart: string|null }|null} Null without a user
@@ -157,6 +157,7 @@ module.exports = {
   authorizeUrl,
   identifyMember,
   listMembers,
+  memberFrom,
   setPatreonClient,
   resetPatreonClient,
   httpClient,

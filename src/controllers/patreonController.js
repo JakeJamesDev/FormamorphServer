@@ -5,7 +5,7 @@ const PatreonLink = require('../models/PatreonLink');
 const PatreonPendingLink = require('../models/PatreonPendingLink');
 const { sameGeneration } = require('../middleware/auth');
 const { SITE_URL } = require('../config/mail');
-const { patreonConfigured, tierFor, LINK_STATE_TTL_MS, LINK_RESULTS } = require('../config/patreon');
+const { patreonConfigured, tierStateOf, LINK_STATE_TTL_MS, LINK_RESULTS } = require('../config/patreon');
 const { authorizeUrl, identifyMember, listMembers } = require('../utils/patreon');
 
 const STATE_PURPOSE = 'patreon-link';
@@ -62,9 +62,7 @@ const accountFromState = (state) => {
 const readTier = async (patreonUserId) => {
   try {
     const member = (await listMembers()).find((entry) => entry.patreonUserId === patreonUserId);
-    const tier = member ? tierFor(member.tierIds) : null;
-
-    return { tier, pledgeStart: tier ? member.pledgeStart : null, checkedAt: new Date().toISOString() };
+    return { ...tierStateOf(member), checkedAt: new Date().toISOString() };
   } catch (error) {
     console.error('Patreon member list read failed at link time:', error);
     return { tier: null, pledgeStart: null, checkedAt: null };

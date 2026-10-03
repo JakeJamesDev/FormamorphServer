@@ -86,6 +86,16 @@ const PatreonLink = {
    */
   unlink: (userId) => {
     db.prepare('DELETE FROM patreon_links WHERE user_id = ?').run(userId);
+  },
+
+  /**
+   * Set the tier of the account that links a Patreon user. A Patreon user with no link changes nothing.
+   *
+   * @param {Object} update - `{ patreonUserId, tier, pledgeStart, checkedAt }`
+   */
+  setTier: ({ patreonUserId, tier, pledgeStart, checkedAt }) => {
+    db.prepare('UPDATE patreon_links SET tier = ?, pledge_start = ?, checked_at = ? WHERE patreon_user_id = ?')
+      .run(tier, pledgeStart, checkedAt, patreonUserId);
   }
 };
 

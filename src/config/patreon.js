@@ -42,11 +42,33 @@ const tierFor = (tierIds) => {
   return match ? match[1] : null;
 };
 
+/**
+ * The tier and pledge start a member gives a link. The pledge start counts only with a tier.
+ *
+ * @param {{ tierIds: string[], pledgeStart: string|null }|null} member - A parsed member, or null for none
+ * @returns {{ tier: string|null, pledgeStart: string|null }} No tier and no pledge start for no member
+ */
+const tierStateOf = (member) => {
+  const tier = member ? tierFor(member.tierIds) : null;
+  return { tier, pledgeStart: tier ? member.pledgeStart : null };
+};
+
 /** How long a member has to approve on Patreon before the signed `state` runs out. */
 const LINK_STATE_TTL_MS = HOUR_MS / 6;
 
 /** How long the account page has to confirm an approval. */
 const PENDING_LINK_TTL_MS = HOUR_MS / 6;
+
+/** The secret Patreon signs each webhook with, read per call. Empty when unset. */
+const patreonWebhookSecret = () => process.env.PATREON_WEBHOOK_SECRET || '';
+
+/** Webhook triggers whose payload carries the member's current tiers. */
+const WEBHOOK_TIER_TRIGGERS = new Set([
+  'members:create', 'members:update', 'members:pledge:create', 'members:pledge:update'
+]);
+
+/** Webhook triggers that end the tier, whatever tiers the payload still lists. */
+const WEBHOOK_ENDING_TRIGGERS = new Set(['members:delete', 'members:pledge:delete']);
 
 /** What the callback tells the site's account page, as `?patreon=<result>`. `CONFIRM` carries `&token=`. */
 const LINK_RESULTS = Object.freeze({
@@ -67,7 +89,11 @@ module.exports = {
   SUPPORTER_PLUS,
   patreonConfigured,
   tierFor,
+  tierStateOf,
   LINK_STATE_TTL_MS,
   PENDING_LINK_TTL_MS,
-  LINK_RESULTS
+  LINK_RESULTS,
+  patreonWebhookSecret,
+  WEBHOOK_TIER_TRIGGERS,
+  WEBHOOK_ENDING_TRIGGERS
 };

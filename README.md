@@ -65,6 +65,8 @@ npm install
    # The Patreon tier IDs that map to Supporter ($5) and Supporter+ ($10)
    PATREON_SUPPORTER_TIER_ID=<tier ID>
    PATREON_SUPPORTER_PLUS_TIER_ID=<tier ID>
+   # The secret of the webhook that posts to https://api.formamorph.ai/api/patreon/webhook. Unset refuses every delivery
+   PATREON_WEBHOOK_SECRET=<webhook secret>
    ```
 
    > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot

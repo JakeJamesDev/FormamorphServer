@@ -75,6 +75,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Patreon link** | One row joining an account to a Patreon user ID. Each side links at most once. No Patreon token is stored. Unlink and erasure delete it, and the Patreon user ID can then link again. |
 | **Tier** | `supporter` ($5) or `supporter_plus` ($10). The highest mapped tier in the member's `currently_entitled_tiers`, mapped by Patreon tier ID in the environment. An unmapped tier, or no membership, is no tier; the link stays. |
 | **Pledge start** | Patreon's `pledge_relationship_start` for a member with a tier. It can be null. |
+| **Patreon webhook** | Patreon's signed call when a membership changes. It sets the tier of the account that links the member; a delete trigger clears it. A call for a Patreon user with no link changes nothing. |
 | **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
 
 ## Clients
