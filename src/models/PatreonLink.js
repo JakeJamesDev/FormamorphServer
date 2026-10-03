@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { avatarUrlFor } = require('../utils/avatarUrl');
 
 /**
  * The link between an account and a Patreon user.
@@ -82,6 +83,28 @@ const PatreonLink = {
    */
   setShowFlair: (userId, showFlair) =>
     db.prepare('UPDATE patreon_links SET show_flair = ? WHERE user_id = ?').run(showFlair ? 1 : 0, userId).changes > 0,
+
+  /**
+   * The Supporters wall, in display order.
+   *
+   * Supporter+ comes first, then the earliest pledge start; a null start sorts last in its section. Staff
+   * who support are listed. A lapsed member has no tier, and an account with the toggle off hides itself.
+   *
+   * @returns {Array<{ id: string, username: string, avatarUrl: string|null, tier: string, since: string|null }>}
+   */
+  wall: () => db.prepare(`
+    SELECT u.id, u.username, u.avatar_file, l.tier, l.pledge_start
+    FROM patreon_links l
+    JOIN users u ON u.id = l.user_id
+    WHERE l.tier IS NOT NULL AND l.show_flair = 1
+    ORDER BY (l.tier = 'supporter_plus') DESC, l.pledge_start IS NULL, l.pledge_start, u.username
+  `).all().map((row) => ({
+    id: row.id,
+    username: row.username,
+    avatarUrl: avatarUrlFor(row.avatar_file),
+    tier: row.tier,
+    since: row.pledge_start
+  })),
 
   /**
    * Remove an account's link. Removing no link is not an error.

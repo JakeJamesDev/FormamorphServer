@@ -209,3 +209,16 @@ exports.unlinkPatreon = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @desc    The Supporters wall: linked supporters in display order
+ * @route   GET /api/patreon/supporters
+ * @access  Public
+ */
+exports.getSupporters = async (req, res, next) => {
+  try {
+    res.status(200).json({ success: true, data: PatreonLink.wall() });
+  } catch (error) {
+    next(error);
+  }
+};
