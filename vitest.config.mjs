@@ -19,6 +19,14 @@ export default defineConfig({
       SIGNAL_SALT: 'test-salt',
       // Holds only fixture fingerprints, so no test carries bundled world text or default Avatar bytes.
       BUNDLED_FINGERPRINTS_PATH: 'tests/fixtures/test-fingerprint-list.json',
+      // A configured Patreon link. No test reaches Patreon: the suite replaces the client in `utils/patreon`.
+      PATREON_CLIENT_ID: 'test-client',
+      PATREON_CLIENT_SECRET: 'test-client-secret',
+      PATREON_REDIRECT_URI: 'https://api.example.test/api/patreon/callback',
+      PATREON_CREATOR_ACCESS_TOKEN: 'test-creator-token',
+      PATREON_CAMPAIGN_ID: 'test-campaign',
+      PATREON_SUPPORTER_TIER_ID: 'tier-5',
+      PATREON_SUPPORTER_PLUS_TIER_ID: 'tier-10',
     },
     coverage: {
       provider: 'v8',

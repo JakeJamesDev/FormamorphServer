@@ -35,6 +35,8 @@ const TABLES = [
   'signals',
   'settings',
   'account_tokens',
+  'patreon_links',
+  'patreon_pending_links',
   'listing_dependencies',
   'listing_compatibility'
 ];

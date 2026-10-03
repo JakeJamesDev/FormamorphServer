@@ -25,6 +25,7 @@ const reportRoutes = require('./routes/reports');
 const eventRoutes = require('./routes/events');
 const eventPosterRoutes = require('./routes/eventPosters');
 const settingsRoutes = require('./routes/settings');
+const patreonRoutes = require('./routes/patreon');
 
 const app = express();
 
@@ -93,6 +94,7 @@ app.use(SETTINGS_PATH, smallJson, settingsRoutes);
 app.use('/api/thumbnails', thumbnailRoutes);
 app.use('/api/avatars', avatarRoutes);
 app.use('/api/event-posters', eventPosterRoutes);
+app.use('/api/patreon', patreonRoutes);
 
 // Base route
 app.get('/', (req, res) => {

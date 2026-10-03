@@ -606,6 +606,34 @@ const apply = (database) => {
     )
   `);
 
+  // One row per Patreon link. Both sides are unique, so one pledge flairs one account. No Patreon token is
+  // kept. Cascades, so erasing an account frees its Patreon user ID to link again.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS patreon_links (
+      user_id TEXT PRIMARY KEY,
+      patreon_user_id TEXT NOT NULL UNIQUE,
+      tier TEXT CHECK (tier IN ('supporter', 'supporter_plus')),
+      pledge_start TEXT,
+      show_flair INTEGER NOT NULL DEFAULT 1,
+      checked_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
+  // A Patreon approval waiting for its account to confirm it. The row keeps `sha256(token)`; the token
+  // reaches only the approving browser. Spent on any confirm attempt, so a token works at most once.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS patreon_pending_links (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      patreon_user_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

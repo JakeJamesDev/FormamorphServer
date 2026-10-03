@@ -5,6 +5,7 @@ const {
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
   getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes
 } = require('../controllers/userController');
+const { startPatreonLink, confirmPatreonLink, getPatreonStatus, unlinkPatreon } = require('../controllers/patreonController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -40,6 +41,12 @@ router.delete('/me/avatar', protect, removeMyAvatar);
 //
 // On `/me` and ahead of the `/:id` routes, like the rest: an account may only ever claim for itself.
 router.post('/me/anonymous-likes/claim', protect, claimAnonymousLikes);
+
+// The caller's own Patreon link. The callback that finishes a link is on `/api/patreon`.
+router.get('/me/patreon', protect, getPatreonStatus);
+router.post('/me/patreon/link', protect, startPatreonLink);
+router.post('/me/patreon/confirm', smallJson, protect, confirmPatreonLink);
+router.delete('/me/patreon', protect, unlinkPatreon);
 
 // The same profile, found by the name a shared `formamorph.ai/u/<username>` link carries. Grouped with
 // the literal-prefix routes above so a later `/:id/by-username/...` cannot swallow it.

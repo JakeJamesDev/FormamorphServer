@@ -68,6 +68,15 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Poster** | An event's presentation band: a color, an image, and a placement that says where the image is framed. |
 | **Notice** | A message from the team to one account or to everyone: composed by hand, or generated when a report resolves or an event opens, closes, or announces its podium. |
 
+## Supporters
+
+| Term | Meaning |
+|---|---|
+| **Patreon link** | One row joining an account to a Patreon user ID. Each side links at most once. No Patreon token is stored. Unlink and erasure delete it, and the Patreon user ID can then link again. |
+| **Tier** | `supporter` ($5) or `supporter_plus` ($10). The highest mapped tier in the member's `currently_entitled_tiers`, mapped by Patreon tier ID in the environment. An unmapped tier, or no membership, is no tier; the link stays. |
+| **Pledge start** | Patreon's `pledge_relationship_start` for a member with a tier. It can be null. |
+| **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
+
 ## Clients
 
 | Term | Meaning |

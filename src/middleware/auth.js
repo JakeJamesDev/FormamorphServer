@@ -102,6 +102,8 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
  */
 exports.protect = authenticate();
 
+exports.sameGeneration = sameGeneration;
+
 /**
  * Authentication that still admits a suspended account on writes.
  *
