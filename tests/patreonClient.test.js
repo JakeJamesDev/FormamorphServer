@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
-const { httpClient, USER_AGENT } = require('../src/utils/patreon');
+const { httpClient, USER_AGENT, PatreonAuthError } = require('../src/utils/patreon');
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 
@@ -64,7 +64,7 @@ describe('the Patreon client', () => {
       }
     );
 
-    const members = await httpClient.members();
+    const members = await httpClient.members('test-creator-token');
 
     expect(members).toEqual([
       { patreonUserId: '1', tierIds: ['tier-5'], pledgeStart: '2025-01-01T00:00:00.000+00:00' },
@@ -84,13 +84,15 @@ describe('the Patreon client', () => {
     const fetch = stubFetch(
       { access_token: 'a' },
       { data: { id: '1' } },
-      { data: [], meta: { pagination: { cursors: { next: null } } } }
+      { data: [], meta: { pagination: { cursors: { next: null } } } },
+      { access_token: 'b' }
     );
 
     await httpClient.identify('code');
-    await httpClient.members();
+    await httpClient.members('creator');
+    await httpClient.refresh('creator-refresh');
 
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(4);
     for (const [, init] of fetch.mock.calls) {
       expect(init.headers['User-Agent']).toBe(USER_AGENT);
     }
@@ -103,11 +105,34 @@ describe('the Patreon client', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('throws on a refusal', async () => {
+  it('trades the refresh token for a new pair', async () => {
+    const fetch = stubFetch({ access_token: 'creator-2', refresh_token: 'refresh-2', expires_in: 2678400 });
+
+    const pair = await httpClient.refresh('refresh-1');
+
+    expect(pair).toEqual({ accessToken: 'creator-2', refreshToken: 'refresh-2', expiresIn: 2678400 });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe('https://www.patreon.com/api/oauth2/token');
+    expect(init.method).toBe('POST');
+    const form = new URLSearchParams(init.body);
+    expect(form.get('grant_type')).toBe('refresh_token');
+    expect(form.get('refresh_token')).toBe('refresh-1');
+    expect(form.get('client_id')).toBe('test-client');
+    expect(form.get('client_secret')).toBe('test-client-secret');
+  });
+
+  it('throws an authorization error on a 401 and a plain error on any other refusal', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }));
 
     await expect(httpClient.identify('code')).rejects.toThrow('401');
-    await expect(httpClient.members()).rejects.toThrow('401');
+    await expect(httpClient.members('creator')).rejects.toBeInstanceOf(PatreonAuthError);
+    await expect(httpClient.refresh('refresh')).rejects.toBeInstanceOf(PatreonAuthError);
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
+
+    const failure = httpClient.members('creator');
+    await expect(failure).rejects.toThrow('500');
+    await expect(failure).rejects.not.toBeInstanceOf(PatreonAuthError);
   });
 
   it('is the only server code that names Patreon', () => {

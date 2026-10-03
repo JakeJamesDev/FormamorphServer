@@ -1,5 +1,5 @@
 const Setting = require('../models/Setting');
-const { SETTINGS, isSetting } = require('../config/settings');
+const { SETTINGS, isStaffSetting } = require('../config/settings');
 
 /** The same wording for a key this server does not have, whichever verb asked for it. */
 const NO_SUCH_SETTING = 'No such setting';
@@ -12,7 +12,7 @@ const NO_SUCH_SETTING = 'No such setting';
 exports.getSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
-    if (!isSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
+    if (!isStaffSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
 
     res.status(200).json({
       success: true,
@@ -33,7 +33,7 @@ exports.getSetting = async (req, res, next) => {
 exports.saveSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
-    if (!isSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
+    if (!isStaffSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
 
     const value = req.body ? req.body.value : undefined;
     const problem = SETTINGS[key].validate(value);

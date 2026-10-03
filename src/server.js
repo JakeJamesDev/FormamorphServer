@@ -16,6 +16,7 @@ const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuaran
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
+const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
 const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
 
@@ -62,6 +63,11 @@ startRetentionSweeper();
 // erasing. A user was told a date, so the wait must not depend on the process having stayed up.
 void sweepDeletions();
 startDeletionSweeper();
+
+// And for Patreon tiers: correct every link from the member list now, then hourly, so a missed webhook
+// is repaired within the hour.
+void reconcilePatreon();
+startPatreonReconciler();
 
 // Set port
 const PORT = process.env.PORT || 8797;

@@ -24,6 +24,7 @@ export default defineConfig({
       PATREON_CLIENT_SECRET: 'test-client-secret',
       PATREON_REDIRECT_URI: 'https://api.example.test/api/patreon/callback',
       PATREON_CREATOR_ACCESS_TOKEN: 'test-creator-token',
+      PATREON_CREATOR_REFRESH_TOKEN: 'test-creator-refresh',
       PATREON_CAMPAIGN_ID: 'test-campaign',
       PATREON_SUPPORTER_TIER_ID: 'tier-5',
       PATREON_SUPPORTER_PLUS_TIER_ID: 'tier-10',

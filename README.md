@@ -58,8 +58,10 @@ npm install
    PATREON_CLIENT_SECRET=<client secret>
    # The callback, registered on that client as a redirect URI
    PATREON_REDIRECT_URI=https://api.formamorph.ai/api/patreon/callback
-   # The creator access token from the same page, which reads the member list
+   # The creator access and refresh tokens from the same page, which read the member list.
+   # Read once: the server refreshes the pair itself and keeps the new one in its settings store
    PATREON_CREATOR_ACCESS_TOKEN=<creator access token>
+   PATREON_CREATOR_REFRESH_TOKEN=<creator refresh token>
    # The campaign whose members get Supporter Flair
    PATREON_CAMPAIGN_ID=<campaign ID>
    # The Patreon tier IDs that map to Supporter ($5) and Supporter+ ($10)

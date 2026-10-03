@@ -100,7 +100,20 @@ const PatreonLink = {
   setTier: ({ patreonUserId, tier, pledgeStart, checkedAt }) => {
     db.prepare('UPDATE patreon_links SET tier = ?, pledge_start = ?, checked_at = ? WHERE patreon_user_id = ?')
       .run(tier, pledgeStart, checkedAt, patreonUserId);
-  }
+  },
+
+  /**
+   * Set the tier of every link in one transaction.
+   *
+   * @param {Function} stateOf - Patreon user ID to `{ tier, pledgeStart }`
+   * @param {string} checkedAt - When the tiers were read
+   * @returns {number} How many links were set
+   */
+  setAllTiers: db.transaction((stateOf, checkedAt) => {
+    const ids = db.prepare('SELECT patreon_user_id FROM patreon_links').pluck().all();
+    for (const patreonUserId of ids) PatreonLink.setTier({ patreonUserId, ...stateOf(patreonUserId), checkedAt });
+    return ids.length;
+  })
 };
 
 module.exports = PatreonLink;
