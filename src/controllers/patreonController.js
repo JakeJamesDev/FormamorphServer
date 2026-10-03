@@ -101,28 +101,22 @@ exports.patreonCallback = async (req, res) => {
     302, `${SITE_URL}/account?${new URLSearchParams(token ? { patreon: result, token } : { patreon: result })}`
   );
 
-  const user = accountFromState(req.query.state);
-  if (!user) return finish(LINK_RESULTS.EXPIRED);
-
-  // Patreon returns no code when the member refuses.
-  const { code } = req.query;
-  if (typeof code !== 'string' || !code) return finish(LINK_RESULTS.DENIED);
-
-  let patreonUserId;
+  // A browser is waiting on this redirect, so every failure still answers one.
   try {
-    patreonUserId = await identifyMember(code);
-  } catch (error) {
-    console.error('Patreon identity read failed:', error);
-    return finish(LINK_RESULTS.FAILED);
-  }
+    const user = accountFromState(req.query.state);
+    if (!user) return finish(LINK_RESULTS.EXPIRED);
 
-  if (PatreonLink.isHeldElsewhere(patreonUserId, user.id)) return finish(LINK_RESULTS.TAKEN);
+    // Patreon returns no code when the member refuses.
+    const { code } = req.query;
+    if (typeof code !== 'string' || !code) return finish(LINK_RESULTS.DENIED);
 
-  // Whoever approved may not own the account the state names, so the link waits for that account.
-  try {
+    const patreonUserId = await identifyMember(code);
+    if (PatreonLink.isHeldElsewhere(patreonUserId, user.id)) return finish(LINK_RESULTS.TAKEN);
+
+    // Whoever approved may not own the account the state names, so the link waits for that account.
     return finish(LINK_RESULTS.CONFIRM, PatreonPendingLink.create({ userId: user.id, patreonUserId }));
   } catch (error) {
-    console.error('Storing the pending Patreon link failed:', error);
+    console.error('Patreon callback failed:', error);
     return finish(LINK_RESULTS.FAILED);
   }
 };

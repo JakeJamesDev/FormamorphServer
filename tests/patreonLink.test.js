@@ -7,6 +7,8 @@ import { createUser, authHeader } from './helpers.js';
 const require = createRequire(import.meta.url);
 const { setPatreonClient, resetPatreonClient } = require('../src/utils/patreon');
 const deleteUser = require('../src/utils/deleteUser');
+const User = require('../src/models/User');
+const PatreonLink = require('../src/models/PatreonLink');
 const { LINK_STATE_TTL_MS, PENDING_LINK_TTL_MS } = require('../src/config/patreon');
 const jwt = require('jsonwebtoken');
 
@@ -44,6 +46,7 @@ beforeEach(() => {
 afterEach(() => {
   resetPatreonClient();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 const startLink = (user) => request(app).post('/api/users/me/patreon/link').set(authHeader(user));
@@ -271,6 +274,18 @@ describe('the callback', () => {
     expect(await callback({ code: 'unknown', state: await stateFor(user) })).toBe('failed');
 
     expect(await status(user)).toEqual({ linked: false });
+  });
+
+  it.each([
+    ['reading the account', () => vi.spyOn(User, 'findById')],
+    ['checking the Patreon user', () => vi.spyOn(PatreonLink, 'isHeldElsewhere')]
+  ])('says failed when the database throws while %s', async (_name, spy) => {
+    const user = createUser();
+    identities.good = 'p-1';
+    const state = await stateFor(user);
+    spy().mockImplementation(() => { throw new Error('database is locked'); });
+
+    expect(await callback({ code: 'good', state })).toBe('failed');
   });
 
   it('links nothing until the account confirms', async () => {
