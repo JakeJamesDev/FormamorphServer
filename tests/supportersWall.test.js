@@ -80,6 +80,15 @@ describe('GET /api/patreon/supporters', () => {
     expect((await wall()).map((row) => row.username)).toEqual(['shown']);
   });
 
+  it('omits a suspended account, and lists it again when the suspension lifts', async () => {
+    const suspended = createUser({ username: 'suspended', status: 'suspended' });
+    linkAs(suspended, 'supporter_plus', null);
+    expect(await wall()).toEqual([]);
+
+    db.prepare("UPDATE users SET status = 'normal' WHERE id = ?").run(suspended.id);
+    expect((await wall()).map((row) => row.username)).toEqual(['suspended']);
+  });
+
   it('omits a lapsed member and a linked account with no tier', async () => {
     const lapsed = createUser({ username: 'lapsed' });
     linkAs(lapsed, 'supporter', '2025-01-01T00:00:00.000+00:00');

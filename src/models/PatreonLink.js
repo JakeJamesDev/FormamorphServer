@@ -88,7 +88,8 @@ const PatreonLink = {
    * The Supporters wall, in display order.
    *
    * Supporter+ comes first, then the earliest pledge start; a null start sorts last in its section. Staff
-   * who support are listed. A lapsed member has no tier, and an account with the toggle off hides itself.
+   * who support are listed. A lapsed member has no tier, and an account with the toggle off hides itself, and
+   * a suspended account is left out because its profile reads as not found.
    *
    * @returns {Array<{ id: string, username: string, avatarUrl: string|null, tier: string, since: string|null }>}
    */
@@ -96,7 +97,7 @@ const PatreonLink = {
     SELECT u.id, u.username, u.avatar_file, l.tier, l.pledge_start
     FROM patreon_links l
     JOIN users u ON u.id = l.user_id
-    WHERE l.tier IS NOT NULL AND l.show_flair = 1
+    WHERE l.tier IS NOT NULL AND l.show_flair = 1 AND u.status != 'suspended'
     ORDER BY (l.tier = 'supporter_plus') DESC, l.pledge_start IS NULL, l.pledge_start, u.username
   `).all().map((row) => ({
     id: row.id,
