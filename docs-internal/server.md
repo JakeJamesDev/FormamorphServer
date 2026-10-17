@@ -183,6 +183,9 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-17** — deployed `358550b`: an updated bundled fingerprint list, no code change. All 2,056 tests
+  passed in 31.1 s wall time. No schema, policy, or env change, so no backup. Service active with zero
+  restarts, boot logged `Server running on port`, public route 200.
 - **2026-10-03** — deployed `c4575d3`: Patreon account links, webhooks, hourly reconcile, supporter flair on
   author payloads, the supporters wall, and feedback list filters, search, and sorts. All 2,056 tests passed in
   32.1 s wall time. Backup `backups/pre-deploy-fd8928a-2026-10-03T18-59-37.525Z.db`, integrity `ok`. Boot
