@@ -55,7 +55,7 @@ A suspension gets an optional end time. Staff choose a length in whole days, fro
 - **Return status (Q10).** A lift always sets `normal`. The status before the suspension is not stored.
 - **No notice on lift (Q5).** The sweep sends no message.
 - **Refusal text (Q3).** The 403 from the suspended gate carries `suspendedUntil` (the instant or null). Its `error` text names the end in UTC when there is one, and keeps today's text when there is none.
-- **Read shapes.** The admin user list, the status update response, and the signed-in account's own record include `suspended_until`. Public profile reads do not.
+- **Read shapes.** The admin user list, the status update response, and the signed-in account record (`accountSummary` on register, login, and `GET /api/auth/me`, plus `GET /api/users/me`) carry `suspendedUntil`, an ISO string or null, in the DTOs' camelCase. Public profile reads do not.
 - **Staff ladder (Q9).** `canModerate` already gates the route. Choosing no end needs no extra role.
 - **Glossary.** Add **Suspension** to `CONTEXT.md`: an account's write access withdrawn by staff, with an optional end time the server enforces.
 
