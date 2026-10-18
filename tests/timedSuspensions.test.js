@@ -371,6 +371,27 @@ describe('public profiles past the end', () => {
   });
 });
 
+describe('the staff user list past the end', () => {
+  const listed = async (user) => {
+    const res = await request(app)
+      .get(`/api/users?${new URLSearchParams({ search: user.username })}`)
+      .set(authHeader(admin()));
+    return res.body.data.find((row) => row.id === user.id);
+  };
+
+  it('shows an ended suspension as Normal with no end', async () => {
+    const user = suspendedFor(-60_000);
+
+    expect(await listed(user)).toMatchObject({ status: 'normal', suspendedUntil: null });
+  });
+
+  it('still shows a suspension before its end', async () => {
+    const user = suspendedFor(DAY_MS);
+
+    expect(await listed(user)).toMatchObject({ status: 'suspended' });
+  });
+});
+
 describe('the suspension sweep', () => {
   const { sweepSuspensions } = require('../src/utils/sweepSuspensions');
   const User = require('../src/models/User');

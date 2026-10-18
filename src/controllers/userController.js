@@ -12,6 +12,7 @@ const InstallClaim = require('../models/InstallClaim');
 const { NO_INSTALL, installIdFrom } = require('../config/anonymousLikes');
 const { recordSignal } = require('../utils/recordSignal');
 const { liftExpiredSuspension } = require('../utils/liftSuspension');
+const { sweepSuspensions } = require('../utils/sweepSuspensions');
 const Signal = require('../models/Signal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
@@ -32,6 +33,9 @@ exports.getUsers = async (req, res, next) => {
     // what an unsorted table has always shown.
     const sort = Object.prototype.hasOwnProperty.call(User.SORT_FIELDS, req.query.sort) ? req.query.sort : null;
     const order = req.query.order === 'desc' ? 'desc' : 'asc';
+
+    // Lifts every ended suspension first, so the page, its status filter and its count never show one.
+    sweepSuspensions();
 
     // Email is an administrator's alone; other staff get neither the field nor a search or sort on it.
     const includeEmail = isAdmin(req.user);
