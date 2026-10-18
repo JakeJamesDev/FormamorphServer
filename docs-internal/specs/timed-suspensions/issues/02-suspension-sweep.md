@@ -15,7 +15,7 @@ The server lifts every expired suspension by itself at boot and every hour, even
 
 - [ ] `sweepSuspensions(now)` sets every expired suspended account to Normal, clears its end, and records `suspension_expired` with a null actor. It never throws, and one bad row does not stop the rest.
 - [ ] The sweep runs at boot and on the shared hourly timer.
-- [ ] `suspension_expired` joins the audit action list and the audit filters.
+- [ ] `suspension_expired` joins the audit filters. Ticket 01 already adds it to the action list and records it from the shared lift call; the sweep reuses that call.
 - [ ] Future-end and no-end suspensions are left alone.
 - [ ] `CONTEXT.md` gains a **Suspension** entry, and the **Audit log** entry names `suspension_expired`.
 - [ ] Tests call the sweep with an injected clock, like the quarantine sweep tests.
