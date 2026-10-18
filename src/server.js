@@ -16,6 +16,7 @@ const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuaran
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
+const { sweepSuspensions, startSuspensionSweeper } = require('./utils/sweepSuspensions');
 const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
 const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
@@ -63,6 +64,11 @@ startRetentionSweeper();
 // erasing. A user was told a date, so the wait must not depend on the process having stayed up.
 void sweepDeletions();
 startDeletionSweeper();
+
+// And for timed suspensions: lift whatever ended while the server was down, then keep lifting, so an account
+// that never signs in is still returned to Normal and the lift is logged.
+sweepSuspensions();
+startSuspensionSweeper();
 
 // And for Patreon tiers: correct every link from the member list now, then hourly, so a missed webhook
 // is repaired within the hour.

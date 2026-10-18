@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { app, db } from './context.js';
 import { createRequire } from 'module';
@@ -368,5 +368,99 @@ describe('public profiles past the end', () => {
 
     expect(res.body.data).not.toHaveProperty('suspendedUntil');
     expect(res.body.data).not.toHaveProperty('suspended_until');
+  });
+});
+
+describe('the suspension sweep', () => {
+  const { sweepSuspensions } = require('../src/utils/sweepSuspensions');
+  const User = require('../src/models/User');
+
+  const auditOf = async (root) =>
+    (await request(app).get('/api/audit?action=suspension_expired').set(authHeader(root))).body.data;
+  const rowOf = (user) => db.prepare('SELECT status, suspended_until FROM users WHERE id = ?').get(user.id);
+  const sweepAt = (offsetMs = 0) => sweepSuspensions(new Date(Date.now() + offsetMs).toISOString());
+
+  it('lifts every expired suspension and logs each as the server', async () => {
+    const root = admin();
+    const first = suspendedFor(-DAY_MS);
+    const second = suspendedFor(-60_000);
+
+    const lifted = sweepAt();
+    const log = await auditOf(root);
+
+    expect(lifted).toBe(2);
+    expect(rowOf(first)).toEqual({ status: 'normal', suspended_until: null });
+    expect(rowOf(second)).toEqual({ status: 'normal', suspended_until: null });
+    expect(log.map((entry) => entry.targetUser.username).sort()).toEqual([first.username, second.username].sort());
+    expect(log.every((entry) => entry.actor.id === null)).toBe(true);
+  });
+
+  it('lifts by the injected clock, not the real one', async () => {
+    const root = admin();
+    const user = suspendedFor(5 * DAY_MS);
+
+    expect(sweepAt(4 * DAY_MS)).toBe(0);
+    expect(rowOf(user).status).toBe('suspended');
+
+    expect(sweepAt(6 * DAY_MS)).toBe(1);
+    expect(rowOf(user).status).toBe('normal');
+    expect(await auditOf(root)).toHaveLength(1);
+  });
+
+  it('leaves future-end and no-end suspensions alone', async () => {
+    const root = admin();
+    const future = suspendedFor(DAY_MS);
+    const open = createUser({ status: 'suspended' });
+
+    expect(sweepAt()).toBe(0);
+
+    expect(rowOf(future).status).toBe('suspended');
+    expect(rowOf(open).status).toBe('suspended');
+    expect(await auditOf(root)).toHaveLength(0);
+  });
+
+  it('logs a lift once across repeated sweeps', async () => {
+    const root = admin();
+    suspendedFor(-60_000);
+
+    sweepAt();
+    expect(sweepAt()).toBe(0);
+
+    expect(await auditOf(root)).toHaveLength(1);
+  });
+
+  it('carries on past a row whose lift throws', async () => {
+    const root = admin();
+    const bad = suspendedFor(-DAY_MS);
+    const good = suspendedFor(-60_000);
+    const real = User.liftSuspensionIfExpired;
+    const lift = vi.spyOn(User, 'liftSuspensionIfExpired').mockImplementation((id, now) => {
+      if (id === bad.id) throw new Error('disk full');
+      return real(id, now);
+    });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      expect(sweepAt()).toBe(1);
+    } finally {
+      lift.mockRestore();
+      quiet.mockRestore();
+    }
+
+    expect(rowOf(bad).status).toBe('suspended');
+    expect(rowOf(good).status).toBe('normal');
+    expect((await auditOf(root)).map((entry) => entry.targetUser.username)).toEqual([good.username]);
+  });
+
+  it('never throws when the read itself fails', () => {
+    const read = vi.spyOn(User, 'expiredSuspensions').mockImplementation(() => { throw new Error('locked'); });
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      expect(sweepAt()).toBe(0);
+    } finally {
+      read.mockRestore();
+      quiet.mockRestore();
+    }
   });
 });

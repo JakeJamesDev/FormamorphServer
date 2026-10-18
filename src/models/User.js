@@ -332,6 +332,17 @@ const User = {
   `).run({ id, now }).changes > 0,
 
   /**
+   * Every suspended account whose end is not after `now`, whole rows, for the sweeper to lift.
+   *
+   * @param {string} now - ISO instant
+   * @returns {Array<Object>} The user rows
+   */
+  expiredSuspensions: (now) => db.prepare(`
+    SELECT * FROM users
+    WHERE status = 'suspended' AND suspended_until IS NOT NULL AND suspended_until <= ?
+  `).all(now),
+
+  /**
    * An account's status and suspension end, as they stand now.
    *
    * @param {string} id - User ID
