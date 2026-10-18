@@ -8,6 +8,7 @@ const { badgeRole, isAdmin, roleOf } = require('../config/roles');
 const ACTIONS = [
   'user_suspended',
   'user_unsuspended',
+  'suspension_expired',
   'terms_reset_user',
   'terms_reset_all',
   'privacy_reset_user',

@@ -468,6 +468,19 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('gives an existing account the suspension end, leaving a standing suspension with no end', () => {
+    // Accounts suspended before this column stay suspended until staff decide otherwise.
+    const legacy = oldestDatabase();
+    legacy.prepare("INSERT INTO users (id, username, password, status) VALUES ('u-held', 'held', 'x', 'suspended')").run();
+
+    expect(migrate(legacy)).toContain('suspensionEnd');
+
+    expect(legacy.prepare("SELECT status, suspended_until FROM users WHERE id = 'u-held'").get())
+      .toEqual({ status: 'suspended', suspended_until: null });
+
+    legacy.close();
+  });
+
   it('rolls the podium rebuild back whole when it fails partway', () => {
     // The one step that carries its own transaction. A leftover scratch table makes the rebuild throw
     // after the rename and the new column have already run; both must be gone afterwards.

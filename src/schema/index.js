@@ -43,6 +43,7 @@ const STEPS = [
   require('./steps/likeClaims'),
   require('./steps/placeholderFlag'),
   require('./steps/changelogCount'),
+  require('./steps/suspensionEnd'),
   require('./indexes')
 ];
 

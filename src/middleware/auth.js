@@ -2,6 +2,8 @@ const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const { isAdmin, isStaff } = require('../config/roles');
 const { privacyRefusal } = require('./policy');
+const { utcMinute } = require('../config/suspension');
+const { liftExpiredSuspension } = require('../utils/liftSuspension');
 
 /**
  * Whether a token was minted under the account's current session generation.
@@ -49,8 +51,10 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Get user from database
-    const user = db.prepare('SELECT id, username, email, status, account_type, token_version, created_at FROM users WHERE id = ?').get(decoded.id);
+    // Get user from database. An ended suspension is lifted here, so no request is refused past its end.
+    const user = liftExpiredSuspension(db
+      .prepare('SELECT id, username, email, status, suspended_until, account_type, token_version, created_at FROM users WHERE id = ?')
+      .get(decoded.id));
 
     // Check if user exists
     if (!user) {
@@ -84,7 +88,10 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
     if (!allowSuspended && user.status === 'suspended' && req.method !== 'GET') {
       return res.status(403).json({
         success: false,
-        error: 'Your account has been suspended'
+        error: user.suspended_until
+          ? `Your account has been suspended until ${utcMinute(user.suspended_until)}`
+          : 'Your account has been suspended',
+        suspendedUntil: user.suspended_until
       });
     }
 

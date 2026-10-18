@@ -27,6 +27,8 @@ const apply = (database) => {
       password TEXT NOT NULL,
       email TEXT,
       status TEXT DEFAULT 'normal',
+      -- When a suspension ends. Null on a suspended account means it has no end.
+      suspended_until TEXT,
       account_type TEXT DEFAULT 'normal',
       -- The profile image: a filename under the avatars directory, and when it last changed. Null for
       -- an account that has never set one, which is most of them.

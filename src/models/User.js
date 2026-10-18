@@ -46,7 +46,7 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, email, email_verified_at, status, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, email, email_verified_at, status, suspended_until, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
 
   /**
@@ -317,6 +317,29 @@ const User = {
   `).all(cutoff),
 
   /**
+   * Return an account to Normal if its suspension has ended.
+   *
+   * One conditional statement, so two paths that race over the same lift change the row once.
+   *
+   * @param {string} id - User ID
+   * @param {string} now - ISO instant the end must not be after
+   * @returns {boolean} Whether this call lifted it
+   */
+  liftSuspensionIfExpired: (id, now) => db.prepare(`
+    UPDATE users
+    SET status = 'normal', suspended_until = NULL, updated_at = @now
+    WHERE id = @id AND status = 'suspended' AND suspended_until IS NOT NULL AND suspended_until <= @now
+  `).run({ id, now }).changes > 0,
+
+  /**
+   * An account's status and suspension end, as they stand now.
+   *
+   * @param {string} id - User ID
+   * @returns {Object|undefined} `{ status, suspended_until }`
+   */
+  suspensionOf: (id) => db.prepare('SELECT status, suspended_until FROM users WHERE id = ?').get(id),
+
+  /**
    * Cut every signed-in session for an account loose.
    *
    * Suspending somebody who is already signed in otherwise changed nothing they could feel until their
@@ -384,7 +407,7 @@ const User = {
       LEFT JOIN policies pp ON pp.id = pa.policy_id
     `;
 
-    let query = `SELECT u.id, u.username, u.email, u.status, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
+    let query = `SELECT u.id, u.username, u.email, u.status, u.suspended_until, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
     let countQuery = `SELECT COUNT(*) as count ${from}`;
     // The reserved `[deleted user]` row is left out of every page and every count. It is where a departed
     // account's work is parked rather than somebody staff have business with, and listing it would only

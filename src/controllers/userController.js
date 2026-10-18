@@ -11,9 +11,11 @@ const Follow = require('../models/Follow');
 const InstallClaim = require('../models/InstallClaim');
 const { NO_INSTALL, installIdFrom } = require('../config/anonymousLikes');
 const { recordSignal } = require('../utils/recordSignal');
+const { liftExpiredSuspension } = require('../utils/liftSuspension');
 const Signal = require('../models/Signal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
+const { MIN_SUSPENSION_DAYS, MAX_SUSPENSION_DAYS, validSuspensionDays, suspensionEnd } = require('../config/suspension');
 
 /**
  * @desc    Get all users
@@ -53,6 +55,7 @@ exports.getUsers = async (req, res, next) => {
         username: user.username,
         ...(includeEmail ? { email: user.email } : {}),
         status: user.status,
+        suspendedUntil: user.suspended_until,
         accountType: user.account_type,
         avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at,
@@ -87,6 +90,7 @@ exports.getMe = async (req, res, next) => {
         username: user.username,
         email: user.email,
         status: user.status,
+        suspendedUntil: user.suspended_until,
         accountType: user.account_type,
         avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at
@@ -182,7 +186,7 @@ const shownPublicly = (user) => Boolean(user) && user.status !== 'suspended';
  */
 exports.getUserProfile = async (req, res, next) => {
   try {
-    const user = User.findById(req.params.id);
+    const user = liftExpiredSuspension(User.findById(req.params.id));
     if (!shownPublicly(user)) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
@@ -225,7 +229,7 @@ const shownByName = (user) => shownPublicly(user) && user.id !== PLACEHOLDER_ID;
 exports.getUserProfileByUsername = async (req, res, next) => {
   try {
     const named = req.params.username;
-    const candidates = User.findAllByUsernameFolded(named);
+    const candidates = User.findAllByUsernameFolded(named).map((row) => liftExpiredSuspension(row));
     const user = candidates.find((row) => row.username === named) || candidates.find(shownByName);
 
     if (!user || !shownByName(user)) {
@@ -287,10 +291,10 @@ exports.getUserWorlds = async (req, res, next) => {
  */
 exports.updateUserStatus = async (req, res, next) => {
   try {
-    const { status, accountType } = req.body;
+    const { status, accountType, days } = req.body;
 
-    // Check if user exists
-    const user = User.findById(req.params.id);
+    // Check if user exists. An ended suspension is lifted first, so the log credits the server, not staff.
+    const user = liftExpiredSuspension(User.findById(req.params.id));
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -312,6 +316,18 @@ exports.updateUserStatus = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'Invalid status value'
+      });
+    }
+
+    // Omitted and null both mean no end, so an older build's Suspend button keeps meaning what it did.
+    if (days !== undefined && status !== 'suspended') {
+      return res.status(400).json({ success: false, error: 'A length in days can only go with a suspension' });
+    }
+    const lengthGiven = status === 'suspended' && days !== undefined && days !== null;
+    if (lengthGiven && !validSuspensionDays(days)) {
+      return res.status(400).json({
+        success: false,
+        error: `A suspension must be between ${MIN_SUSPENSION_DAYS} and ${MAX_SUSPENSION_DAYS} whole days, or have no end`
       });
     }
 
@@ -349,7 +365,11 @@ exports.updateUserStatus = async (req, res, next) => {
 
     // Update user
     const updateData = {};
-    if (status) updateData.status = status;
+    if (status) {
+      updateData.status = status;
+      // Only a suspension has an end; every other status clears it.
+      updateData.suspended_until = status === 'suspended' ? suspensionEnd(lengthGiven ? days : null) : null;
+    }
     if (accountType) updateData.account_type = accountType;
 
     // Only update if there are changes
@@ -373,8 +393,10 @@ exports.updateUserStatus = async (req, res, next) => {
     }
 
     // Only a real change to the status is worth an entry — re-saving the same one is not an event, and
-    // an account type change is left out until the log is meant to cover it.
-    if (status && status !== user.status) {
+    // an account type change is left out until the log is meant to cover it. A new end on a suspended
+    // account is a real change.
+    const endChanged = status === 'suspended' && updatedUser.suspended_until !== user.suspended_until;
+    if (status && (status !== user.status || endChanged)) {
       const action = status === 'suspended'
         ? 'user_suspended'
         : (user.status === 'suspended' ? 'user_unsuspended' : null);
@@ -385,7 +407,10 @@ exports.updateUserStatus = async (req, res, next) => {
           actor: req.user,
           targetUser: updatedUser,
           targetKind: 'account',
-          targetName: updatedUser.username
+          targetName: updatedUser.username,
+          ...(action === 'user_suspended'
+            ? { snippet: updatedUser.suspended_until ? `Ends on ${updatedUser.suspended_until}` : 'No end' }
+            : {})
         });
       }
     }
@@ -411,6 +436,7 @@ exports.updateUserStatus = async (req, res, next) => {
         // Email is an administrator's alone, as in the users list.
         ...(isAdmin(req.user) ? { email: updatedUser.email } : {}),
         status: updatedUser.status,
+        suspendedUntil: updatedUser.suspended_until,
         accountType: updatedUser.account_type,
         avatarUrl: avatarUrlFor(updatedUser.avatar_file),
         createdAt: updatedUser.created_at,

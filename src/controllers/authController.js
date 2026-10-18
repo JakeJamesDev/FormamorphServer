@@ -4,6 +4,7 @@ const AuditLog = require('../models/AuditLog');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const generateToken = require('../utils/generateToken');
 const { recordSignal } = require('../utils/recordSignal');
+const { liftExpiredSuspension } = require('../utils/liftSuspension');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/accountMail');
 const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
@@ -27,6 +28,7 @@ const accountSummary = (user) => ({
   email: user.email,
   emailVerified: Boolean(user.email_verified_at),
   status: user.status,
+  suspendedUntil: user.suspended_until,
   accountType: user.account_type,
   avatarUrl: avatarUrlFor(user.avatar_file)
 });
@@ -210,7 +212,8 @@ exports.login = async (req, res, next) => {
       success: true,
       token,
       ...(deletionCanceled ? { deletionCanceled: true } : {}),
-      user: accountSummary(user)
+      // A suspension that has ended is lifted here, so the account signs in as Normal.
+      user: accountSummary(liftExpiredSuspension(user))
     });
   } catch (error) {
     next(error);
