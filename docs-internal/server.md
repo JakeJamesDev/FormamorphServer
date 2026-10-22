@@ -183,6 +183,9 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-22** — deployed `8ea2778`: an updated bundled fingerprint list, no code change. All 2,105 tests
+  passed in 34.6 s wall time. No schema, policy, or env change, so no backup. Service active with zero
+  restarts, boot logged `Server running on port`, public route 200.
 - **2026-10-17** — deployed `050dc8d`: timed suspensions with an optional end, the boot and hourly expiry
   sweep, and a logged audit entry for every lift. All 2,105 tests passed in 22.3 s wall time. Backup
   `backups/pre-deploy-358550b-2026-10-18T04-27-19.948Z.db`, integrity `ok`. Boot applied `suspensionEnd`,
