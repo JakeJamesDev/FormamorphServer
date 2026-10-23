@@ -183,6 +183,10 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-23** — OS update, no code change: `apt-get upgrade` took systemd to 259.9, Node to 24.22.1, Caddy
+  to 2.11.7, plus snapd and netplan. `cloud-init` and `tmux` stayed held back. The API and the other flagged
+  services restarted; boot logged `Server running on port`, public routes 200. A reboot then loaded kernel
+  7.0.0-38; the API came back active with zero restarts, no failed units, public routes 200.
 - **2026-10-22** — deployed `8ea2778`: an updated bundled fingerprint list, no code change. All 2,105 tests
   passed in 34.6 s wall time. No schema, policy, or env change, so no backup. Service active with zero
   restarts, boot logged `Server running on port`, public route 200.
