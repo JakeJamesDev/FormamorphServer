@@ -67,6 +67,11 @@ Answered for ticket 04:
 - **T11** `GET /api/reviews/auto` pages like the audit list (default 20, cap 100) and answers `{ entries, total }`. Each entry comes from the audit snapshot: `{ id, targetId, targetKind, targetName, actor: { id, username, role }, createdAt }`. It does not join the live listing.
 - **T12** The actor's recorded role says why a listing skipped review. There is no extra field.
 
+Answered for ticket 07 (the contract ticket 05 serves):
+
+- **T13** `pending_update` has this shape: `{ fields: { <name>: { approved, pending } }, changelog: [...ops], content_changed: boolean, thumbnail_url?: string }`.
+- **T14** `GET /api/reviews/meta` needs no sign-in. The client caches the answer once per session.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
