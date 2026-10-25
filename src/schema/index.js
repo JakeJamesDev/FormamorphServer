@@ -20,6 +20,7 @@ const STEPS = [
   require('./steps/reporterRole'),
   require('./steps/actorRole'),
   require('./steps/feedbackEdited'),
+  require('./steps/feedbackQuestions'),
   require('./steps/feedbackCommentEdited'),
   require('./steps/commentEdited'),
   require('./steps/feedSeen'),

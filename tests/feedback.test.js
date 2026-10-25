@@ -969,12 +969,14 @@ describe('meta', () => {
   it('reports the categories, statuses and caps the client must agree with', async () => {
     const res = await request(app).get('/api/feedback/meta').set(authHeader(reporter()));
 
-    // Both branches, since the client's two dropdowns are filled from this one call.
-    expect(res.body.types).toEqual(['bug', 'suggestion']);
+    // Every branch, since the client's dropdowns are filled from this one call.
+    expect(res.body.types).toEqual(['bug', 'suggestion', 'question']);
     expect(res.body.categories.bug).toEqual(['crash', 'ai', 'editor', 'community', 'visuals', 'other']);
     expect(res.body.categories.suggestion).toEqual(['gameplay', 'writing', 'editor', 'community', 'interface', 'other']);
+    expect(res.body.categories.question).toEqual(['gameplay', 'editor', 'setup', 'community', 'account', 'other']);
     expect(res.body.statuses.bug).toEqual(['open', 'need_info', 'confirmed', 'resolved', 'wontfix']);
     expect(res.body.statuses.suggestion).toEqual(['open', 'considering', 'planned', 'declined', 'done']);
+    expect(res.body.statuses.question).toEqual(['open', 'answered', 'closed']);
     expect(res.body).toMatchObject({ titleMax: 120, bodyMax: 4000 });
   });
 
@@ -1108,9 +1110,14 @@ describe('voting', () => {
 
   it('refuses a vote on a bug', async () => {
     // One person hitting a bug is reason enough to fix it; it is not a popularity contest.
-    const { user, id } = await seedReport();
+    const user = reporter();
+    const filed = await file(user);
+    expect(filed.body.data).toMatchObject({ votes: 0, voted: false });
 
-    expect((await vote(user, id)).status).toBe(400);
+    const res = await vote(user, filed.body.data.id);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Only suggestions and questions can be voted for');
   });
 
   it('is unaffected by a lock', async () => {

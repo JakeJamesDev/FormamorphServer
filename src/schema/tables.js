@@ -250,18 +250,19 @@ const apply = (database) => {
     )
   `);
 
-  // User-filed feedback: bug reports and suggestions. One tree with a `type` branch rather than two
-  // parallel systems — a thread, a status and a read-marker mean the same thing on both, and only the
+  // User-filed feedback: bug reports, suggestions and questions. One tree with a `type` branch rather
+  // than parallel systems — a thread, a status and a read-marker mean the same thing on each, and only the
   // vocabulary and who may write differ.
   //
   // `status` and `category` are checked per type, so a suggestion can't be marked 'confirmed' and a bug
-  // can't be filed under 'interface'. `reporter_id` is nullable and SET NULL rather than cascading: a
-  // suggestion others have voted on and discussed must outlive the account that happened to file it.
+  // can't be filed under 'interface'. The `feedbackQuestions` step mirrors these checks. `reporter_id` is
+  // nullable and SET NULL rather than cascading: a suggestion others have voted on and discussed must
+  // outlive the account that happened to file it.
   // `locked_at` closes a thread to further replies while leaving it readable.
   database.exec(`
     CREATE TABLE IF NOT EXISTS feedback (
       id TEXT PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'bug' CHECK (type IN ('bug', 'suggestion')),
+      type TEXT NOT NULL DEFAULT 'bug' CHECK (type IN ('bug', 'suggestion', 'question')),
       reporter_id TEXT,
       -- What the reporter was when they filed it, so a later promotion or demotion never rewrites the
       -- badge on a report they already sent. Null for rows written before the column, which fall back
@@ -286,6 +287,9 @@ const apply = (database) => {
         OR
         (type = 'suggestion' AND status IN ('open', 'considering', 'planned', 'declined', 'done')
                              AND category IN ('gameplay', 'writing', 'editor', 'community', 'interface', 'other'))
+        OR
+        (type = 'question' AND status IN ('open', 'answered', 'closed')
+                           AND category IN ('gameplay', 'editor', 'setup', 'community', 'account', 'other'))
       ),
       FOREIGN KEY (reporter_id) REFERENCES users (id) ON DELETE SET NULL
     )
@@ -326,8 +330,8 @@ const apply = (database) => {
     )
   `);
 
-  // One vote per account per suggestion. Filing counts as one, so nothing sits at zero that its own
-  // author wanted. Cascades on both sides: a deleted account takes its votes with it.
+  // One vote per account per suggestion or question. Filing counts as one, so nothing sits at zero that
+  // its own author wanted. Cascades on both sides: a deleted account takes its votes with it.
   database.exec(`
     CREATE TABLE IF NOT EXISTS feedback_votes (
       feedback_id TEXT NOT NULL,

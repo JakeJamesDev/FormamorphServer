@@ -23,7 +23,7 @@ const router = express.Router();
 // Filing is the one route here a user can spam, and everything filed costs someone's attention to read.
 // Reading, voting and commenting are left to the global limit — those are normal traffic on a thread.
 //
-// One budget across both branches: the cap is about attention, and a bug and a suggestion cost the same
+// One budget across every branch: the cap is about attention, and each kind of thread costs the same
 // amount of it.
 //
 // Keyed on the account, not the address: filing needs a sign-in, so the account is the meaningful unit,
@@ -49,13 +49,13 @@ router.get('/unread-count', protect, getUnreadCount);
 // List threads — the caller's own, or everyone's with `?scope=all`; `?type=` picks the branch
 router.get('/', protect, getThreads);
 
-// File a bug report or a suggestion
+// File a bug report, a suggestion or a question
 router.post('/', protect, fileLimiter, createThread);
 
 // Read one thread and its comments; reading marks it seen for anyone it badges
 router.get('/:id', protect, getThread);
 
-// Add a comment (a bug's reporter or an admin; anyone on an unlocked suggestion)
+// Add a comment (a bug's reporter or an admin; anyone on an unlocked suggestion or question)
 router.post('/:id/comments', protect, addComment);
 
 // Edit a comment — its author only, admins included: moderation stops short of rewriting what
@@ -63,11 +63,11 @@ router.post('/:id/comments', protect, addComment);
 router.put('/:id/comments/:commentId', protect, updateComment);
 router.delete('/:id/comments/:commentId', protect, deleteComment);
 
-// Vote for a suggestion, or take the vote back
+// Vote for a suggestion or a question, or take the vote back
 router.put('/:id/vote', protect, setVote);
 
 // Rewrite a report. Who may change what is decided per field: a bug's words are the team's to make
-// useful, a suggestion's stay its author's, and the filing (category, type) is triage either way.
+// useful, a board post's stay its author's, and the filing (category, type) is triage either way.
 router.put('/:id', protect, updateThread);
 
 // Move a thread through triage (staff only)

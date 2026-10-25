@@ -2,27 +2,40 @@ const db = require('../config/db');
 const { isStaff } = require('../config/roles');
 const { v4: uuidv4 } = require('uuid');
 
-/** The two branches of the tree. They share a thread, a status and a read-marker; little else. */
-const TYPES = ['bug', 'suggestion'];
+/** The three branches of the tree. They share a thread, a status and a read-marker; little else. */
+const TYPES = ['bug', 'suggestion', 'question'];
 
 /**
  * What a piece of feedback is about, per type. A bug's list starts at the machine and works outwards; a
- * suggestion's is about the game, so neither list would serve the other — 'crash' is not a thing to
- * suggest, and 'interface' is not a thing to crash.
+ * suggestion's is about the game; a question's is about where the asker is stuck. No list would serve
+ * another — 'crash' is not a thing to suggest, and 'interface' is not a thing to crash.
  */
 const CATEGORIES = {
   bug: ['crash', 'ai', 'editor', 'community', 'visuals', 'other'],
-  suggestion: ['gameplay', 'writing', 'editor', 'community', 'interface', 'other']
+  suggestion: ['gameplay', 'writing', 'editor', 'community', 'interface', 'other'],
+  question: ['gameplay', 'editor', 'setup', 'community', 'account', 'other']
 };
 
 /**
  * Where a thread sits, per type. A bug is triaged towards a fix; a suggestion is weighed and then
- * committed to or turned down, so 'confirmed' and 'planned' are different promises.
+ * committed to or turned down, so 'confirmed' and 'planned' are different promises. A question is
+ * `answered` only by accepting a reply, never through the status route.
  */
 const STATUSES = {
   bug: ['open', 'need_info', 'confirmed', 'resolved', 'wontfix'],
-  suggestion: ['open', 'considering', 'planned', 'declined', 'done']
+  suggestion: ['open', 'considering', 'planned', 'declined', 'done'],
+  question: ['open', 'answered', 'closed']
 };
+
+/** The statuses staff may set on a question by hand. */
+const QUESTION_SET_STATUSES = ['open', 'closed'];
+
+/**
+ * Whether a type is a public board: open to replies from anyone signed in, and to votes.
+ * @param {string} type - A `TYPES` value
+ * @returns {boolean} True for suggestions and questions
+ */
+const isVotableBoard = (type) => type === 'suggestion' || type === 'question';
 
 /** Caps, mirrored by the client so its field limits agree with what this will accept. */
 const TITLE_MAX = 120;
@@ -67,9 +80,11 @@ const FEEDBACK_SELECT = `
  * Whether a thread is one this reader is a party to, which is what makes a new comment in it *news*
  * rather than something they happened to walk past.
  *
- * The two branches answer it differently. A bug is between its reporter and the team, so admins are a
+ * The branches answer it differently. A bug is between its reporter and the team, so admins are a
  * party to every one — that is what makes the queue badge work. A suggestion is open to everyone, where
- * the only meaningful line is whether you have written in it: filed it, or replied to it.
+ * the only meaningful line is whether you have written in it: filed it, or replied to it. A question adds
+ * its voters, since a "me too" is waiting on the answer as much as the asker is. Staff get no blanket
+ * claim on suggestions or questions. Must agree with `hasParticipated`.
  *
  * @param {boolean} isAdmin - Whether the reader is an admin
  * @returns {string} A SQL predicate over `r`, reading `@userId`
@@ -78,12 +93,16 @@ const participationClause = (isAdmin) => `
   (
     (r.type = 'bug' AND (${isAdmin ? '1 = 1' : '0 = 1'} OR r.reporter_id = @userId))
     OR
-    (r.type = 'suggestion' AND (
+    (r.type IN ('suggestion', 'question') AND (
       r.reporter_id = @userId
       OR EXISTS (
         SELECT 1 FROM feedback_comments mine
         WHERE mine.feedback_id = r.id AND mine.author_id = @userId
       )
+      OR (r.type = 'question' AND EXISTS (
+        SELECT 1 FROM feedback_votes myvote
+        WHERE myvote.feedback_id = r.id AND myvote.user_id = @userId
+      ))
     ))
   )
 `;
@@ -99,13 +118,15 @@ const SORT_FIELDS = Object.assign(Object.create(null), {
 });
 
 /**
- * User-filed feedback — bug reports and suggestions — and the comment thread on each.
+ * User-filed feedback — bug reports, suggestions and questions — and the comment thread on each.
  */
 const Feedback = {
   TYPES,
   CATEGORIES,
   STATUSES,
+  QUESTION_SET_STATUSES,
   SORT_FIELDS,
+  isVotableBoard,
   TITLE_MAX,
   BODY_MAX,
   COMMENT_MAX,
@@ -113,10 +134,10 @@ const Feedback = {
   SEARCH_MAX,
 
   /**
-   * File a bug report or a suggestion.
+   * File a bug report, a suggestion or a question.
    *
-   * A suggestion is auto-voted by its author in the same transaction: nobody files something they don't
-   * want, and a board of zeroes reads as nobody caring.
+   * A suggestion or a question is auto-voted by its author in the same transaction: nobody files something
+   * they don't want, and a board of zeroes reads as nobody caring.
    *
    * @param {Object} data - `{ type, reporterId, title, category, body, diagnostics }`
    * @returns {Object} The stored thread
@@ -131,7 +152,7 @@ const Feedback = {
         VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
       `).run(id, type, reporterId, reporterRole, title, category, body, JSON.stringify(diagnostics || {}), now, now);
 
-      if (type === 'suggestion') {
+      if (isVotableBoard(type)) {
         db.prepare('INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)')
           .run(id, reporterId, now);
       }
@@ -202,8 +223,8 @@ const Feedback = {
     // `rowid` breaks it by real insertion order — the primary key is a random UUID, so ordering on that
     // would shuffle same-instant rows and a thread could repeat or vanish between pages.
     // Only a known key reaches the SQL; `sort` is a request parameter, and these are interpolated.
-    // Votes rank suggestions only; a bug has none, so that sort reads as newest.
-    const key = sort === 'votes' && type === 'bug' ? 'newest' : sort;
+    // Votes rank the public boards only; a bug has none, so that sort reads as newest.
+    const key = sort === 'votes' && type && !isVotableBoard(type) ? 'newest' : sort;
     const order = SORT_FIELDS[key] || SORT_FIELDS.newest;
 
     const threads = db.prepare(`
@@ -224,9 +245,12 @@ const Feedback = {
    *
    * Every field is optional; only what is passed is written. A type move is the one change that pulls
    * others with it, so it is handled in one statement rather than as a sequence somebody could interrupt:
-   * the category must come from the new type's list, the status returns to `open` — the only value both
-   * branches share — and a bug's diagnostics are deleted rather than hidden, since a suggestion is a
-   * public board post and the version/platform line was collected under bug rules.
+   * the category must come from the new type's list, the status returns to `open` — the only value every
+   * branch shares — and a bug's diagnostics are deleted rather than hidden, since a board post is public
+   * and the version/platform line was collected under bug rules.
+   *
+   * Votes stay across a move. A move into a question makes every voter a party to it, so each gets a read
+   * marker in the same transaction: the move alone must not raise their badge.
    *
    * @param {string} id - Feedback ID
    * @param {Object} fields - `{ title, body, category, type }`, any subset
@@ -247,21 +271,40 @@ const Feedback = {
     if (sets.length === 0) return Feedback.findById(id);
 
     const now = new Date().toISOString();
-    db.prepare(`UPDATE feedback SET ${sets.join(', ')}, edited_at = ?, updated_at = ? WHERE id = ?`)
-      .run(...params, now, now, id);
+    db.transaction(() => {
+      db.prepare(`UPDATE feedback SET ${sets.join(', ')}, edited_at = ?, updated_at = ? WHERE id = ?`)
+        .run(...params, now, now, id);
+
+      if (type === 'question') {
+        db.prepare(`
+          INSERT INTO feedback_reads (feedback_id, user_id, last_seen_at)
+          SELECT feedback_id, user_id, @now FROM feedback_votes WHERE feedback_id = @id
+          ON CONFLICT(feedback_id, user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+        `).run({ id, now });
+      }
+    })();
 
     return Feedback.findById(id);
   },
 
   /**
-   * Move a thread through triage.
+   * Move a thread through triage, and lock or unlock it in the same statement when asked. Locking a thread
+   * that is already locked keeps its original lock time.
    * @param {string} id - Feedback ID
    * @param {string} status - One of `STATUSES` for that thread's type
+   * @param {Object} [options] - `{ locked }`; left out, the lock is untouched
    * @returns {Object|undefined} The updated thread
    */
-  setStatus: (id, status) => {
-    db.prepare('UPDATE feedback SET status = ?, updated_at = ? WHERE id = ?')
-      .run(status, new Date().toISOString(), id);
+  setStatus: (id, status, { locked } = {}) => {
+    const now = new Date().toISOString();
+    if (locked === undefined) {
+      db.prepare('UPDATE feedback SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
+    } else if (locked) {
+      db.prepare('UPDATE feedback SET status = ?, locked_at = COALESCE(locked_at, ?), updated_at = ? WHERE id = ?')
+        .run(status, now, now, id);
+    } else {
+      db.prepare('UPDATE feedback SET status = ?, locked_at = NULL, updated_at = ? WHERE id = ?').run(status, now, id);
+    }
 
     return Feedback.findById(id);
   },
@@ -302,8 +345,8 @@ const Feedback = {
   /**
    * Whether this user may write in a thread.
    *
-   * A bug stays between the person who hit it and the people fixing it. A suggestion is a discussion, so
-   * anyone signed in may join — until an admin locks it, which stops everyone but them.
+   * A bug stays between the person who hit it and the people fixing it. A suggestion or a question is a
+   * discussion, so anyone signed in may join — until an admin locks it, which stops everyone but them.
    *
    * @param {Object} thread - The thread row
    * @param {Object} user - `{ id, account_type }`
@@ -315,7 +358,7 @@ const Feedback = {
     if (isStaff(user)) return true;
     if (thread.locked_at) return false;
 
-    return thread.type === 'suggestion' || thread.reporter_id === user.id;
+    return isVotableBoard(thread.type) || thread.reporter_id === user.id;
   },
 
   /**
@@ -397,8 +440,9 @@ const Feedback = {
   },
 
   /**
-   * Whether this user has written in a thread — filed it, or replied to it. What decides whether a new
-   * comment is theirs to be told about, and so whether reading records a marker at all.
+   * Whether this user has written in a thread — filed it, or replied to it — or, on a question, voted on
+   * it. What decides whether a new comment is theirs to be told about, and so whether reading records a
+   * marker at all. Must agree with `participationClause`.
    *
    * @param {Object} thread - The thread row
    * @param {string} userId - User ID
@@ -410,8 +454,9 @@ const Feedback = {
 
     const row = db.prepare('SELECT 1 AS found FROM feedback_comments WHERE feedback_id = ? AND author_id = ? LIMIT 1')
       .get(thread.id, userId);
+    if (row) return true;
 
-    return Boolean(row);
+    return thread.type === 'question' && Feedback.hasVoted(thread.id, userId);
   },
 
   /**
@@ -486,16 +531,24 @@ const Feedback = {
   /**
    * Add or remove this user's vote. Idempotent in both directions.
    *
-   * @param {string} feedbackId - Feedback ID
+   * A vote on a question makes the voter a party to it, so it also records a read marker: replies written
+   * before the vote are not news to them.
+   *
+   * @param {Object} thread - The thread row
    * @param {string} userId - User ID
    * @param {boolean} voted - Whether they want their vote on it
    */
-  setVote: (feedbackId, userId, voted) => {
+  setVote: (thread, userId, voted) => {
+    const feedbackId = thread.id;
     if (voted) {
-      db.prepare(`
-        INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)
-        ON CONFLICT(feedback_id, user_id) DO NOTHING
-      `).run(feedbackId, userId, new Date().toISOString());
+      db.transaction(() => {
+        const { changes } = db.prepare(`
+          INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)
+          ON CONFLICT(feedback_id, user_id) DO NOTHING
+        `).run(feedbackId, userId, new Date().toISOString());
+        // Only a new vote: re-sending one is not a read.
+        if (changes === 1 && thread.type === 'question') Feedback.markSeen(feedbackId, userId);
+      })();
       return;
     }
 

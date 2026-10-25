@@ -70,7 +70,7 @@ const asText = (value) => (typeof value === 'string' ? value.trim() : '');
 const typeOf = (value) => (Feedback.TYPES.includes(value) ? value : 'bug');
 
 /**
- * @desc    File a bug report or a suggestion
+ * @desc    File a bug report, a suggestion or a question
  * @route   POST /api/feedback
  * @access  Private
  */
@@ -93,7 +93,7 @@ exports.createThread = async (req, res, next) => {
     if (body.length > Feedback.BODY_MAX) {
       return res.status(400).json({ success: false, error: `A description is limited to ${Feedback.BODY_MAX} characters` });
     }
-    // Per type: the two dropdowns share no values but `editor`, `community` and `other`.
+    // Per type: each dropdown has its own list.
     if (!Feedback.CATEGORIES[type].includes(category)) {
       return res.status(400).json({ success: false, error: 'Unknown category' });
     }
@@ -118,9 +118,9 @@ exports.createThread = async (req, res, next) => {
       diagnostics: JSON.parse(encoded)
     });
 
-    // A suggestion is auto-voted by whoever filed it, so the response says so rather than showing a
+    // A board post is auto-voted by whoever filed it, so the response says so rather than showing a
     // vote button they would press to no effect.
-    res.status(201).json({ success: true, data: toThreadDto(thread, { voted: type === 'suggestion' }) });
+    res.status(201).json({ success: true, data: toThreadDto(thread, { voted: Feedback.isVotableBoard(type) }) });
   } catch (error) {
     next(error);
   }
@@ -188,8 +188,8 @@ exports.getThread = async (req, res, next) => {
 
     const comments = Feedback.comments(thread.id);
     // Only for someone the thread badges. A passing reader has no unread state to clear, and writing a
-    // marker anyway would leave a row per thread per curious account. Admins are a party to every bug,
-    // and anyone who has written in a suggestion is a party to that.
+    // marker anyway would leave a row per thread per curious account. Admins are a party to every bug;
+    // see `hasParticipated` for the board posts.
     const badged = isStaff(req.user)
       ? thread.type === 'bug' || Feedback.hasParticipated(thread, req.user.id)
       : Feedback.hasParticipated(thread, req.user.id);
@@ -208,7 +208,7 @@ exports.getThread = async (req, res, next) => {
 /**
  * @desc    Add a comment to a thread
  * @route   POST /api/feedback/:id/comments
- * @access  Private (a bug's reporter or an admin; anyone on an unlocked suggestion)
+ * @access  Private (a bug's reporter or an admin; anyone on an unlocked suggestion or question)
  */
 exports.addComment = async (req, res, next) => {
   try {
@@ -401,7 +401,7 @@ exports.updateThread = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Only the team can re-file a report' });
     }
 
-    // A type move takes the category with it: the two lists share only three values, so `crash` has no
+    // A type move takes the category with it: the lists share only a few values, so `crash` has no
     // honest answer on the other side. The caller names the new one rather than having one guessed.
     const nextType = req.body.type === undefined ? thread.type : req.body.type;
     if (!Feedback.TYPES.includes(nextType)) {
@@ -477,7 +477,20 @@ exports.setStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Unknown status' });
     }
 
-    res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, status)) });
+    if (thread.type !== 'question') {
+      return res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, status)) });
+    }
+
+    // `answered` comes only from accepting a reply. Closing locks; reopening a closed question unlocks,
+    // and a lock set through the lock route on an open question stays.
+    if (!Feedback.QUESTION_SET_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, error: 'A question is answered by accepting a reply' });
+    }
+    let locked;
+    if (status === 'closed') locked = true;
+    else if (thread.status === 'closed') locked = false;
+
+    res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, status, { locked })) });
   } catch (error) {
     next(error);
   }
@@ -504,7 +517,7 @@ exports.setLocked = async (req, res, next) => {
 };
 
 /**
- * @desc    Vote for a suggestion, or take a vote back
+ * @desc    Vote for a suggestion or a question, or take a vote back
  * @route   PUT /api/feedback/:id/vote
  * @access  Private
  */
@@ -515,12 +528,12 @@ exports.setVote = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Not found' });
     }
     // Bugs are not a popularity contest — one person hitting it is reason enough to fix it.
-    if (thread.type !== 'suggestion') {
-      return res.status(400).json({ success: false, error: 'Only suggestions can be voted for' });
+    if (!Feedback.isVotableBoard(thread.type)) {
+      return res.status(400).json({ success: false, error: 'Only suggestions and questions can be voted for' });
     }
 
     const voted = req.body.voted !== false;
-    Feedback.setVote(thread.id, req.user.id, voted);
+    Feedback.setVote(thread, req.user.id, voted);
 
     res.status(200).json({ success: true, data: toThreadDto(Feedback.findById(thread.id), { voted }) });
   } catch (error) {

@@ -44,7 +44,8 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Quarantine** | A listing hidden from everyone but its author and staff, deleted when its deadline passes unless staff release it. The author gets one grace extension per episode. |
 | **Suspension** | An account's status of Suspended. Staff give it 1–90 whole days or no end. Once the end passes the server lifts it by itself, on the next read of the account or in the hourly sweep, and logs `suspension_expired`. |
 | **Report** | A private note from a reader to staff about a listing, a comment, or a profile. Resolved as actioned or dismissed; the reporter is told which. |
-| **Feedback** | A public bug report or suggestion thread, with a status, replies, and votes. Distinct from a report, which is never public. |
+| **Feedback** | A public bug report, suggestion, or question thread, with a status, replies, and votes. Distinct from a report, which is never public. |
+| **Votable board** | The feedback types anyone signed in may reply to and vote on: suggestions and questions. A bug is not one. |
 | **Audit log** | The append-only record of what staff did to accounts and to published work, including a like removed (`like_removed`), an account's likes cleared (`likes_cleared`), and the same two on the guest half of a listing's number (`anonymous_likes_removed`, `anonymous_likes_cleared`), and the server's own lift of an ended suspension (`suspension_expired`, no actor). Every name in it is a snapshot, never a join. |
 
 ## Leaving
