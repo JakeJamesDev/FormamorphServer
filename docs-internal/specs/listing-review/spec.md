@@ -80,6 +80,14 @@ Answered for ticket 02:
 - **T18** The queue and the count need `canModerate`, with no target. Approve, reject and the content route apply the staff ladder against the author. The content route answers `404` for anything not waiting and counts no download.
 - **T19** The follows feed's published-or-updated label compares `COALESCE(listed_at, created_at)` with the follow time. The shared `inCirculationClause(alias)` replaces the three copies of the circulation SQL.
 
+Answered for ticket 03:
+
+- **T20** Only the main update route resubmits a rejected listing. The side routes edit it in place, and it stays `rejected`.
+- **T21** Review being off and trust do not affect a resubmission. A rejected listing always goes back to `pending`, and only a mod clears a rejection.
+- **T22** The queue holds every `pending` row. A pending row that is quarantined shows as `resubmitted`. Every queue item carries `quarantineExpiresAt`, which is null unless the listing is quarantined.
+- **T23** Rejecting a resubmission answers in the T15 shape with the deadline unchanged, ignores `days` without validating it, and writes `listing_rejected`. A staff release of a `rejected` listing writes only `listing_approved` and sets `listed_at` and `updated_at` to now. A release of a pending, quarantined listing only lifts the quarantine, and the listing stays in the queue as `new`.
+- **T24** Approve, reject and the approving release refuse any staff member, admins included, acting on their own listing (`403`). The author can still read the pending content. Approving a resubmission sets `listed_at` to now.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
