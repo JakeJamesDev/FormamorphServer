@@ -76,7 +76,8 @@ Every route below already exists unless it says new. This effort widens them.
 - **Statuses.** A question takes one of `open`, `answered`, `closed`. New questions start `open`.
 - **Status route.** On a question, staff may set only `open` or `closed`. `answered` comes only from accepting.
   - Setting `closed` also locks the thread (Q24).
-  - Setting `open` on a closed question unlocks it. When the question has an accepted answer, the status becomes `answered`.
+  - Setting `open` on a closed question unlocks it. When the question has an accepted answer, the status becomes `answered`. A lock set through the lock route stays: only leaving `closed` unlocks.
+  - A locked or closed question still takes votes, as a locked suggestion does.
 - **Accept route (new).** `PUT /api/feedback/:id/answer` with `{ commentId: string | null }`.
   - The thread must be a question. Otherwise 400.
   - The caller must be the asker or staff. Otherwise 403.
@@ -89,7 +90,7 @@ Every route below already exists unless it says new. This effort widens them.
 - **Votes.** The vote route and the `votes` sort accept questions. Filing a question adds the asker's vote in the same transaction. A bug still refuses votes, and the refusal message names both votable types.
 - **Read markers for voters.** Adding a vote on a question records a read marker for the voter, so old replies do not count as unread. Opening a question records a read marker for a voter, as it does for the asker and commenters.
 - **Unread.** On a question, the parties are the asker, every commenter, and every voter (Q9). Staff are parties only by those same routes (Q23). The unread count includes questions (Q22).
-- **Search (Q19).** The `search` parameter splits on whitespace and drops very short words. A thread matches when any word appears in its title or body. With search text, results sort by the number of matching words, then by the chosen sort. Every type uses this; the duplicate check sends `type=question&scope=all` with no status filter.
+- **Search (Q19).** The `search` parameter keeps its 200-character cut, then splits on whitespace. It drops words under 3 characters, except a 2-character word typed in all capitals (`AI`, `UI`). Each distinct word counts once, case-insensitive. A thread matches when any word appears in its title or body. With search text, results sort by the number of matching words, then by the chosen sort. Every type uses this; the duplicate check sends `type=question&scope=all` with no status filter.
 - **Type change.** The existing staff-only edit converts between all three types. On any type change the accepted answer clears, the status returns to `open`, and diagnostics clear, as today. Votes stay. Converting into a question records a read marker for each existing voter, so the conversion does not raise their badge. Converting into a question does not add the reporter's vote, as converting into a suggestion does not today.
 
 ## Implementation Decisions
