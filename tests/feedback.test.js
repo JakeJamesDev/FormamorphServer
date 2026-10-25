@@ -420,6 +420,67 @@ describe('listing reports', () => {
       expect(all.body.total).toBe(2);
     });
 
+    it('matches words in any order', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'It stops.' });
+      await file(reporter('b'), { title: 'Save fails', body: 'It spins.' });
+
+      const res = await search(root, 'freezes map');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Map freezes']);
+    });
+
+    it('matches a thread that holds any one word', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'It stops.' });
+      await file(reporter('b'), { title: 'Save fails', body: 'It spins.' });
+      await file(reporter('c'), { title: 'Sound pops', body: 'Loud.' });
+
+      const res = await search(root, 'freezes fails');
+
+      expect(res.body.data.map((r) => r.title).sort()).toEqual(['Map freezes', 'Save fails']);
+      expect(res.body.total).toBe(2);
+    });
+
+    it('ranks more matching words first, then the chosen sort', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'Nothing else.' });
+      await file(reporter('b'), { title: 'Map freezes on save', body: 'Also the minimap.' });
+      await file(reporter('c'), { title: 'Map fails', body: 'Nothing else.' });
+      await file(reporter('d'), { title: 'Map crashes', body: 'Nothing else.' });
+
+      const res = await search(root, 'map freezes save');
+
+      // Three words, two words, then the two one-word ties newest first.
+      expect(res.body.data.map((r) => r.title)).toEqual([
+        'Map freezes on save', 'Map freezes', 'Map crashes', 'Map fails'
+      ]);
+    });
+
+    it('counts a word once when it is in the title and the body', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map freezes', body: 'The map stops.' });
+      await file(reporter('b'), { title: 'Map crash', body: 'The save freezes.' });
+
+      const res = await search(root, 'map freezes');
+
+      expect(res.body.data.map((r) => r.title)).toEqual(['Map crash', 'Map freezes']);
+    });
+
+    it('drops words under three characters, but keeps a capitalized pair', async () => {
+      const root = admin();
+      await file(reporter('a'), { title: 'Map is slow', body: 'Lag.' });
+      await file(reporter('b'), { title: 'AI replies late', body: 'Lag.' });
+
+      const short = await search(root, 'is');
+      const caps = await search(root, 'AI');
+      const lower = await search(root, 'ai');
+
+      expect(short.body.total).toBe(2);
+      expect(caps.body.data.map((r) => r.title)).toEqual(['AI replies late']);
+      expect(lower.body.total).toBe(2);
+    });
+
     it('searches a suggestion board', async () => {
       const root = admin();
       await fileSuggestion(reporter('a'), { title: 'Rename saves', body: 'Let me rename.' });

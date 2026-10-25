@@ -34,6 +34,18 @@ const DIAGNOSTICS_MAX = 2000;
 const SEARCH_MAX = 200;
 
 /**
+ * The distinct words of a search text. Words under 3 characters are dropped, except a 2-character
+ * word typed in capitals (AI, UI).
+ * @param {*} search - The raw search parameter
+ * @returns {string[]} Lower-cased words, in typed order
+ */
+const searchWords = (search) => {
+  const text = String(search ?? '').trim().slice(0, SEARCH_MAX);
+  const kept = text.split(/\s+/).filter((word) => word.length >= 3 || /^[A-Z]{2}$/.test(word));
+  return [...new Set(kept.map((word) => word.toLowerCase()))];
+};
+
+/**
  * The thread row, its author's name, and the two counts a list shows on it.
  *
  * Votes are joined rather than counted per row: the list is paged and sortable by them, so counting one
@@ -139,7 +151,7 @@ const Feedback = {
    * A page of threads.
    *
    * `type` picks the branch; `reporterId` narrows to one person's own; `statuses` to any of several triage states;
-   * `category` to one area of the app; `search` to threads whose title or body holds the text. All are
+   * `category` to one area of the app; `search` to threads whose title or body holds any of its words, best match first. All are
    * optional and combine, so the same query backs the reporter's list, the public board and the admin's
    * filtered queue.
    *
@@ -173,11 +185,16 @@ const Feedback = {
       where.push('r.category = @category');
       params.category = category;
     }
-    const term = String(search ?? '').trim().slice(0, SEARCH_MAX);
-    if (term) {
-      // Escaped so `%` and `_` match themselves. LIKE ignores ASCII case.
-      where.push("(r.title LIKE @search ESCAPE '\\' OR r.body LIKE @search ESCAPE '\\')");
-      params.search = `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+    const words = searchWords(search);
+    let rank = '';
+    if (words.length) {
+      // One bound LIKE per word, escaped so `%` and `_` match themselves. LIKE ignores ASCII case.
+      const hits = words.map((word, index) => {
+        params[`word${index}`] = `%${word.replace(/[\\%_]/g, '\\$&')}%`;
+        return `(r.title LIKE @word${index} ESCAPE '\\' OR r.body LIKE @word${index} ESCAPE '\\')`;
+      });
+      where.push(`(${hits.join(' OR ')})`);
+      rank = `(${hits.map((hit) => `(CASE WHEN ${hit} THEN 1 ELSE 0 END)`).join(' + ')}) DESC, `;
     }
     const filter = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -192,7 +209,7 @@ const Feedback = {
     const threads = db.prepare(`
       ${FEEDBACK_SELECT}
       ${filter}
-      ORDER BY ${order}
+      ORDER BY ${rank}${order}
       LIMIT @limit OFFSET @offset
     `).all({ ...params, limit, offset });
 
