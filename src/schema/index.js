@@ -47,6 +47,7 @@ const STEPS = [
   require('./steps/suspensionEnd'),
   require('./steps/moderationState'),
   require('./steps/auditTarget'),
+  require('./steps/trustedAt'),
   require('./indexes')
 ];
 

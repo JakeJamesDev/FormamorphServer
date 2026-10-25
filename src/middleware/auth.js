@@ -53,7 +53,7 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
 
     // Get user from database. An ended suspension is lifted here, so no request is refused past its end.
     const user = liftExpiredSuspension(db
-      .prepare('SELECT id, username, email, status, suspended_until, account_type, token_version, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, username, email, status, suspended_until, account_type, trusted_at, token_version, created_at FROM users WHERE id = ?')
       .get(decoded.id));
 
     // Check if user exists
@@ -164,7 +164,7 @@ exports.optionalAuth = async (req, _res, next) => {
   try {
     const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
     const user = db
-      .prepare('SELECT id, username, email, status, account_type, token_version, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, username, email, status, account_type, trusted_at, token_version, created_at FROM users WHERE id = ?')
       .get(decoded.id);
     // A retired token is treated as no token, exactly as a bad one is: these routes serve signed-out
     // visitors anyway, so the caller simply stops being recognized.

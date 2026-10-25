@@ -52,7 +52,10 @@ const ACTIONS = [
   // one thing in here that says where a person was, so looking at it is itself an act with a name on it.
   'signals_viewed',
   // A listing that skipped review because of who published it, so mods can spot-check it.
-  'listing_auto_approved'
+  'listing_auto_approved',
+  // An admin made an account a trusted author, whose uploads skip review, or took that away.
+  'author_trusted',
+  'author_untrusted'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

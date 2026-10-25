@@ -50,6 +50,8 @@ const apply = (database) => {
       -- mailed to it. Null until then, and cleared again whenever the address changes. The account
       -- works either way: verification is what password reset needs, not what signing in needs.
       email_verified_at TEXT,
+      -- When an admin made this account a trusted author, whose uploads skip review. Null when not.
+      trusted_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

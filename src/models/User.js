@@ -46,7 +46,25 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, email, email_verified_at, status, suspended_until, account_type, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, email, email_verified_at, status, suspended_until, account_type, trusted_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+  },
+
+  /**
+   * Grant or revoke trusted-author status. A grant keeps the first `trusted_at`.
+   *
+   * One conditional statement, so two admins racing over the same change write it once.
+   *
+   * @param {string} id - User ID
+   * @param {boolean} trusted - True to grant, false to revoke
+   * @returns {boolean} Whether this call changed the row
+   */
+  setTrusted: (id, trusted) => {
+    const now = new Date().toISOString();
+    const statement = trusted
+      ? 'UPDATE users SET trusted_at = @now, updated_at = @now WHERE id = @id AND trusted_at IS NULL'
+      : 'UPDATE users SET trusted_at = NULL, updated_at = @now WHERE id = @id AND trusted_at IS NOT NULL';
+
+    return db.prepare(statement).run({ id, now }).changes > 0;
   },
 
   /**
@@ -418,7 +436,7 @@ const User = {
       LEFT JOIN policies pp ON pp.id = pa.policy_id
     `;
 
-    let query = `SELECT u.id, u.username, u.email, u.status, u.suspended_until, u.account_type, u.avatar_file, u.created_at, u.updated_at ${from}`;
+    let query = `SELECT u.id, u.username, u.email, u.status, u.suspended_until, u.account_type, u.trusted_at, u.avatar_file, u.created_at, u.updated_at ${from}`;
     let countQuery = `SELECT COUNT(*) as count ${from}`;
     // The reserved `[deleted user]` row is left out of every page and every count. It is where a departed
     // account's work is parked rather than somebody staff have business with, and listing it would only

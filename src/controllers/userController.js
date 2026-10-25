@@ -61,6 +61,8 @@ exports.getUsers = async (req, res, next) => {
         status: user.status,
         suspendedUntil: user.suspended_until,
         accountType: user.account_type,
+        // When an admin made them a trusted author; null when not.
+        trustedAt: user.trusted_at,
         avatarUrl: avatarUrlFor(user.avatar_file),
         createdAt: user.created_at,
         updatedAt: user.updated_at,
@@ -451,6 +453,58 @@ exports.updateUserStatus = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Grant or revoke trust for the account in `:id`. Only a real change writes an audit entry.
+ *
+ * @param {boolean} trusted - True to grant, false to revoke
+ * @returns {Function} Express handler
+ */
+const changeTrust = (trusted) => async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.id === PLACEHOLDER_ID) {
+      return res.status(403).json({ success: false, error: 'The reserved account cannot be changed' });
+    }
+
+    if (User.setTrusted(user.id, trusted)) {
+      AuditLog.tryRecord({
+        action: trusted ? 'author_trusted' : 'author_untrusted',
+        actor: req.user,
+        targetUser: user,
+        targetKind: 'account',
+        targetName: user.username,
+        targetId: user.id
+      });
+    }
+
+    const updated = User.findById(user.id);
+    res.status(200).json({
+      success: true,
+      user: { id: updated.id, username: updated.username, trustedAt: updated.trusted_at }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Make an account a trusted author, whose uploads skip review
+ * @route   PUT /api/users/:id/trust
+ * @access  Private/Admin
+ */
+exports.trustUser = changeTrust(true);
+
+/**
+ * @desc    Take trusted-author status away
+ * @route   DELETE /api/users/:id/trust
+ * @access  Private/Admin
+ */
+exports.untrustUser = changeTrust(false);
 
 /**
  * Replace the caller's own profile image with a new one, deleting whatever it replaced.

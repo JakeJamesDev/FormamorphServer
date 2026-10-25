@@ -3,7 +3,7 @@ const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
   setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile, getUserProfileByUsername,
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
-  getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes
+  getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes, trustUser, untrustUser
 } = require('../controllers/userController');
 const {
   startPatreonLink, confirmPatreonLink, getPatreonStatus, setPatreonFlair, unlinkPatreon
@@ -82,5 +82,9 @@ router.get('/:id/linked', protect, staff, getLinkedAccounts);
 // Suspend or reinstate an account (staff only). The same route also changes what somebody *is*, which
 // is an administrator's alone — enforced in the controller, since one body can carry both.
 router.put('/:id/status', smallJson, protect, staff, updateUserStatus);
+
+// Make an account a trusted author, or stop (admin only).
+router.put('/:id/trust', protect, admin, trustUser);
+router.delete('/:id/trust', protect, admin, untrustUser);
 
 module.exports = router;

@@ -26,12 +26,14 @@ const MODERATION_STATES = Object.freeze({
 const validateListingReview = (value) => (typeof value === 'boolean' ? null : 'Must be true or false');
 
 /**
- * Whether this account's uploads go live without review. Staff skip it.
+ * Whether this account's uploads go live without review. Staff and trusted authors skip it.
+ *
+ * Strict on purpose: a user row read without `trusted_at` reads as untrusted, so it fails closed.
  *
  * @param {Object} user - The publishing account
  * @returns {boolean} True when review is skipped
  */
-const skipsReview = (user) => isStaff(user);
+const skipsReview = (user) => isStaff(user) || Boolean(user && user.trusted_at);
 
 /**
  * Whether a listing row is in circulation as far as review goes.

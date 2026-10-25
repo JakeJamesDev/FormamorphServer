@@ -503,6 +503,17 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('leaves every existing account untrusted', () => {
+    const legacy = oldestDatabase();
+    legacy.prepare("INSERT INTO users (id, username, password) VALUES ('u1', 'author', 'x')").run();
+
+    expect(migrate(legacy)).toContain('trustedAt');
+    expect(legacy.prepare("SELECT trusted_at FROM users WHERE id = 'u1'").get()).toEqual({ trusted_at: null });
+    expect(migrate(legacy)).toEqual([]);
+
+    legacy.close();
+  });
+
   it('gives the audit log a target id, null on every entry already there', () => {
     const legacy = oldestDatabase();
     legacy.exec("INSERT INTO audit_log (action, created_at) VALUES ('listing_deleted', '2025-06-01T00:00:00.000Z')");
