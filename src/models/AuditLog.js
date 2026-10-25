@@ -50,7 +50,9 @@ const ACTIONS = [
   'account_deleted',
   // Somebody read the accounts a Signal links to another account. Logged because linkage data is the
   // one thing in here that says where a person was, so looking at it is itself an act with a name on it.
-  'signals_viewed'
+  'signals_viewed',
+  // A listing that skipped review because of who published it, so mods can spot-check it.
+  'listing_auto_approved'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */
@@ -78,19 +80,19 @@ const AuditLog = {
   /**
    * Record one event.
    *
-   * @param {Object} entry - `{ action, actor, targetUser, targetKind, targetName, snippet }`.
+   * @param {Object} entry - `{ action, actor, targetUser, targetKind, targetName, targetId, snippet }`.
    *   `actor` and `targetUser` are user rows (or anything with `id`/`username`); both are optional, since
-   *   not every event has a person on the other end of it.
+   *   not every event has a person on the other end of it. `targetId` links an entry back to what it names.
    * @returns {Object} The stored entry
    */
-  record: ({ action, actor = null, targetUser = null, targetKind = null, targetName = null, snippet = null }) => {
+  record: ({ action, actor = null, targetUser = null, targetKind = null, targetName = null, targetId = null, snippet = null }) => {
     const info = db.prepare(`
       INSERT INTO audit_log (
         action, actor_id, actor_username, actor_was_admin, actor_role,
-        target_user_id, target_username, target_kind, target_name, snippet, created_at
+        target_user_id, target_username, target_kind, target_name, target_id, snippet, created_at
       )
       VALUES (@action, @actorId, @actorUsername, @actorWasAdmin, @actorRole,
-              @targetUserId, @targetUsername, @targetKind, @targetName, @snippet, @createdAt)
+              @targetUserId, @targetUsername, @targetKind, @targetName, @targetId, @snippet, @createdAt)
     `).run({
       action,
       actorId: actor ? actor.id : null,
@@ -104,6 +106,7 @@ const AuditLog = {
       targetUsername: targetUser ? targetUser.username : null,
       targetKind,
       targetName: targetName === null || targetName === undefined ? null : String(targetName).slice(0, SNIPPET_MAX),
+      targetId,
       snippet: snippet === null || snippet === undefined ? null : String(snippet).slice(0, SNIPPET_MAX),
       createdAt: new Date().toISOString()
     });

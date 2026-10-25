@@ -9,6 +9,7 @@ const { isStaff } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
 const Event = require('./Event');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
+const { MODERATION_STATES, isApproved, approvedClause } = require('../config/listingReview');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -31,12 +32,29 @@ const LIKE_LIST_LIMIT = 500;
  * `constructor` and `toString`, which would put a function's source into the query and 500 the request.
  */
 const SORT_EXPRESSIONS = Object.assign(Object.create(null), {
-  created_at: 'w.created_at',
+  // Newest means newest to go live, so a late approval sorts as new. A listing still waiting has no
+  // listed time and sorts by its submission, which only its author and staff ever see.
+  created_at: 'COALESCE(w.listed_at, w.created_at)',
   updated_at: 'w.updated_at',
   downloads: 'w.downloads',
   name: 'w.name',
   likes: 'like_count'
 });
+
+/**
+ * Take the review columns off a listing payload unless the reader is its author or staff.
+ *
+ * @param {Object} world - The payload, still carrying `author_id`
+ * @param {Object} [viewer] - The signed-in user, or null for an anonymous visitor
+ * @returns {Object} The same payload
+ */
+const stripModeration = (world, viewer) => {
+  if (viewer && (isStaff(viewer) || world.author_id === viewer.id)) return world;
+
+  delete world.moderation_state;
+  delete world.moderation_queued_at;
+  return world;
+};
 
 /**
  * World model
@@ -113,6 +131,7 @@ const World = {
     world.placeholder = world.placeholder === 1;
 
     world.models = parseModels(world.models);
+    stripModeration(world, viewer);
 
     // An Avatar's own license terms, which only a listing opened on its own ever shows. Absent rather
     // than null for every other kind, so a reader has nothing to render instead of an empty object.
@@ -204,17 +223,18 @@ const World = {
         params.push(kind);
       }
 
-      // Quarantine and unlisted visibility. Both hide a listing from the room while leaving it visible to
-      // the person who published it and to the staff — so what the catalog contains depends on who is
-      // asking, and an anonymous visitor is asking as nobody. One clause for both, because the answer
-      // for each is the same pair of people.
+      // Quarantine, review and unlisted visibility. Each hides a listing from the room while leaving it
+      // visible to the person who published it and to the staff — so what the catalog contains depends on
+      // who is asking, and an anonymous visitor is asking as nobody. One clause for all three, because the
+      // answer for each is the same pair of people.
       const isStaffViewer = Boolean(viewer && isStaff(viewer));
+      const inCirculation = `w.quarantined_at IS NULL AND ${approvedClause('w')} AND w.visibility = 'public'`;
       if (!isStaffViewer) {
         if (viewer) {
-          whereClause.push("((w.quarantined_at IS NULL AND w.visibility = 'public') OR w.author_id = ?)");
+          whereClause.push(`((${inCirculation}) OR w.author_id = ?)`);
           params.push(viewer.id);
         } else {
-          whereClause.push("w.quarantined_at IS NULL AND w.visibility = 'public'");
+          whereClause.push(inCirculation);
         }
       }
 
@@ -292,6 +312,7 @@ const World = {
         world.placeholder = world.placeholder === 1;
 
         world.models = parseModels(world.models);
+        stripModeration(world, viewer);
 
         // How many liked it, and whether this reader is one of them. `liked` is absent rather than false
         // for a signed-out visitor: somebody with no account has not decided against liking anything, and
@@ -403,9 +424,10 @@ const World = {
         INSERT INTO worlds (
           id, name, description, author_id, thumbnail_file,
           content_file, tags, comment_count, spoiler, kind,
-          model_license, contest_event_id, visibility, models, app_version, placeholder, created_at, updated_at
+          model_license, contest_event_id, visibility, models, app_version, placeholder,
+          moderation_state, moderation_queued_at, listed_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         worldId,
         worldData.name,
@@ -426,6 +448,10 @@ const World = {
         JSON.stringify(worldData.models || []),
         worldData.app_version || null,
         worldData.placeholder ? 1 : 0,
+        // Approved and live at once unless the caller says the listing waits for review.
+        worldData.moderation_state || MODERATION_STATES.APPROVED,
+        worldData.moderation_queued_at || null,
+        worldData.listed_at === undefined ? now : worldData.listed_at,
         now,
         now
       );
@@ -512,7 +538,7 @@ const World = {
    */
   isVisibleTo: (world, viewer = null) => {
     if (!world) return false;
-    if (!world.quarantined_at && world.visibility !== UNLISTED) return true;
+    if (!world.quarantined_at && isApproved(world) && world.visibility !== UNLISTED) return true;
     if (!viewer) return false;
 
     return isStaff(viewer) || world.author_id === viewer.id;
@@ -752,15 +778,15 @@ const World = {
         (SELECT COUNT(*) FROM world_likes l
           JOIN worlds lw ON lw.id = l.world_id
           LEFT JOIN events lce ON lce.id = lw.contest_event_id
-          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND lw.visibility = 'public'
+          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND ${approvedClause('lw')} AND lw.visibility = 'public'
           ${visible('lw', 'lce')})
         + (SELECT COUNT(*) FROM anonymous_likes a
           JOIN worlds aw ON aw.id = a.world_id
           LEFT JOIN events ace ON ace.id = aw.contest_event_id
-          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND aw.visibility = 'public'
+          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND ${approvedClause('aw')} AND aw.visibility = 'public'
           ${visible('aw', 'ace')}) AS likes
       FROM worlds w
-      WHERE w.author_id = @authorId AND w.quarantined_at IS NULL AND w.visibility = 'public'
+      WHERE w.author_id = @authorId AND w.quarantined_at IS NULL AND ${approvedClause('w')} AND w.visibility = 'public'
     `).get(params);
 
     return { likes: row.likes || 0, downloads: row.downloads || 0 };

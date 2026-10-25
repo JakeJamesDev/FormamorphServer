@@ -1,5 +1,6 @@
 const { validateClientMinimums } = require('./clientVersion');
 const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
+const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
 
 /**
  * The settings staff can change without a deploy.
@@ -31,6 +32,8 @@ const SETTINGS = {
   // Off until the privacy text that states the collection is live, then the operator's to turn on — and
   // the emergency stop if a flood ever needs one. `config/anonymousLikes` says what it gates.
   [ANONYMOUS_LIKES]: { default: false, validate: validateAnonymousLikes },
+  // Off until the client that shows a pending listing ships. Admin-only, so one mod cannot turn it off.
+  [LISTING_REVIEW]: { default: false, validate: validateListingReview, adminOnly: true },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true }
 };

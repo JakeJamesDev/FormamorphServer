@@ -481,6 +481,39 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('counts every existing listing as approved and live since it was created, once', () => {
+    // Launch starts with an empty queue. A later boot must not fill the listed time a pending listing
+    // holds empty on purpose.
+    const legacy = oldestDatabase();
+    legacy.exec(`
+      INSERT INTO users (id, username, password) VALUES ('u1', 'author', 'x');
+      INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file, created_at)
+        VALUES ('w1', 'Sedge Landing', 'd', 'u1', 't', '', 'c', '2025-06-01 12:00:00');
+    `);
+
+    expect(migrate(legacy)).toEqual(expect.arrayContaining(['moderationState', 'auditTarget']));
+    expect(legacy.prepare("SELECT moderation_state, moderation_queued_at, listed_at FROM worlds WHERE id = 'w1'").get())
+      .toEqual({ moderation_state: 'approved', moderation_queued_at: null, listed_at: '2025-06-01 12:00:00' });
+
+    legacy.prepare("UPDATE worlds SET moderation_state = 'pending', listed_at = NULL WHERE id = 'w1'").run();
+    expect(migrate(legacy)).toEqual([]);
+    expect(legacy.prepare("SELECT moderation_state, listed_at FROM worlds WHERE id = 'w1'").get())
+      .toEqual({ moderation_state: 'pending', listed_at: null });
+
+    legacy.close();
+  });
+
+  it('gives the audit log a target id, null on every entry already there', () => {
+    const legacy = oldestDatabase();
+    legacy.exec("INSERT INTO audit_log (action, created_at) VALUES ('listing_deleted', '2025-06-01T00:00:00.000Z')");
+
+    migrate(legacy);
+
+    expect(legacy.prepare('SELECT target_id FROM audit_log').get()).toEqual({ target_id: null });
+
+    legacy.close();
+  });
+
   it('rolls the podium rebuild back whole when it fails partway', () => {
     // The one step that carries its own transaction. A leftover scratch table makes the rebuild throw
     // after the rename and the new column have already run; both must be gone afterwards.

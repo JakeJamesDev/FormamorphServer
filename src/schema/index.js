@@ -45,6 +45,8 @@ const STEPS = [
   require('./steps/placeholderFlag'),
   require('./steps/changelogCount'),
   require('./steps/suspensionEnd'),
+  require('./steps/moderationState'),
+  require('./steps/auditTarget'),
   require('./indexes')
 ];
 

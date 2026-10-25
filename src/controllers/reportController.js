@@ -6,6 +6,7 @@ const Message = require('../models/Message');
 const AuditLog = require('../models/AuditLog');
 const { canModerate, STAFF_PROTECTED } = require('../config/roles');
 const { resolutionNotice } = require('../utils/reportNotices');
+const { isApproved } = require('../config/listingReview');
 
 /** What a duplicate is told. One wording, because the reporter's question is "did it land?" */
 const ALREADY_REPORTED = 'You have already reported this — staff are reviewing it.';
@@ -16,15 +17,19 @@ const ALREADY_REPORTED = 'You have already reported this — staff are reviewing
  * Resolves the three kinds to one shape: what to snapshot, and whose account the moderation gate is
  * about. A target that cannot be found is not reportable — but a target that is merely *quarantined*
  * still is, because a report filed while something was hidden is still the room telling staff something.
+ * A listing waiting for review is different: it was never in the room, so to a reporter who cannot see
+ * it, it does not exist.
  *
  * @param {string} kind - One of `Report.TARGET_KINDS`
  * @param {string} id - The target's ID
+ * @param {Object} reporter - The signed-in user filing the report
  * @returns {Object|null} `{ authorId, snapshot }`, or null when there is no such target
  */
-const resolveTarget = (kind, id) => {
+const resolveTarget = (kind, id, reporter) => {
   if (kind === 'listing') {
     const world = World.findById(id);
     if (!world) return null;
+    if (!isApproved(world) && !World.isVisibleTo(world, reporter)) return null;
 
     const author = world.author_id ? User.findById(world.author_id) : null;
 
@@ -129,7 +134,7 @@ exports.submitReport = async (req, res, next) => {
       });
     }
 
-    const target = resolveTarget(targetKind, targetId);
+    const target = resolveTarget(targetKind, targetId, req.user);
     if (!target) {
       return res.status(404).json({ success: false, error: 'That content no longer exists' });
     }

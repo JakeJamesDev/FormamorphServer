@@ -1,5 +1,6 @@
 const Setting = require('../models/Setting');
 const { SETTINGS, isStaffSetting } = require('../config/settings');
+const { isAdmin } = require('../config/roles');
 
 /** The same wording for a key this server does not have, whichever verb asked for it. */
 const NO_SUCH_SETTING = 'No such setting';
@@ -34,6 +35,9 @@ exports.saveSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     if (!isStaffSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
+    if (SETTINGS[key].adminOnly && !isAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Only an admin can change this setting' });
+    }
 
     const value = req.body ? req.body.value : undefined;
     const problem = SETTINGS[key].validate(value);

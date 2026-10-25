@@ -96,6 +96,12 @@ const apply = (database) => {
       -- Whether the thumbnail is the server's stand-in for an entity published without art. A client
       -- draws its own art for a flagged listing instead of the stored copy.
       placeholder INTEGER NOT NULL DEFAULT 0,
+      -- Listing review: approved, pending or rejected. Anything but approved is seen only by its
+      -- author and staff. The queued time orders the review queue; a re-edit leaves it alone.
+      moderation_state TEXT NOT NULL DEFAULT 'approved',
+      moderation_queued_at TEXT,
+      -- When the listing first went live, which the catalog's newest sort reads. Null while it waits.
+      listed_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id),
@@ -517,6 +523,8 @@ const apply = (database) => {
       target_name TEXT,
       -- Enough of what was removed to know what it was, never the whole of it.
       snippet TEXT,
+      -- The id of what it was done to, for the entries that link back to it. Null on actions that record none.
+      target_id TEXT,
       created_at TEXT NOT NULL
     )
   `);

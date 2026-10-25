@@ -22,6 +22,7 @@ const policyRoutes = require('./routes/policies');
 const feedbackRoutes = require('./routes/feedback');
 const auditRoutes = require('./routes/audit');
 const reportRoutes = require('./routes/reports');
+const reviewRoutes = require('./routes/reviews');
 const eventRoutes = require('./routes/events');
 const eventPosterRoutes = require('./routes/eventPosters');
 const settingsRoutes = require('./routes/settings');
@@ -87,6 +88,7 @@ app.use('/api/policies', smallJson, policyRoutes);
 app.use('/api/feedback', smallJson, feedbackRoutes);
 app.use('/api/audit', smallJson, auditRoutes);
 app.use('/api/reports', smallJson, reportRoutes);
+app.use('/api/reviews', smallJson, reviewRoutes);
 // Events mount their own parsers per route: an event's poster arrives as a base64 image, which is
 // larger than the 100kb everything else here is capped at (see routes/events.js).
 app.use('/api/events', eventRoutes);

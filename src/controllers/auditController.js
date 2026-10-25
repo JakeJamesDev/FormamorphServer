@@ -19,8 +19,9 @@ const toEntryDto = (row) => ({
   targetUser: row.target_user_id || row.target_username
     ? { id: row.target_user_id, username: row.target_username }
     : null,
-  target: row.target_kind || row.target_name
-    ? { kind: row.target_kind, name: row.target_name }
+  // `id` links back to what the entry names; null on actions that do not record it.
+  target: row.target_kind || row.target_name || row.target_id
+    ? { kind: row.target_kind, name: row.target_name, id: row.target_id || null }
     : null,
   snippet: row.snippet,
   createdAt: row.created_at

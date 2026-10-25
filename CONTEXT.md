@@ -30,7 +30,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Source** | The published listing a downloaded copy follows. Named by listing id; a republished listing is a new source. |
 | **Required dependency** | A source a world's author declared necessary. The world author alone writes the set; the row lives in `listing_dependencies` and survives the source's deletion so resolution can say `not_found`. |
 | **Compatibility** | A component's or a prompt's offer of itself for a world, made by its author. Lives in `listing_compatibility`. Never makes the component required. |
-| **Review state** | The world author's answer to an offer: `unreviewed`, `approved`, or `declined`. Written by the world author alone. Declined offers are hidden from everyone but the component's author and staff. |
+| **Review state** | The world author's answer to an offer: `unreviewed`, `approved`, or `declined`. Written by the world author alone. Declined offers are hidden from everyone but the component's author and staff. Not the **Moderation state**, which is staff review of a listing. |
 | **Add-on** | A compatible, public, visible component a world's download review may offer. An unlisted component is never one. |
 | **Visibility** | `public` or `unlisted`. Unlisted is hidden from discovery, not from existence: the author and staff see it as normal; everyone else gets `404` everywhere except dependency resolution. |
 | **Revision** | A per-listing counter bumped by every change to what a download installs. What a client compares to detect a source change; no version is kept behind it. |
@@ -42,6 +42,12 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 |---|---|
 | **Staff** | Any account with moderation powers: `mod`, `dev`, or `admin`. Staff moderate the room, not each other. |
 | **Quarantine** | A listing hidden from everyone but its author and staff, deleted when its deadline passes unless staff release it. The author gets one grace extension per episode. |
+| **Moderation state** | Where a listing stands in listing review: `approved`, `pending`, or `rejected`, in `moderation_state`. Only approved listings are in circulation; the others are seen by their author and staff alone. Not the **Review state** of an add-on offer. |
+| **Pending listing** | A new listing waiting for a mod, published while the `listing_review` setting is on. It answers `404` to everyone but its author and staff. |
+| **Pending update** | An edit to an approved listing that waits for a mod. The approved version stays live, unchanged, until the update is approved; a rejected update is dropped. |
+| **Resubmission** | An author's edit to a rejected listing, which sends it back to the review queue. Its quarantine deadline keeps running. |
+| **Trusted author** | An account an admin marked as trusted (`trusted_at`). Its uploads and updates skip review. Staff count as trusted without the mark. |
+| **Auto-approval** | A listing or update that skipped review because of who submitted it. Logged as `listing_auto_approved` with the listing's id, so mods can spot-check it. |
 | **Suspension** | An account's status of Suspended. Staff give it 1–90 whole days or no end. Once the end passes the server lifts it by itself, on the next read of the account or in the hourly sweep, and logs `suspension_expired`. |
 | **Report** | A private note from a reader to staff about a listing, a comment, or a profile. Resolved as actioned or dismissed; the reporter is told which. |
 | **Feedback** | A public bug report, suggestion, or question thread, with a status, replies, and votes. Distinct from a report, which is never public. |

@@ -3,6 +3,7 @@ const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { isStaff } = require('../config/roles');
+const { isApproved } = require('../config/listingReview');
 const { sweepEvents, cancelEvent, announceResults: postResultsBroadcast } = require('../utils/sweepEvents');
 const { saveEventPoster, deleteEventPoster } = require('../utils/fileStorage');
 const {
@@ -603,6 +604,9 @@ const readPodium = (event, body, actor) => {
     }
     if (world.quarantined_at) {
       return refuse(409, 'A quarantined entry cannot place. Release it first.');
+    }
+    if (!isApproved(world)) {
+      return refuse(409, 'An entry waiting for review cannot place. Approve it first.');
     }
     if (world.author_id === actor.id) {
       return refuse(409, 'You cannot place your own entry');

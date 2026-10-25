@@ -28,7 +28,7 @@ const Compatibility = {
    */
   worldsFor: (componentId) => db.prepare(`
     SELECT c.world_id, c.review_state, c.reviewed_revision, c.reviewed_at, c.created_at,
-      w.name, w.author_id, w.quarantined_at, w.visibility, w.revision, w.updated_at,
+      w.name, w.author_id, w.quarantined_at, w.moderation_state, w.visibility, w.revision, w.updated_at,
       u.username AS author_username
     FROM listing_compatibility c
     JOIN worlds w ON w.id = c.world_id

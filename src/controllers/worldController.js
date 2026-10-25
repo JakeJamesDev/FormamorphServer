@@ -37,6 +37,7 @@ const { appVersionOf } = require('../utils/appVersion');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
+const { submissionFor } = require('../utils/listingReview');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
@@ -340,19 +341,21 @@ exports.getWorld = async (req, res, next) => {
     const limit = parseInt(req.query.commentsLimit, 10) || 5;
     const includeComments = req.query.includeComments === 'true';
     
-    // Get world with or without comments based on query parameter
-    const world = includeComments 
-      ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit }, req.user)
-      : World.findByIdWithAuthor(req.params.id, req.user);
-
-    // A quarantined listing is as absent as a deleted one to everyone but its author and the admins —
-    // same 404, so its existence is not something the room can probe for.
-    if (!world || !World.isVisibleTo(world, req.user)) {
+    // A quarantined or unapproved listing is as absent as a deleted one to everyone but its author and the
+    // staff — same 404, so its existence is not something the room can probe for. Checked on the stored
+    // row, because the payload below leaves out the review columns for a player.
+    const row = World.findById(req.params.id);
+    if (!row || !World.isVisibleTo(row, req.user)) {
       return res.status(404).json({
         success: false,
         error: 'World not found'
       });
     }
+
+    // Get world with or without comments based on query parameter
+    const world = includeComments
+      ? World.findByIdWithAuthorAndComments(req.params.id, { page, limit }, req.user)
+      : World.findByIdWithAuthor(req.params.id, req.user);
 
     // Opt-in like the comments embed, and for the same reason: this row is what the catalog serves for
     // every card on a page, and a changelog only an open listing ever reads would ride along with all of
@@ -534,8 +537,10 @@ exports.createWorld = async (req, res, next) => {
       // Save content to file
       const contentFile = await saveWorldContent(worldId, contentData);
 
+      const submission = submissionFor(req.user);
+
       // Create world in database
-      const world = World.create(
+      World.create(
         {
           id: worldId,
           name,
@@ -550,11 +555,22 @@ exports.createWorld = async (req, res, next) => {
           visibility: linked.visibility,
           models,
           app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null,
-          placeholder: !thumbnail && Boolean(rules.flagsPlaceholder)
+          placeholder: !thumbnail && Boolean(rules.flagsPlaceholder),
+          ...submission.columns
         },
         contentFile,
         thumbnailFile
       );
+
+      if (submission.autoApproved) {
+        AuditLog.tryRecord({
+          action: 'listing_auto_approved',
+          actor: req.user,
+          targetKind: kind,
+          targetName: name,
+          targetId: worldId
+        });
+      }
 
       // Declared in the same publish, so a world and what it requires appear together rather than a world
       // appearing first with nothing behind it.

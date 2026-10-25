@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { authorPayload } = require('../utils/authorPayload');
+const { approvedClause } = require('../config/listingReview');
 
 /** The most a feed will hand back at once. Past this it stops being a list of news. */
 const FEED_LIMIT = 50;
@@ -105,8 +106,8 @@ const Follow = {
    * otherwise — the same row either way, so an author revising something they posted last year reads as
    * an update rather than as news.
    *
-   * Quarantined and unlisted listings are absent: neither is in circulation on its own, and a feed row
-   * pointing at a 404 is worse than no row.
+   * Quarantined, unlisted and unapproved listings are absent: none is in circulation on its own, and a
+   * feed row pointing at a 404 is worse than no row.
    *
    * @param {string} followerId - Whose feed
    * @param {Object} [options] - `{ limit }`
@@ -123,6 +124,7 @@ const Follow = {
     JOIN users u ON u.id = w.author_id
     WHERE f.follower_id = ?
       AND w.quarantined_at IS NULL
+      AND ${approvedClause('w')}
       AND w.visibility = 'public'
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
     ORDER BY ${AS_INSTANT('w.updated_at')} DESC, w.id ASC
@@ -158,6 +160,7 @@ const Follow = {
     JOIN worlds w ON w.author_id = f.followed_id
     WHERE f.follower_id = @followerId
       AND w.quarantined_at IS NULL
+      AND ${approvedClause('w')}
       AND w.visibility = 'public'
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
       AND (@seenAt IS NULL OR ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('@seenAt')})
