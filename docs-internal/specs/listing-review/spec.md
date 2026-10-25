@@ -72,6 +72,14 @@ Answered for ticket 07 (the contract ticket 05 serves):
 - **T13** `pending_update` has this shape: `{ fields: { <name>: { approved, pending } }, changelog: [...ops], content_changed: boolean, thumbnail_url?: string }`.
 - **T14** `GET /api/reviews/meta` needs no sign-in. The client caches the answer once per session.
 
+Answered for ticket 02:
+
+- **T15** The reject answer matches the quarantine route. It is camelCase: `quarantinedAt`, `quarantineExpiresAt` and `quarantineExtended`, plus `author` as `authorPayload`. `days` takes the same default, limits and error text as the quarantine route.
+- **T16** Reject writes only `listing_rejected`, with the deadline as its snippet and `target_id`. Approve writes `listing_approved` with no snippet.
+- **T17** "Contest entry" means any waiting row with a `contest_event_id`, whatever the contest's phase. A queue item is `{ id, kind, name, author, type, queuedAt, createdAt, contest: { id, title } | null }`.
+- **T18** The queue and the count need `canModerate`, with no target. Approve, reject and the content route apply the staff ladder against the author. The content route answers `404` for anything not waiting and counts no download.
+- **T19** The follows feed's published-or-updated label compares `COALESCE(listed_at, created_at)` with the follow time. The shared `inCirculationClause(alias)` replaces the three copies of the circulation SQL.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
