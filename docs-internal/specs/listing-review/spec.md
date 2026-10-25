@@ -49,6 +49,15 @@ From the grill on 2026-10-25 (Q1–Q22) and the follow-up after the code review 
 - **Q27** After a mod rejects an update, the message composer opens at once, as it does after a quarantine.
 - **Q28** The state is named `moderation_state`. "Review state" stays the add-on offer term.
 
+Answered for ticket 01:
+
+- **T1** Any `moderation_state` other than `approved` is hidden from players.
+- **T2** Report filing answers `404` to a player only for `pending` and `rejected` listings. Quarantined and unlisted listings stay reportable, as today.
+- **T3** The existing `sort=created_at` key reads `listed_at`. There is no new sort key, so old clients get the new order.
+- **T4** `listing_auto_approved` is written only while review is on.
+- **T5** The author and staff can comment on a pending listing. Players cannot reach it.
+- **T6** `listed_at` stays in player payloads. The podium refuses a non-approved entry with `409`, as it does for quarantine.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
