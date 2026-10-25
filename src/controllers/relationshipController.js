@@ -226,7 +226,12 @@ exports.setReviewState = async (req, res, next) => {
     const association = Compatibility.find(req.params.componentId, world.id);
     if (!association) return res.status(404).json(NOT_FOUND);
 
+    // The same rule as the add-on list: an offer the caller cannot see answers as missing.
     const component = World.findById(association.component_id);
+    if (component.visibility !== PUBLIC || !World.isVisibleTo(component, req.user)) {
+      return res.status(404).json(NOT_FOUND);
+    }
+
     const reviewed = Compatibility.review(component.id, world.id, reviewState, component.revision);
 
     res.status(200).json({

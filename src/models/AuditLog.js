@@ -51,6 +51,9 @@ const ACTIONS = [
   // Somebody read the accounts a Signal links to another account. Logged because linkage data is the
   // one thing in here that says where a person was, so looking at it is itself an act with a name on it.
   'signals_viewed',
+  // A mod's decision on a new listing waiting for review. A rejection also starts its quarantine.
+  'listing_approved',
+  'listing_rejected',
   // A listing that skipped review because of who published it, so mods can spot-check it.
   'listing_auto_approved',
   // An admin made an account a trusted author, whose uploads skip review, or took that away.

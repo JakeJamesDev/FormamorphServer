@@ -160,7 +160,8 @@ describe('the feed', () => {
   it('reads an old listing revised today as an update, not as news', async () => {
     const author = createUser();
     const id = (await publish(author, { name: 'Sedge Landing' })).body.data.id;
-    db.prepare("UPDATE worlds SET created_at = '2019-01-01T00:00:00.000Z' WHERE id = ?").run(id);
+    // Old and live since then, as the deploy backfill leaves every existing listing.
+    db.prepare("UPDATE worlds SET created_at = '2019-01-01T00:00:00.000Z', listed_at = '2019-01-01T00:00:00.000Z' WHERE id = ?").run(id);
     const reader = createUser();
     await follow(reader, author.id);
     backdateFollow(reader.id, author.id);

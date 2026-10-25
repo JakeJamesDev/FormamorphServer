@@ -19,6 +19,7 @@ const { flagDeletedListing } = require('./reportController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
+const { DEFAULT_QUARANTINE_DAYS, quarantineDays } = require('../config/quarantine');
 const { recordSignal, addressHash } = require('../utils/recordSignal');
 const Signal = require('../models/Signal');
 const Setting = require('../models/Setting');
@@ -119,13 +120,8 @@ const anonymousResult = (worldId, removed) => ({
   anonymous: AnonymousLike.countFor(worldId)
 });
 
-/** How long a quarantine runs by default, and the bounds an admin may set instead. */
-const DEFAULT_QUARANTINE_DAYS = 7;
-const MIN_QUARANTINE_DAYS = 1;
-const MAX_QUARANTINE_DAYS = 90;
-
 /** How much the author's first update buys them. Deliberately the same as the default quarantine. */
-const EXTENSION_DAYS = 7;
+const EXTENSION_DAYS = DEFAULT_QUARANTINE_DAYS;
 
 /**
  * The kind's content ceiling as an error string, or null when it fits.
@@ -1337,15 +1333,12 @@ exports.quarantineWorld = async (req, res, next) => {
       return res.status(403).json({ success: false, error: STAFF_PROTECTED });
     }
 
-    const requested = req.body.days === undefined ? DEFAULT_QUARANTINE_DAYS : Number(req.body.days);
-    if (!Number.isInteger(requested) || requested < MIN_QUARANTINE_DAYS || requested > MAX_QUARANTINE_DAYS) {
-      return res.status(400).json({
-        success: false,
-        error: `Quarantine must be between ${MIN_QUARANTINE_DAYS} and ${MAX_QUARANTINE_DAYS} whole days`
-      });
+    const length = quarantineDays(req.body.days);
+    if (length.error) {
+      return res.status(400).json({ success: false, error: length.error });
     }
 
-    const quarantined = World.quarantine(world.id, requested);
+    const quarantined = World.quarantine(world.id, length.days);
     const author = world.author_id === req.user.id ? null : User.findById(world.author_id);
 
     AuditLog.tryRecord({

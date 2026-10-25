@@ -9,13 +9,17 @@ const { isStaff } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
 const Event = require('./Event');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
-const { MODERATION_STATES, isApproved, approvedClause } = require('../config/listingReview');
+const { MODERATION_STATES, isApproved, inCirculationClause } = require('../config/listingReview');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
  * page" — the browse catalog is fetched the same way. `getAll`'s `total` reveals if it ever bites.
  */
 const AUTHOR_LIST_LIMIT = 1000;
+
+/** The SQL test for a pending listing in the review queue. `isPendingListing` is the same rule on a row. */
+const pendingListingClause = (alias) =>
+  `${alias}.moderation_state = '${MODERATION_STATES.PENDING}' AND ${alias}.quarantined_at IS NULL`;
 
 /**
  * Ceiling for a staff like list, in either direction, and for the Anonymous Likes read beside it. Enough
@@ -228,7 +232,7 @@ const World = {
       // who is asking, and an anonymous visitor is asking as nobody. One clause for all three, because the
       // answer for each is the same pair of people.
       const isStaffViewer = Boolean(viewer && isStaff(viewer));
-      const inCirculation = `w.quarantined_at IS NULL AND ${approvedClause('w')} AND w.visibility = 'public'`;
+      const inCirculation = inCirculationClause('w');
       if (!isStaffViewer) {
         if (viewer) {
           whereClause.push(`((${inCirculation}) OR w.author_id = ?)`);
@@ -624,6 +628,66 @@ const World = {
   },
 
   /**
+   * New listings waiting for a mod: contest entries first, then the longest-waiting.
+   *
+   * @returns {Array<Object>} Queue rows with the author's and the contest's columns joined in
+   */
+  reviewQueue: () => db.prepare(`
+    SELECT w.id, w.kind, w.name, w.created_at, w.moderation_queued_at, w.contest_event_id,
+           e.title AS contest_title,
+           u.id AS author_id, u.username AS author_username, u.avatar_file AS author_avatar_file,
+           u.account_type AS author_account_type
+    FROM worlds w
+    LEFT JOIN users u ON u.id = w.author_id
+    LEFT JOIN events e ON e.id = w.contest_event_id
+    WHERE ${pendingListingClause('w')}
+    ORDER BY (w.contest_event_id IS NULL), w.moderation_queued_at ASC, w.id ASC
+  `).all(),
+
+  /** How many items `reviewQueue` holds, without reading them. */
+  reviewQueueCount: () => db.prepare(`SELECT COUNT(*) AS count FROM worlds w WHERE ${pendingListingClause('w')}`).get().count,
+
+  /**
+   * Whether a listing is a new one waiting in the queue.
+   *
+   * @param {Object} world - A world row
+   * @returns {boolean} True when a mod can approve or reject it
+   */
+  isPendingListing: (world) =>
+    Boolean(world) && world.moderation_state === MODERATION_STATES.PENDING && !world.quarantined_at,
+
+  /**
+   * Put a waiting new listing live. Conditional on it still waiting, so of two mods only one succeeds.
+   *
+   * @param {string} id - World ID
+   * @returns {Object|null} The updated row, or null when it was no longer waiting
+   */
+  approvePending: (id) => {
+    const now = new Date().toISOString();
+    const { changes } = db.prepare(`
+      UPDATE worlds SET moderation_state = @approved, listed_at = @now, updated_at = @now
+      WHERE id = @id AND ${pendingListingClause('worlds')}
+    `).run({ id, now, approved: MODERATION_STATES.APPROVED });
+
+    return changes ? World.findById(id) : null;
+  },
+
+  /**
+   * Reject a waiting new listing into quarantine, as one change.
+   *
+   * @param {string} id - World ID
+   * @param {number} days - How long the author has before it is deleted
+   * @returns {Object|null} The updated row, or null when it was no longer waiting
+   */
+  rejectPending: (id, days) => db.transaction(() => {
+    const { changes } = db.prepare(`
+      UPDATE worlds SET moderation_state = @rejected WHERE id = @id AND ${pendingListingClause('worlds')}
+    `).run({ id, rejected: MODERATION_STATES.REJECTED });
+
+    return changes ? World.quarantine(id, days) : null;
+  })(),
+
+  /**
    * Give a quarantined listing its one-time extension, counted from the deadline it already had.
    *
    * Once per episode, on the first update the author makes: the point is that somebody who fixes their
@@ -778,15 +842,15 @@ const World = {
         (SELECT COUNT(*) FROM world_likes l
           JOIN worlds lw ON lw.id = l.world_id
           LEFT JOIN events lce ON lce.id = lw.contest_event_id
-          WHERE lw.author_id = @authorId AND lw.quarantined_at IS NULL AND ${approvedClause('lw')} AND lw.visibility = 'public'
+          WHERE lw.author_id = @authorId AND ${inCirculationClause('lw')}
           ${visible('lw', 'lce')})
         + (SELECT COUNT(*) FROM anonymous_likes a
           JOIN worlds aw ON aw.id = a.world_id
           LEFT JOIN events ace ON ace.id = aw.contest_event_id
-          WHERE aw.author_id = @authorId AND aw.quarantined_at IS NULL AND ${approvedClause('aw')} AND aw.visibility = 'public'
+          WHERE aw.author_id = @authorId AND ${inCirculationClause('aw')}
           ${visible('aw', 'ace')}) AS likes
       FROM worlds w
-      WHERE w.author_id = @authorId AND w.quarantined_at IS NULL AND ${approvedClause('w')} AND w.visibility = 'public'
+      WHERE w.author_id = @authorId AND ${inCirculationClause('w')}
     `).get(params);
 
     return { likes: row.likes || 0, downloads: row.downloads || 0 };

@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const { authorPayload } = require('../utils/authorPayload');
-const { approvedClause } = require('../config/listingReview');
+const { inCirculationClause } = require('../config/listingReview');
 
 /** The most a feed will hand back at once. Past this it stops being a list of news. */
 const FEED_LIMIT = 50;
@@ -102,7 +102,7 @@ const Follow = {
    * What the accounts somebody follows have published or updated since they started following them.
    *
    * One row per listing, which is what makes repeated updates a single entry that keeps moving up rather
-   * than a pile. A listing is `published` when it first appeared after the follow began and `updated`
+   * than a pile. A listing is `published` when it first went live after the follow began and `updated`
    * otherwise — the same row either way, so an author revising something they posted last year reads as
    * an update rather than as news.
    *
@@ -115,7 +115,7 @@ const Follow = {
    */
   feed: (followerId, { limit = FEED_LIMIT } = {}) => db.prepare(`
     SELECT w.id, w.name, w.kind, w.updated_at,
-           ${AS_INSTANT('w.created_at')} AS created_instant,
+           ${AS_INSTANT('COALESCE(w.listed_at, w.created_at)')} AS listed_instant,
            ${AS_INSTANT('f.created_at')} AS followed_instant,
            u.id AS author_id, u.username AS author_username, u.avatar_file AS author_avatar_file,
            u.account_type AS author_account_type
@@ -123,9 +123,7 @@ const Follow = {
     JOIN worlds w ON w.author_id = f.followed_id
     JOIN users u ON u.id = w.author_id
     WHERE f.follower_id = ?
-      AND w.quarantined_at IS NULL
-      AND ${approvedClause('w')}
-      AND w.visibility = 'public'
+      AND ${inCirculationClause('w')}
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
     ORDER BY ${AS_INSTANT('w.updated_at')} DESC, w.id ASC
     LIMIT ?
@@ -133,9 +131,9 @@ const Follow = {
     id: row.id,
     name: row.name,
     kind: row.kind || 'world',
-    // What happened, as far as this reader is concerned: something that did not exist when they followed
-    // is news; something that did is a revision.
-    event: row.created_instant > row.followed_instant ? 'published' : 'updated',
+    // What happened, as far as this reader is concerned: something that went live after they followed is
+    // news, even when it was submitted before and waited for review; something already live is a revision.
+    event: row.listed_instant > row.followed_instant ? 'published' : 'updated',
     at: row.updated_at,
     author: authorPayload({
       id: row.author_id,
@@ -159,9 +157,7 @@ const Follow = {
     FROM follows f
     JOIN worlds w ON w.author_id = f.followed_id
     WHERE f.follower_id = @followerId
-      AND w.quarantined_at IS NULL
-      AND ${approvedClause('w')}
-      AND w.visibility = 'public'
+      AND ${inCirculationClause('w')}
       AND ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('f.created_at')}
       AND (@seenAt IS NULL OR ${AS_INSTANT('w.updated_at')} > ${AS_INSTANT('@seenAt')})
   `).get({ followerId, seenAt: seenAt ?? null }).count,

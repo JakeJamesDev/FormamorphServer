@@ -54,11 +54,21 @@ const isApproved = (world) => Boolean(world) && world.moderation_state === MODER
  */
 const approvedClause = (alias) => `${alias}.moderation_state = '${MODERATION_STATES.APPROVED}'`;
 
+/**
+ * The SQL test for a listing the whole room can see: not quarantined, approved, and public.
+ *
+ * @param {string} alias - The worlds table alias
+ * @returns {string} A WHERE fragment with no parameters
+ */
+const inCirculationClause = (alias) =>
+  `${alias}.quarantined_at IS NULL AND ${approvedClause(alias)} AND ${alias}.visibility = 'public'`;
+
 module.exports = {
   LISTING_REVIEW,
   MODERATION_STATES,
   validateListingReview,
   skipsReview,
   isApproved,
-  approvedClause
+  approvedClause,
+  inCirculationClause
 };
