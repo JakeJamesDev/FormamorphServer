@@ -58,6 +58,15 @@ Answered for ticket 01:
 - **T5** The author and staff can comment on a pending listing. Players cannot reach it.
 - **T6** `listed_at` stays in player payloads. The podium refuses a non-approved entry with `409`, as it does for quarantine.
 
+Answered for ticket 04:
+
+- **T7** `trustedAt` (ISO or null) shows on the staff user list only. It is not on `getMe` or the public profile.
+- **T8** Trust on the `[deleted user]` row answers `403`. Trust on a staff account or a suspended account is allowed, because the column outlives a demotion.
+- **T9** Trust writes are idempotent. A repeated grant keeps the first `trusted_at`, and a no-op writes no audit entry.
+- **T10** The trust routes answer `{ success, user: { id, username, trustedAt } }`.
+- **T11** `GET /api/reviews/auto` pages like the audit list (default 20, cap 100) and answers `{ entries, total }`. Each entry comes from the audit snapshot: `{ id, targetId, targetKind, targetName, actor: { id, username, role }, createdAt }`. It does not join the live listing.
+- **T12** The actor's recorded role says why a listing skipped review. There is no extra field.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
