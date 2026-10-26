@@ -1,6 +1,7 @@
 # Spec: Feedback Questions (server)
 
-Status: ready-for-agent
+Status: done
+Status note: Closed 2026-10-26. Server tickets 01–03 landed as 33288f0, a4c5e42, f1df356; the client spec holds the close record.
 
 Client side: the formamorph repo, `docs-internal/specs/feedback-questions/spec.md`. This spec holds the rulings (Q1–Q24) and the API contract. The client spec follows them.
 
