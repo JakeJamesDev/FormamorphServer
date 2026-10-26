@@ -104,6 +104,8 @@ Answered for ticket 06:
 - **T33** `pending_update.changelog` holds ops in call order: `{ op: 'create' | 'edit', id, title, body, date }` and `{ op: 'delete', id }`. A held create gets its id at once. The 100-entry cap counts approved entries, plus held creates, minus held deletes.
 - **T34** A held side write keeps its route's answer shape. It shows the approved values plus `has_pending_update` and `pending_update`. A changelog create answers `201` with the held entry and `pending: true`. At approval, an op whose entry is gone or that is past the cap is skipped, and a dependency or compatibility id whose listing was deleted is dropped.
 - **T35** The judging hold answers `409` with the existing `CONTEST_LOCKED` body, for every approver. Reject and discard stay open during judging. Every side route uses the main update's held-or-live rule (T26), through one shared helper.
+- **T36** A held changelog edit answers the approved entry plus `has_pending_update` and `pending_update`. An edit to an entry that exists only as a held create answers the held entry with `pending: true` plus both fields. A held delete answers `{ has_pending_update, pending_update }`.
+- **T37** Approval applies each part with the side effects its live route has. `revision` and `updated_at` rise only when the update holds fields, content, a thumbnail or dependencies. An update that holds only spoiler, visibility, compatibility or changelog changes raises neither. This replaces "raises `revision` once" for side-only updates.
 
 ## User Stories
 
