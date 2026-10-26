@@ -39,8 +39,8 @@ const { appVersionOf } = require('../utils/appVersion');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
-const { submissionFor, reviewEnabled } = require('../utils/listingReview');
-const { MODERATION_STATES, isApproved, skipsReview } = require('../config/listingReview');
+const { submissionFor, reviewEnabled, holdsEdit, pendingFields } = require('../utils/listingReview');
+const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
 const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
@@ -52,9 +52,10 @@ const {
  * pending directory; nothing players are served changes.
  *
  * @param {string} worldId - World ID
- * @param {Object} edit - `{ thumbnail, contentData, updateData }` as the update route built them
+ * @param {Object} edit - `{ thumbnail, contentData, updateData, dependencies, compatibility }` as the
+ *   update route built them
  */
-const holdUpdate = async (worldId, { thumbnail, contentData, updateData }) => {
+const holdUpdate = async (worldId, { thumbnail, contentData, updateData, dependencies, compatibility }) => {
   const fields = {};
   for (const name of PendingUpdate.HELD_FIELDS) {
     if (updateData[name] !== undefined) fields[name] = updateData[name];
@@ -67,9 +68,12 @@ const holdUpdate = async (worldId, { thumbnail, contentData, updateData }) => {
     const contentFile = contentData ? await savePendingContent(contentData) : null;
     if (contentFile) saved.push(contentFile);
 
-    if (!thumbnailFile && !contentFile && Object.keys(fields).length === 0) return;
+    if (!thumbnailFile && !contentFile && Object.keys(fields).length === 0
+      && dependencies === undefined && compatibility === undefined) return;
 
-    const { replacedFiles } = PendingUpdate.submit(worldId, { fields, contentFile, thumbnailFile });
+    const { replacedFiles } = PendingUpdate.submit(worldId, {
+      fields, contentFile, thumbnailFile, dependencies, compatibility
+    });
     for (const file of replacedFiles) await deletePendingFile(file);
   } catch (error) {
     for (const file of saved) await deletePendingFile(file);
@@ -756,14 +760,18 @@ exports.updateWorld = async (req, res, next) => {
 
     // On an approved listing, the author's edit waits for a mod unless they skip review. Once an update
     // waits, every edit of theirs joins it, so its approval never overwrites a newer live edit.
-    const ownApproved = isApproved(world) && req.user.id === world.author_id;
-    const holds = ownApproved
-      && (Boolean(PendingUpdate.findByWorldId(world.id)) || (reviewEnabled() && !skipsReview(req.user)));
-    const autoApproved = ownApproved && !holds && reviewEnabled();
+    const holds = holdsEdit(world, req.user);
+    const autoApproved = isApproved(world) && req.user.id === world.author_id && !holds && reviewEnabled();
 
     try {
       if (holds) {
-        await holdUpdate(world.id, { thumbnail, contentData, updateData });
+        await holdUpdate(world.id, {
+          thumbnail,
+          contentData,
+          updateData: { ...updateData, visibility: linked.visibility },
+          dependencies: linked.sourceIds,
+          compatibility: linked.worldIds
+        });
       } else {
         // If thumbnail is provided, update it
         if (thumbnail) {
@@ -785,19 +793,19 @@ exports.updateWorld = async (req, res, next) => {
         }
       }
 
-      // Neither declaration touches the row: visibility changes nothing a downloader receives, and a
-      // compatibility offer is about somebody else's world. A changed dependency set does, so it counts
-      // toward the revision bump below.
-      if (linked.visibility) World.setVisibility(world.id, linked.visibility);
-      if (linked.worldIds) Compatibility.replaceFor(world.id, linked.worldIds);
-      const dependenciesChanged = linked.sourceIds ? Dependency.replaceFor(world.id, linked.sourceIds) : false;
+      if (!holds) {
+        // Neither declaration touches the row: visibility changes nothing a downloader receives, and a
+        // compatibility offer is about somebody else's world. A changed dependency set does, so it counts
+        // toward the revision bump below.
+        if (linked.visibility) World.setVisibility(world.id, linked.visibility);
+        if (linked.worldIds) Compatibility.replaceFor(world.id, linked.worldIds);
+        const dependenciesChanged = linked.sourceIds ? Dependency.replaceFor(world.id, linked.sourceIds) : false;
 
-      // Update world in database. New content alone is an update too — it is the whole of what a
-      // downloader receives — so the row's date and revision move with it even when no field changed.
-      if (holds) {
-        if (dependenciesChanged) world = World.update(req.params.id, {});
-      } else if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
-        world = World.update(req.params.id, updateData);
+        // Update world in database. New content alone is an update too — it is the whole of what a
+        // downloader receives — so the row's date and revision move with it even when no field changed.
+        if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
+          world = World.update(req.params.id, updateData);
+        }
       }
 
       if (autoApproved) {
@@ -1354,6 +1362,14 @@ exports.setSpoilerStatus = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: 'Spoiler must be a boolean value'
+      });
+    }
+
+    if (holdsEdit(world, req.user)) {
+      PendingUpdate.submit(world.id, { spoiler });
+      return res.status(200).json({
+        success: true,
+        data: { id: world.id, name: world.name, spoiler: world.spoiler === 1, ...pendingFields(world.id) }
       });
     }
 

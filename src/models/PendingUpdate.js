@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const Changelog = require('./Changelog');
+const Compatibility = require('./Compatibility');
 const { parseModels } = require('../utils/modelList');
 const { promotePendingFiles, pendingFilesExist, deletePendingFile, deleteThumbnail } = require('../utils/fileStorage');
 
@@ -24,7 +26,8 @@ const FIELD_READERS = Object.freeze({
     }
   },
   models: (value) => parseModels(value),
-  model_license: (value) => (value ? JSON.parse(value) : null)
+  model_license: (value) => (value ? JSON.parse(value) : null),
+  visibility: (value) => value
 });
 
 /** Held columns applied at approval but never listed: each follows the content it was derived from. */
@@ -32,7 +35,46 @@ const DERIVED_FIELDS = Object.freeze(['app_version']);
 
 const HELD_FIELDS = Object.freeze([...Object.keys(FIELD_READERS), ...DERIVED_FIELDS]);
 
-const parseRow = (row) => (row ? { ...row, fields: JSON.parse(row.fields), changelog: JSON.parse(row.changelog) } : null);
+const parseJson = (value) => (value === null ? null : JSON.parse(value));
+
+// A null side column means that edit is not part of the update.
+const parseRow = (row) => (row ? {
+  ...row,
+  fields: JSON.parse(row.fields),
+  changelog: JSON.parse(row.changelog),
+  dependencies: parseJson(row.dependencies),
+  compatibility: parseJson(row.compatibility)
+} : null);
+
+// Required on use: Dependency reads World, which reads this model.
+const Dependency = () => require('./Dependency');
+
+/** The ids that still name a listing. A listing deleted while the update waited drops out. */
+const existingIds = (ids) => {
+  const exists = db.prepare('SELECT 1 FROM worlds WHERE id = ?');
+  return ids.filter((id) => exists.get(id));
+};
+
+/** Whether two id lists hold the same set. The stored order follows the declaration date, not the list. */
+const sameSet = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+/**
+ * Replay held changelog operations in order. A create past the cap is skipped; an edit or delete whose
+ * entry is gone changes nothing. An op only ever names this listing's entries: the routes check that.
+ *
+ * @param {string} worldId - World ID
+ * @param {Array<Object>} ops - `{ op, id, title?, body?, date? }` in call order
+ */
+const replayChangelog = (worldId, ops) => {
+  for (const op of ops) {
+    if (op.op === 'create') {
+      if (Changelog.countFor(worldId) >= Changelog.MAX_ENTRIES) continue;
+      Changelog.create({ id: op.id, world_id: worldId, title: op.title, body: op.body, entry_date: op.date });
+    }
+    if (op.op === 'edit') Changelog.update(op.id, { title: op.title, body: op.body, entry_date: op.date });
+    if (op.op === 'delete') Changelog.delete(op.id);
+  }
+};
 
 /** A held value read the way the listing payload reads it, for an equality check and for display. */
 const readField = (name, value) => {
@@ -56,13 +98,17 @@ const PendingUpdate = {
 
   /**
    * Create the pending update, or merge an edit into the one that waits. A sent field replaces its held
-   * value and an omitted one keeps it; `queued_at` never moves, so a re-edit keeps its place.
+   * value and an omitted one keeps it; `queued_at` never moves, so a re-edit keeps its place. A sent side
+   * edit replaces its held value; changelog operations append.
    *
    * @param {string} worldId - World ID
-   * @param {Object} edit - `{ fields, contentFile, thumbnailFile }`, the files already in the pending directory
+   * @param {Object} edit - `{ fields, contentFile, thumbnailFile, dependencies, compatibility, spoiler,
+   *   changelog }`, the files already in the pending directory
    * @returns {Object} `{ update, replacedFiles }`: the merged row, and the held files it no longer points at
    */
-  submit: db.transaction((worldId, { fields = {}, contentFile = null, thumbnailFile = null }) => {
+  submit: db.transaction((worldId, {
+    fields = {}, contentFile = null, thumbnailFile = null, dependencies, compatibility, spoiler, changelog = []
+  }) => {
     const now = new Date().toISOString();
     const before = PendingUpdate.findByWorldId(worldId);
     const replacedFiles = [];
@@ -71,16 +117,30 @@ const PendingUpdate = {
     if (before && thumbnailFile && before.thumbnail_file) replacedFiles.push(before.thumbnail_file);
 
     db.prepare(`
-      INSERT INTO pending_updates (world_id, fields, content_file, thumbnail_file, submitted_at, queued_at)
-      VALUES (@worldId, @fields, @contentFile, @thumbnailFile, @now, @now)
+      INSERT INTO pending_updates (
+        world_id, fields, dependencies, compatibility, spoiler, changelog, content_file, thumbnail_file,
+        submitted_at, queued_at
+      )
+      VALUES (
+        @worldId, @fields, @dependencies, @compatibility, @spoiler, @changelog, @contentFile, @thumbnailFile,
+        @now, @now
+      )
       ON CONFLICT (world_id) DO UPDATE SET
         fields = @fields,
+        dependencies = COALESCE(@dependencies, dependencies),
+        compatibility = COALESCE(@compatibility, compatibility),
+        spoiler = COALESCE(@spoiler, spoiler),
+        changelog = @changelog,
         content_file = COALESCE(@contentFile, content_file),
         thumbnail_file = COALESCE(@thumbnailFile, thumbnail_file),
         submitted_at = @now
     `).run({
       worldId,
       fields: JSON.stringify({ ...(before ? before.fields : {}), ...fields }),
+      dependencies: dependencies === undefined ? null : JSON.stringify(dependencies),
+      compatibility: compatibility === undefined ? null : JSON.stringify(compatibility),
+      spoiler: spoiler === undefined ? null : Number(spoiler),
+      changelog: JSON.stringify([...(before ? before.changelog : []), ...changelog]),
       contentFile,
       thumbnailFile,
       now
@@ -111,7 +171,8 @@ const PendingUpdate = {
   },
 
   /**
-   * Apply a pending update to its listing: every held field, both files, one revision, `updated_at` now.
+   * Apply a pending update to its listing: every held field, side edit and changelog operation, and both
+   * files. At most one revision raise, with `updated_at`.
    *
    * @param {string} worldId - World ID
    * @returns {Promise<Object|null>} The updated world row, or null when no update waited
@@ -130,13 +191,21 @@ const PendingUpdate = {
       const update = PendingUpdate.claim(worldId);
       if (!update) return null;
 
-      const data = { ...update.fields };
+      // Each part applies with its live route's side effects: only what a download installs raises the revision.
+      const { visibility, ...data } = update.fields;
       if (update.thumbnail_file) {
         data.thumbnail_file = update.thumbnail_file;
         data.placeholder = 0;
       }
 
-      World.update(worldId, data);
+      const dependenciesChanged = update.dependencies
+        ? Dependency().replaceFor(worldId, existingIds(update.dependencies))
+        : false;
+      if (Object.keys(data).length > 0 || update.content_file || dependenciesChanged) World.update(worldId, data);
+      if (visibility !== undefined) World.setVisibility(worldId, visibility);
+      if (update.spoiler !== null) World.updateSpoilerStatus(worldId, update.spoiler);
+      if (update.compatibility) Compatibility.replaceFor(worldId, existingIds(update.compatibility));
+      replayChangelog(worldId, update.changelog);
       return update;
     })();
 
@@ -212,7 +281,8 @@ const PendingUpdate = {
    *
    * @param {Object} world - The live world row, columns as stored
    * @param {Object} update - The pending update row
-   * @returns {Object} `{ fields, changelog, content_changed, thumbnail_url? }`
+   * @returns {Object} `{ fields, changelog, content_changed, thumbnail_url? }`; the side edits list in
+   *   `fields` as `spoiler`, `required_dependencies` and `compatible_worlds`
    */
   payloadFor: (world, update) => {
     const fields = {};
@@ -221,6 +291,18 @@ const PendingUpdate = {
       const approved = readField(name, world[name]);
       const pending = readField(name, update.fields[name]);
       if (JSON.stringify(approved) !== JSON.stringify(pending)) fields[name] = { approved, pending };
+    }
+
+    if (update.spoiler !== null && Boolean(update.spoiler) !== Boolean(world.spoiler)) {
+      fields.spoiler = { approved: Boolean(world.spoiler), pending: Boolean(update.spoiler) };
+    }
+    if (update.dependencies) {
+      const approved = Dependency().sourceIdsFor(world.id);
+      if (!sameSet(approved, update.dependencies)) fields.required_dependencies = { approved, pending: update.dependencies };
+    }
+    if (update.compatibility) {
+      const approved = Compatibility.worldIdsFor(world.id);
+      if (!sameSet(approved, update.compatibility)) fields.compatible_worlds = { approved, pending: update.compatibility };
     }
 
     return {

@@ -1,7 +1,10 @@
 const Changelog = require('../models/Changelog');
 const World = require('../models/World');
 const User = require('../models/User');
+const PendingUpdate = require('../models/PendingUpdate');
 const { canModerate, isAdmin } = require('../config/roles');
+const { holdsEdit, pendingFields } = require('../utils/listingReview');
+const { v4: uuidv4 } = require('uuid');
 
 /** An entry's title: long enough for "New for v2 — the drowned quarter", short enough to stay one line. */
 const TITLE_MAX = 120;
@@ -9,9 +12,7 @@ const TITLE_MAX = 120;
 /** The body, matching what a comment holds — the same editor writes both. */
 const BODY_MAX = 4000;
 
-/** How many entries one listing may carry. A ceiling on the embed, not a judgment about how much history
- *  is too much: the whole changelog is served inside the single-listing response. */
-const MAX_ENTRIES = 100;
+const { MAX_ENTRIES } = Changelog;
 
 /** The author's date, day granularity. Checked as a shape and then as a real calendar date. */
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -85,6 +86,55 @@ const readEntry = (body) => {
 };
 
 /**
+ * The entry ids a listing will carry once its pending update applies: the approved entries, plus held
+ * creates, minus held deletes.
+ *
+ * @param {string} worldId - World ID
+ * @returns {Set<string>} Entry IDs
+ */
+const entryIdsAfterUpdate = (worldId) => {
+  const ids = new Set(Changelog.getByWorldId(worldId).map((row) => row.id));
+  const update = PendingUpdate.findByWorldId(worldId);
+  for (const op of update ? update.changelog : []) {
+    if (op.op === 'create') ids.add(op.id);
+    if (op.op === 'delete') ids.delete(op.id);
+  }
+  return ids;
+};
+
+/**
+ * Whether an entry belongs to this listing. Matched against the listing in the path as well as its own id:
+ * an entry id alone would let one listing's route address another's row. A held edit also reaches entries
+ * its pending update created.
+ *
+ * @param {string} worldId - World ID
+ * @param {string} entryId - Entry ID
+ * @param {boolean} holds - Whether the edit joins the pending update
+ * @returns {boolean} True when the entry is there to change
+ */
+const entryExists = (worldId, entryId, holds) => {
+  if (holds) return entryIdsAfterUpdate(worldId).has(entryId);
+  const existing = Changelog.findById(entryId);
+  return Boolean(existing) && existing.world_id === worldId;
+};
+
+/**
+ * Append one changelog operation to the listing's pending update.
+ *
+ * @param {string} worldId - World ID
+ * @param {string} op - `create`, `edit` or `delete`
+ * @param {string} id - Entry ID
+ * @param {Object} [entry] - `{ title, body, entry_date }` for a create or an edit
+ */
+const holdOperation = (worldId, op, id, entry = null) => {
+  const fields = entry ? { title: entry.title, body: entry.body, date: entry.entry_date } : {};
+  PendingUpdate.submit(worldId, { changelog: [{ op, id, ...fields }] });
+};
+
+/** An entry only a held create made, as answered: no approved row stands behind it yet. */
+const heldEntry = (worldId, id, entry) => ({ id, world_id: worldId, ...entry, pending: true });
+
+/**
  * @desc    Add a changelog entry to a listing
  * @route   POST /api/worlds/:worldId/changelog
  * @access  Private (the listing's author, or a moderator who may reach them)
@@ -97,17 +147,22 @@ exports.createEntry = async (req, res, next) => {
     const { entry, error } = readEntry(req.body);
     if (error) return res.status(400).json({ success: false, error });
 
-    if (Changelog.countFor(world.id) >= MAX_ENTRIES) {
+    const holds = holdsEdit(world, req.user);
+    const count = holds ? entryIdsAfterUpdate(world.id).size : Changelog.countFor(world.id);
+    if (count >= MAX_ENTRIES) {
       return res.status(400).json({
         success: false,
         error: `A changelog holds at most ${MAX_ENTRIES} entries. Delete one to add another.`
       });
     }
 
-    res.status(201).json({
-      success: true,
-      data: Changelog.create({ world_id: world.id, ...entry })
-    });
+    if (holds) {
+      const id = uuidv4();
+      holdOperation(world.id, 'create', id, entry);
+      return res.status(201).json({ success: true, data: heldEntry(world.id, id, entry) });
+    }
+
+    res.status(201).json({ success: true, data: Changelog.create({ world_id: world.id, ...entry }) });
   } catch (error) {
     next(error);
   }
@@ -123,17 +178,21 @@ exports.updateEntry = async (req, res, next) => {
     const { world, refusal } = resolveListing(req);
     if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
 
-    // Matched against the listing in the path as well as its own id: an entry id alone would let one
-    // listing's route address another's row.
-    const existing = Changelog.findById(req.params.entryId);
-    if (!existing || existing.world_id !== world.id) {
+    const holds = holdsEdit(world, req.user);
+    if (!entryExists(world.id, req.params.entryId, holds)) {
       return res.status(404).json({ success: false, error: 'Changelog entry not found' });
     }
 
     const { entry, error } = readEntry(req.body);
     if (error) return res.status(400).json({ success: false, error });
 
-    res.status(200).json({ success: true, data: Changelog.update(existing.id, entry) });
+    if (holds) {
+      holdOperation(world.id, 'edit', req.params.entryId, entry);
+      const approved = Changelog.findById(req.params.entryId) || heldEntry(world.id, req.params.entryId, entry);
+      return res.status(200).json({ success: true, data: { ...approved, ...pendingFields(world.id) } });
+    }
+
+    res.status(200).json({ success: true, data: Changelog.update(req.params.entryId, entry) });
   } catch (error) {
     next(error);
   }
@@ -149,13 +208,17 @@ exports.deleteEntry = async (req, res, next) => {
     const { world, refusal } = resolveListing(req);
     if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
 
-    const existing = Changelog.findById(req.params.entryId);
-    if (!existing || existing.world_id !== world.id) {
+    const holds = holdsEdit(world, req.user);
+    if (!entryExists(world.id, req.params.entryId, holds)) {
       return res.status(404).json({ success: false, error: 'Changelog entry not found' });
     }
 
-    Changelog.delete(existing.id);
+    if (holds) {
+      holdOperation(world.id, 'delete', req.params.entryId);
+      return res.status(200).json({ success: true, data: pendingFields(world.id) });
+    }
 
+    Changelog.delete(req.params.entryId);
     res.status(200).json({ success: true, data: {} });
   } catch (error) {
     next(error);

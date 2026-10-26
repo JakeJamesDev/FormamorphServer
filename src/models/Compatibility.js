@@ -38,6 +38,17 @@ const Compatibility = {
   `).all(componentId),
 
   /**
+   * The world ids a component is offered for, oldest offer first.
+   *
+   * @param {string} componentId - Component listing ID
+   * @returns {string[]} World IDs
+   */
+  worldIdsFor: (componentId) => db
+    .prepare('SELECT world_id FROM listing_compatibility WHERE component_id = ? ORDER BY created_at, rowid')
+    .all(componentId)
+    .map((row) => row.world_id),
+
+  /**
    * The components offered for a world, oldest offer first, with the component's current revision so a
    * caller can say whether it changed since the world author last looked.
    *

@@ -9,6 +9,10 @@ const { v4: uuidv4 } = require('uuid');
  * one thing it writes on `worlds` is `changelog_count`, in the same transaction as the entry.
  */
 const Changelog = {
+  /** How many entries one listing may carry. A ceiling on the embed, not a judgment about how much history
+   *  is too much: the whole changelog is served inside the single-listing response. */
+  MAX_ENTRIES: 100,
+
   /**
    * Find one entry by ID.
    *

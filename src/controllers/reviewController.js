@@ -6,6 +6,7 @@ const { canModerate, isStaff, STAFF_PROTECTED } = require('../config/roles');
 const { quarantineDays } = require('../config/quarantine');
 const { authorPayload } = require('../utils/authorPayload');
 const PendingUpdate = require('../models/PendingUpdate');
+const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { pendingStorageDir, THUMBNAIL_CONTENT_TYPES, readPendingContent } = require('../utils/fileStorage');
 const path = require('path');
 
@@ -226,6 +227,10 @@ exports.approve = async (req, res, next) => {
 
     // A listing holds a pending state or a pending update, never both.
     if (PendingUpdate.findByWorldId(target.world.id)) {
+      // Judges see an entry as it stood at the deadline, so its update waits for the results.
+      const judging = judgingContest(target.world);
+      if (judging) return res.status(409).json(contestLockedBody(judging));
+
       const updated = await PendingUpdate.approve(target.world.id);
       if (!updated) return res.status(409).json(NOT_PENDING);
 

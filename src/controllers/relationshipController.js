@@ -6,6 +6,8 @@ const { canModerate } = require('../config/roles');
 const { isValidReviewState, REVIEW_STATES, PUBLIC } = require('../config/relationships');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { perReader } = require('../utils/perReader');
+const { holdsEdit, pendingFields } = require('../utils/listingReview');
+const PendingUpdate = require('../models/PendingUpdate');
 const {
   NOT_FOUND, idList, dependencyRefusal, compatibilityRefusal, reviewFields, seesDeclined, compatibleWorldsFor
 } = require('../utils/linkedContent');
@@ -119,6 +121,19 @@ exports.setDependencies = async (req, res, next) => {
     const refusal = dependencyRefusal(world, ids, req.user);
     if (refusal) return res.status(refusal.status).json(refusal.body);
 
+    if (holdsEdit(world, req.user)) {
+      PendingUpdate.submit(world.id, { dependencies: ids });
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: world.id,
+          revision: world.revision,
+          requiredDependencies: Dependency.resolveFor(world.id, req.user),
+          ...pendingFields(world.id)
+        }
+      });
+    }
+
     // A changed set changes what downloading the world installs, which is what the revision is for.
     const changed = Dependency.replaceFor(world.id, ids);
     const current = changed ? World.touch(world.id) : world;
@@ -151,6 +166,18 @@ exports.setCompatibility = async (req, res, next) => {
 
     const refusal = compatibilityRefusal(component, ids, req.user);
     if (refusal) return res.status(refusal.status).json(refusal.body);
+
+    if (holdsEdit(component, req.user)) {
+      PendingUpdate.submit(component.id, { compatibility: ids });
+      return res.status(200).json({
+        success: true,
+        data: {
+          id: component.id,
+          compatibleWorlds: compatibleWorldsFor(component, req.user),
+          ...pendingFields(component.id)
+        }
+      });
+    }
 
     Compatibility.replaceFor(component.id, ids);
 
