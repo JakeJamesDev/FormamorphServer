@@ -37,6 +37,18 @@ const QUESTION_SET_STATUSES = ['open', 'closed'];
  */
 const isVotableBoard = (type) => type === 'suggestion' || type === 'question';
 
+/**
+ * The status a question ends at: `closed` stays closed, and otherwise an accepted answer makes it
+ * `answered` and none makes it `open`.
+ * @param {string} status - The status asked for, `open` or `closed`
+ * @param {boolean} hasAnswer - Whether the question has an accepted answer
+ * @returns {string} A question status
+ */
+const questionStatus = (status, hasAnswer) => {
+  if (status === 'closed') return 'closed';
+  return hasAnswer ? 'answered' : 'open';
+};
+
 /** Caps, mirrored by the client so its field limits agree with what this will accept. */
 const TITLE_MAX = 120;
 const BODY_MAX = 4000;
@@ -59,11 +71,12 @@ const searchWords = (search) => {
 };
 
 /**
- * The thread row, its author's name, and the two counts a list shows on it.
+ * The thread row, its author's name, the two counts a list shows on it, and its accepted answer.
  *
  * Votes are joined rather than counted per row: the list is paged and sortable by them, so counting one
  * page's worth would rank ten rows against each other instead of the whole board. The reply count rides
- * along for the same reason a list needs it at all — one subquery beats a query per row.
+ * along for the same reason a list needs it at all — one subquery beats a query per row. The accepted
+ * answer's columns are prefixed `answer_`, null when there is none.
  */
 const FEEDBACK_SELECT = `
   SELECT r.*,
@@ -71,9 +84,19 @@ const FEEDBACK_SELECT = `
          u.avatar_file AS reporter_avatar_file,
          u.account_type AS reporter_account_type,
          (SELECT COUNT(*) FROM feedback_votes v WHERE v.feedback_id = r.id) AS vote_count,
-         (SELECT COUNT(*) FROM feedback_comments c WHERE c.feedback_id = r.id) AS comment_count
+         (SELECT COUNT(*) FROM feedback_comments c WHERE c.feedback_id = r.id) AS comment_count,
+         ac.body AS answer_body,
+         ac.created_at AS answer_created_at,
+         ac.edited_at AS answer_edited_at,
+         ac.author_id AS answer_author_id,
+         ac.author_role AS answer_author_role,
+         au.username AS answer_author_username,
+         au.account_type AS answer_author_account_type,
+         au.avatar_file AS answer_author_avatar_file
   FROM feedback r
   LEFT JOIN users u ON u.id = r.reporter_id
+  LEFT JOIN feedback_comments ac ON ac.id = r.accepted_comment_id
+  LEFT JOIN users au ON au.id = ac.author_id
 `;
 
 /**
@@ -127,6 +150,7 @@ const Feedback = {
   QUESTION_SET_STATUSES,
   SORT_FIELDS,
   isVotableBoard,
+  questionStatus,
   TITLE_MAX,
   BODY_MAX,
   COMMENT_MAX,
@@ -249,8 +273,8 @@ const Feedback = {
    * branch shares — and a bug's diagnostics are deleted rather than hidden, since a board post is public
    * and the version/platform line was collected under bug rules.
    *
-   * Votes stay across a move. A move into a question makes every voter a party to it, so each gets a read
-   * marker in the same transaction: the move alone must not raise their badge.
+   * Votes stay across a move; an accepted answer does not. A move into a question makes every voter a party
+   * to it, so each gets a read marker in the same transaction: the move alone must not raise their badge.
    *
    * @param {string} id - Feedback ID
    * @param {Object} fields - `{ title, body, category, type }`, any subset
@@ -264,7 +288,7 @@ const Feedback = {
     if (body !== undefined) { sets.push('body = ?'); params.push(body); }
     if (category !== undefined) { sets.push('category = ?'); params.push(category); }
     if (type !== undefined) {
-      sets.push('type = ?', "status = 'open'", "diagnostics = '{}'");
+      sets.push('type = ?', "status = 'open'", "diagnostics = '{}'", 'accepted_comment_id = NULL');
       params.push(type);
     }
 
@@ -307,6 +331,23 @@ const Feedback = {
     }
 
     return Feedback.findById(id);
+  },
+
+  /**
+   * Store or clear a question's accepted answer. An open question becomes `answered` and back; a closed
+   * one keeps its status.
+   *
+   * @param {Object} thread - The question row
+   * @param {string|null} commentId - A comment on this thread, or null to clear
+   * @returns {Object|undefined} The updated thread
+   */
+  setAnswer: (thread, commentId) => {
+    const status = questionStatus(thread.status, Boolean(commentId));
+
+    db.prepare('UPDATE feedback SET accepted_comment_id = ?, status = ?, updated_at = ? WHERE id = ?')
+      .run(commentId, status, new Date().toISOString(), thread.id);
+
+    return Feedback.findById(thread.id);
   },
 
   /**

@@ -7,6 +7,9 @@
  * `tests/bootSchema.test.js` proves the two paths meet at the same shape.
  */
 
+const { columnNames } = require('./columns');
+const { ACCEPTED_ANSWER_TRIGGER_SQL } = require('./triggers');
+
 const tableNames = (database) => database
   .prepare("SELECT name FROM sqlite_master WHERE type='table'")
   .all()
@@ -289,6 +292,9 @@ const apply = (database) => {
       edited_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      -- A question's accepted answer, one comment on this thread. A trigger reopens the question when
+      -- that comment is deleted.
+      accepted_comment_id TEXT REFERENCES feedback_comments (id) ON DELETE SET NULL,
       CHECK (
         (type = 'bug' AND status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')
                       AND category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other'))
@@ -322,6 +328,9 @@ const apply = (database) => {
       FOREIGN KEY (author_id) REFERENCES users (id) ON DELETE SET NULL
     )
   `);
+
+  // An older `feedback` gets this trigger from the acceptedAnswer step, after its rebuild and column.
+  if (columnNames(database, 'feedback').includes('accepted_comment_id')) database.exec(ACCEPTED_ANSWER_TRIGGER_SQL);
 
   // One row per reader per thread. The badge counts threads holding a comment newer than this, written
   // by somebody else — the same shape as message read-state, kept separate because a thread is read as

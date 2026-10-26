@@ -205,3 +205,76 @@ describe('the feedbackQuestions step', () => {
     database.close();
   });
 });
+
+describe('the acceptedAnswer step', () => {
+  // A fresh database gets the column and the trigger from `tables`, so the step has nothing to do there.
+  const PATHS = [['a legacy', legacyDatabase, true], ['a fresh', open, false]];
+
+  /** A question answered by one of its two comments. */
+  const seedAnswer = (database, status) => {
+    insertThread(database, { id: 'q-a', type: 'question', category: 'setup', status });
+    const comment = database.prepare(`
+      INSERT INTO feedback_comments (id, feedback_id, body, created_at) VALUES (?, 'q-a', 'reply', '2026-02-02T00:00:00.000Z')
+    `);
+    comment.run('qc-accepted');
+    comment.run('qc-other');
+    database.prepare("UPDATE feedback SET accepted_comment_id = 'qc-accepted' WHERE id = 'q-a'").run();
+  };
+  const question = (database) =>
+    database.prepare("SELECT status, accepted_comment_id FROM feedback WHERE id = 'q-a'").get();
+
+  it.each(PATHS)('has the column and the trigger on %s database', (_label, build, stepApplies) => {
+    const database = build();
+
+    expect(migrate(database).includes('acceptedAnswer')).toBe(stepApplies);
+
+    const columns = database.prepare('PRAGMA table_info(feedback)').all().map((column) => column.name);
+    expect(columns).toContain('accepted_comment_id');
+    const triggers = database.prepare("SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger'").all();
+    expect(triggers).toEqual([{ name: 'feedback_accepted_comment_deleted', tbl_name: 'feedback_comments' }]);
+    database.close();
+  });
+
+  it.each(PATHS)('reopens an answered question when its accepted comment is deleted, on %s database', (_label, build) => {
+    const database = build();
+    migrate(database);
+    seedAnswer(database, 'answered');
+
+    database.prepare("DELETE FROM feedback_comments WHERE id = 'qc-other'").run();
+    expect(question(database)).toEqual({ status: 'answered', accepted_comment_id: 'qc-accepted' });
+
+    database.prepare("DELETE FROM feedback_comments WHERE id = 'qc-accepted'").run();
+    expect(database.pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(question(database)).toEqual({ status: 'open', accepted_comment_id: null });
+    database.close();
+  });
+
+  it('clears the answer of a closed question and keeps it closed', () => {
+    const database = open();
+    migrate(database);
+    seedAnswer(database, 'closed');
+
+    database.prepare("DELETE FROM feedback_comments WHERE id = 'qc-accepted'").run();
+
+    expect(question(database)).toEqual({ status: 'closed', accepted_comment_id: null });
+    database.close();
+  });
+
+  it('refuses an answer that names no comment', () => {
+    const database = open();
+    migrate(database);
+    insertThread(database, { id: 'q-a', type: 'question', category: 'setup', status: 'answered' });
+
+    expect(() => database.prepare("UPDATE feedback SET accepted_comment_id = 'missing' WHERE id = 'q-a'").run())
+      .toThrow(/FOREIGN KEY constraint failed/);
+    database.close();
+  });
+
+  it('runs once, and then never again', () => {
+    const database = legacyDatabase();
+    migrate(database);
+
+    expect(migrate(database)).not.toContain('acceptedAnswer');
+    database.close();
+  });
+});

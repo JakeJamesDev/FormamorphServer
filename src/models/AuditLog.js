@@ -23,6 +23,8 @@ const ACTIONS = [
   'avatar_removed',
   'role_changed',
   'feedback_edited',
+  // Staff accepted, changed or cleared a question's answer. The asker doing it is not moderation.
+  'feedback_answer_set',
   'event_created',
   'event_edited',
   'event_cancelled',

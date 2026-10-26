@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import { createRequire } from 'module';
 import request from 'supertest';
 import { app, db } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 
+const require = createRequire(import.meta.url);
+const { eraseUser } = require('../src/utils/eraseUser');
+
 /**
  * Questions: the third feedback branch. A public board like suggestions, where voters are parties too,
- * and staff close a question by locking it.
+ * staff close a question by locking it, and the asker or staff accept one reply as its answer.
  */
 
 const staff = () => createUser({ username: 'root-admin', accountType: 'admin' });
@@ -308,5 +312,283 @@ describe('converting', () => {
     const { id } = await seedQuestion();
 
     expect((await convert(staff(), id, 'bug', 'setup')).status).toBe(400);
+  });
+});
+
+const accept = (user, id, commentId) =>
+  request(app).put(`/api/feedback/${id}/answer`).set(authHeader(user)).send({ commentId });
+const removeComment = (user, id, commentId) =>
+  request(app).delete(`/api/feedback/${id}/comments/${commentId}`).set(authHeader(user));
+const answerEntries = () => db.prepare("SELECT * FROM audit_log WHERE action = 'feedback_answer_set'").all();
+
+/** A question with one reply from a helper. */
+const seedAnswered = async () => {
+  const { asker, id } = await seedQuestion();
+  const helper = player('helper');
+  const commentId = (await reply(helper, id, 'Point it at the models folder.')).body.data.id;
+  return { asker, helper, id, commentId };
+};
+
+describe('accepting an answer', () => {
+  it('lets the asker accept a reply, which sets `answered` and shows to every reader', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+
+    const res = await accept(asker, id, commentId);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      status: 'answered',
+      acceptedAnswer: { id: commentId, body: 'Point it at the models folder.', author: { username: 'helper' } }
+    });
+    // The pinned copy is the comment in the same shape the thread lists it.
+    expect(res.body.comments.map((comment) => comment.id)).toEqual([commentId]);
+    expect(res.body.data.acceptedAnswer).toEqual(res.body.comments[0]);
+    expect((await read(player('reader'), id)).body.data.acceptedAnswer).toMatchObject({ id: commentId });
+  });
+
+  it('lets the asker accept their own reply', async () => {
+    const { asker, id } = await seedQuestion();
+    const own = (await reply(asker, id, 'Found it: the folder was wrong.')).body.data.id;
+
+    const res = await accept(asker, id, own);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.acceptedAnswer).toMatchObject({ id: own, author: { username: 'asker' } });
+  });
+
+  it('changes the answer, then clears it back to `open`', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const second = (await reply(player('second'), id, 'Or restart the app.')).body.data.id;
+    await accept(asker, id, commentId);
+
+    expect((await accept(asker, id, second)).body.data).toMatchObject({ status: 'answered', acceptedAnswer: { id: second } });
+
+    const cleared = await accept(asker, id, null);
+    expect(cleared.body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+
+  it('lets staff accept on any question, and logs it against the asker', async () => {
+    const { id, commentId } = await seedAnswered();
+
+    const res = await accept(staff(), id, commentId);
+
+    expect(res.body.data.status).toBe('answered');
+    const [entry] = answerEntries();
+    expect(entry).toMatchObject({
+      actor_username: 'root-admin', target_username: 'asker', target_kind: 'question',
+      target_name: QUESTION.title, snippet: 'Point it at the models folder.'
+    });
+  });
+
+  it('logs staff clearing an answer', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    await accept(asker, id, commentId);
+
+    await accept(staff(), id, null);
+
+    expect(answerEntries().map((entry) => entry.snippet)).toEqual(['cleared the accepted answer']);
+  });
+
+  it('leaves the asker’s own pick out of the log', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+
+    await accept(asker, id, commentId);
+    await accept(asker, id, null);
+
+    expect(answerEntries()).toHaveLength(0);
+  });
+
+  it('leaves staff picking on their own question out of the log', async () => {
+    const root = staff();
+    const id = (await file(root)).body.data.id;
+    const commentId = (await reply(player('helper'), id)).body.data.id;
+
+    expect((await accept(root, id, commentId)).body.data.status).toBe('answered');
+
+    expect(answerEntries()).toHaveLength(0);
+  });
+
+  it('writes nothing when the same answer is sent again', async () => {
+    const { id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(root, id, commentId);
+    const updatedAt = db.prepare('SELECT updated_at FROM feedback WHERE id = ?').get(id).updated_at;
+    await tick();
+
+    expect((await accept(root, id, commentId)).status).toBe(200);
+
+    expect(db.prepare('SELECT updated_at FROM feedback WHERE id = ?').get(id).updated_at).toBe(updatedAt);
+    expect(answerEntries()).toHaveLength(1);
+  });
+
+  it('refuses a caller who is neither the asker nor staff', async () => {
+    const { helper, id, commentId } = await seedAnswered();
+
+    const res = await accept(helper, id, commentId);
+
+    expect(res.status).toBe(403);
+    expect((await read(helper, id)).body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+
+  it('refuses a thread that is not a question', async () => {
+    const filer = player('filer');
+    const id = (await file(filer, SUGGESTION)).body.data.id;
+    const commentId = (await reply(player('helper'), id)).body.data.id;
+
+    const res = await accept(filer, id, commentId);
+
+    expect(res.status).toBe(400);
+    expect(db.prepare('SELECT accepted_comment_id FROM feedback WHERE id = ?').get(id).accepted_comment_id).toBeNull();
+  });
+
+  it('refuses a comment from another thread', async () => {
+    const { asker, id } = await seedQuestion();
+    const other = (await file(player('other-asker'))).body.data.id;
+    const foreign = (await reply(player('helper'), other)).body.data.id;
+
+    const res = await accept(asker, id, foreign);
+
+    expect(res.status).toBe(400);
+    expect((await read(asker, id)).body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+
+  it('refuses a missing or malformed comment id', async () => {
+    const { asker, id } = await seedQuestion();
+
+    expect((await accept(asker, id, undefined)).status).toBe(400);
+    expect((await accept(asker, id, 42)).status).toBe(400);
+    expect((await accept(asker, id, 'no-such-comment')).status).toBe(400);
+  });
+
+  it('lets the asker accept and clear on a locked question', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    await lock(staff(), id);
+
+    expect((await accept(asker, id, commentId)).body.data).toMatchObject({ status: 'answered', locked: true });
+    expect((await accept(asker, id, null)).body.data).toMatchObject({ status: 'open', locked: true });
+  });
+
+  it('stores and clears the answer on a closed question, which stays closed', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    await setStatus(staff(), id, 'closed');
+
+    expect((await accept(asker, id, commentId)).body.data)
+      .toMatchObject({ status: 'closed', acceptedAnswer: { id: commentId } });
+    expect((await accept(asker, id, null)).body.data).toMatchObject({ status: 'closed', acceptedAnswer: null });
+  });
+
+  it('reopens a closed question with an answer as `answered`, unlocked', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(asker, id, commentId);
+    await setStatus(root, id, 'closed');
+
+    expect((await setStatus(root, id, 'open')).body.data).toMatchObject({ status: 'answered', locked: false });
+  });
+
+  it('keeps an answered question `answered` when staff set it open', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    await accept(asker, id, commentId);
+
+    expect((await setStatus(staff(), id, 'open')).body.data.status).toBe('answered');
+  });
+
+  it('carries the answer on every route that returns the thread', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(asker, id, commentId);
+    const carries = (res) => expect(res.body.data.acceptedAnswer).toMatchObject({ id: commentId });
+
+    carries(await read(asker, id));
+    carries(await vote(player('voter'), id));
+    carries(await request(app).put(`/api/feedback/${id}`).set(authHeader(asker)).send({ title: 'How do I load a model?' }));
+    carries(await lock(root, id));
+    carries(await setStatus(root, id, 'closed'));
+    const row = (await list(asker, '?type=question')).body.data.find((thread) => thread.id === id);
+    expect(row.acceptedAnswer).toMatchObject({ id: commentId });
+  });
+
+  it('carries a null answer on threads without one', async () => {
+    const created = await file(player('filer'), REPORT);
+
+    expect(created.body.data.acceptedAnswer).toBeNull();
+    expect((await read(player('reader'), created.body.data.id)).body.data.acceptedAnswer).toBeNull();
+  });
+
+  it('clears the answer on any type change', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(asker, id, commentId);
+
+    await convert(root, id, 'suggestion', 'other');
+    const back = await convert(root, id, 'question', 'setup');
+
+    expect(back.body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+});
+
+describe('deleting the accepted reply', () => {
+  it('returns the question to `open` when its author deletes it, with foreign keys on', async () => {
+    const { asker, helper, id, commentId } = await seedAnswered();
+    await accept(asker, id, commentId);
+    expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+
+    expect((await removeComment(helper, id, commentId)).status).toBe(200);
+
+    expect((await read(asker, id)).body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+
+  it('returns the question to `open` when staff delete it', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    await accept(asker, id, commentId);
+
+    expect((await removeComment(staff(), id, commentId)).status).toBe(200);
+
+    expect((await read(asker, id)).body.data).toMatchObject({ status: 'open', acceptedAnswer: null });
+  });
+
+  it('keeps a closed question closed', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(asker, id, commentId);
+    await setStatus(root, id, 'closed');
+
+    await removeComment(root, id, commentId);
+
+    expect((await read(asker, id)).body.data).toMatchObject({ status: 'closed', acceptedAnswer: null });
+  });
+
+  it('leaves the answer alone when another reply is deleted', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const other = player('other');
+    const otherId = (await reply(other, id, 'Me too.')).body.data.id;
+    await accept(asker, id, commentId);
+
+    await removeComment(other, id, otherId);
+
+    expect((await read(asker, id)).body.data).toMatchObject({ status: 'answered', acceptedAnswer: { id: commentId } });
+  });
+
+  it('keeps the answer with no author when the author’s account is erased', async () => {
+    const { asker, helper, id, commentId } = await seedAnswered();
+    await accept(asker, id, commentId);
+
+    await eraseUser(db.prepare('SELECT * FROM users WHERE id = ?').get(helper.id));
+
+    expect((await read(asker, id)).body.data).toMatchObject({
+      status: 'answered',
+      acceptedAnswer: { id: commentId, body: 'Point it at the models folder.', author: { id: null, username: null } }
+    });
+  });
+
+  it('deletes a whole question that has an accepted answer', async () => {
+    const { asker, id, commentId } = await seedAnswered();
+    const root = staff();
+    await accept(asker, id, commentId);
+
+    expect((await request(app).delete(`/api/feedback/${id}`).set(authHeader(root))).status).toBe(200);
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM feedback_comments WHERE feedback_id = ?').get(id).n).toBe(0);
+    expect((await read(asker, id)).status).toBe(404);
   });
 });

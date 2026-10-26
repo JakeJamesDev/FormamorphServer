@@ -21,6 +21,7 @@ const STEPS = [
   require('./steps/actorRole'),
   require('./steps/feedbackEdited'),
   require('./steps/feedbackQuestions'),
+  require('./steps/acceptedAnswer'),
   require('./steps/feedbackCommentEdited'),
   require('./steps/commentEdited'),
   require('./steps/feedSeen'),

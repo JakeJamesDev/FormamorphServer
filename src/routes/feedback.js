@@ -11,6 +11,7 @@ const {
   setStatus,
   setLocked,
   setVote,
+  setAnswer,
   deleteThread,
   getUnreadCount,
   getMeta
@@ -65,6 +66,9 @@ router.delete('/:id/comments/:commentId', protect, deleteComment);
 
 // Vote for a suggestion or a question, or take the vote back
 router.put('/:id/vote', protect, setVote);
+
+// Accept, change or clear a question's answer (the asker or staff)
+router.put('/:id/answer', protect, setAnswer);
 
 // Rewrite a report. Who may change what is decided per field: a bug's words are the team's to make
 // useful, a board post's stay its author's, and the filing (category, type) is triage either way.

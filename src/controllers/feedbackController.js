@@ -36,7 +36,18 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   commentCount: row.comment_count || 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
-  unread
+  unread,
+  acceptedAnswer: row.accepted_comment_id ? toCommentDto({
+    id: row.accepted_comment_id,
+    body: row.answer_body,
+    created_at: row.answer_created_at,
+    edited_at: row.answer_edited_at,
+    author_id: row.answer_author_id,
+    author_role: row.answer_author_role,
+    author_username: row.answer_author_username,
+    author_account_type: row.answer_author_account_type,
+    author_avatar_file: row.answer_author_avatar_file
+  }) : null
 });
 
 const toCommentDto = (row) => ({
@@ -489,8 +500,9 @@ exports.setStatus = async (req, res, next) => {
     let locked;
     if (status === 'closed') locked = true;
     else if (thread.status === 'closed') locked = false;
+    const stored = Feedback.questionStatus(status, Boolean(thread.accepted_comment_id));
 
-    res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, status, { locked })) });
+    res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, stored, { locked })) });
   } catch (error) {
     next(error);
   }
@@ -536,6 +548,59 @@ exports.setVote = async (req, res, next) => {
     Feedback.setVote(thread, req.user.id, voted);
 
     res.status(200).json({ success: true, data: toThreadDto(Feedback.findById(thread.id), { voted }) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Accept a reply as a question's answer, change it, or clear it with `commentId: null`
+ * @route   PUT /api/feedback/:id/answer
+ * @access  Private (the asker, or staff; a lock does not stop either)
+ */
+exports.setAnswer = async (req, res, next) => {
+  try {
+    const thread = Feedback.findById(req.params.id);
+    if (!thread) {
+      return res.status(404).json({ success: false, error: 'Not found' });
+    }
+    if (thread.type !== 'question') {
+      return res.status(400).json({ success: false, error: 'Only a question has an accepted answer' });
+    }
+    if (thread.reporter_id !== req.user.id && !isStaff(req.user)) {
+      return res.status(403).json({ success: false, error: 'Only the asker and the team can pick the answer' });
+    }
+
+    const { commentId } = req.body;
+    if (commentId !== null && typeof commentId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Name a comment, or send null to clear the answer' });
+    }
+    const comment = commentId === null ? null : Feedback.findComment(commentId);
+    if (commentId !== null && (!comment || comment.feedback_id !== thread.id)) {
+      return res.status(400).json({ success: false, error: 'That comment is not on this question' });
+    }
+
+    let updated = thread;
+    if (commentId !== thread.accepted_comment_id) {
+      updated = Feedback.setAnswer(thread, commentId);
+
+      if (thread.reporter_id !== req.user.id) {
+        AuditLog.tryRecord({
+          action: 'feedback_answer_set',
+          actor: req.user,
+          targetUser: thread.reporter_id ? User.findById(thread.reporter_id) : null,
+          targetKind: thread.type,
+          targetName: thread.title,
+          snippet: comment ? comment.body : 'cleared the accepted answer'
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      data: toThreadDto(updated, { voted: Feedback.hasVoted(thread.id, req.user.id) }),
+      comments: Feedback.comments(thread.id).map(toCommentDto)
+    });
   } catch (error) {
     next(error);
   }
