@@ -26,5 +26,5 @@ describe('global rate limit', () => {
 
     expect((await hit(SPENDER).set('CF-Connecting-IP', '198.51.100.200')).status).toBe(429);
     expect((await hit('198.51.100.201')).status).not.toBe(429);
-  });
+  }, 30_000); // 1,001 sequential requests take ~2 s alone and over 5 s under full-suite load.
 });
