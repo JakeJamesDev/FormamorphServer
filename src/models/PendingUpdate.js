@@ -262,6 +262,7 @@ const PendingUpdate = {
    */
   queue: () => db.prepare(`
     SELECT p.world_id AS id, p.queued_at, w.kind, w.name, w.created_at, w.contest_event_id,
+           w.quarantined_at, w.quarantine_expires_at,
            e.title AS contest_title,
            u.id AS author_id, u.username AS author_username, u.avatar_file AS author_avatar_file,
            u.account_type AS author_account_type

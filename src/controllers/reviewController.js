@@ -108,6 +108,7 @@ exports.getQueue = async (req, res, next) => {
       contest: row.contest_event_id ? { id: row.contest_event_id, title: row.contest_title } : null,
       queuedAt: row.queued_at,
       createdAt: row.created_at,
+      quarantineExpiresAt: row.quarantined_at ? row.quarantine_expires_at : null,
       pendingUpdate: PendingUpdate.payloadFor(World.findById(row.id), PendingUpdate.findByWorldId(row.id))
     }));
 

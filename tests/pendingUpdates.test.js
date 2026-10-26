@@ -231,9 +231,21 @@ describe('the review queue', () => {
     }));
     expect(item.pendingUpdate.fields.name).toEqual({ approved: 'Sedge Landing', pending: 'Sedge Landing Redux' });
     expect(item.pendingUpdate.content_changed).toBe(true);
+    expect(item.quarantineExpiresAt).toBeNull();
 
     const listed = (await queue(staff)).body.data.length;
     expect((await count(staff)).body.data.count).toBe(listed);
+  });
+
+  it('shows the deadline of an update to a quarantined listing', async () => {
+    const { id, staff } = await seedUpdate();
+    const quarantined = await request(app).put(`/api/worlds/${id}/quarantine`).set(authHeader(admin())).send({ days: 7 });
+    expect(quarantined.status).toBe(200);
+
+    const item = (await queue(staff)).body.data.find((entry) => entry.id === id);
+
+    expect(item.type).toBe('update');
+    expect(item.quarantineExpiresAt).toBe(quarantined.body.data.quarantineExpiresAt);
   });
 
   it('orders updates and new listings by how long they waited', async () => {
