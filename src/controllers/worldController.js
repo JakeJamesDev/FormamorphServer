@@ -16,6 +16,7 @@ const {
 const { v4: uuidv4 } = require('uuid');
 const AuditLog = require('../models/AuditLog');
 const { flagDeletedListing } = require('./reportController');
+const { approveOnRelease } = require('./reviewController');
 const Changelog = require('../models/Changelog');
 const Event = require('../models/Event');
 const { sweepQuarantine } = require('../utils/sweepQuarantine');
@@ -39,6 +40,7 @@ const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { submissionFor } = require('../utils/listingReview');
+const { MODERATION_STATES } = require('../config/listingReview');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
@@ -653,6 +655,7 @@ exports.updateWorld = async (req, res, next) => {
     // Held from before the write: `World.update` returns the new row, and the extension has to know
     // whether this episode had already used its grace.
     const quarantinedBefore = world.quarantined_at ? world : null;
+    const rejectedBefore = world.moderation_state === MODERATION_STATES.REJECTED;
 
     // Extract data from request body
     const { name, description, thumbnail, contentData } = req.body;
@@ -751,6 +754,10 @@ exports.updateWorld = async (req, res, next) => {
       if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
         world = World.update(req.params.id, updateData);
       }
+
+      // The author's fix sends a rejected listing back to the queue, whatever the setting or their trust:
+      // only a mod clears a rejection.
+      if (rejectedBefore && req.user.id === world.author_id) World.resubmit(req.params.id);
 
       // An update to a quarantined listing is the author answering the notice, so it goes in the log —
       // and the first one buys them more time, counted from the deadline they already had. Only the
@@ -1382,6 +1389,9 @@ exports.releaseWorld = async (req, res, next) => {
     if (!world.quarantined_at) {
       return res.status(400).json({ success: false, error: 'This is not quarantined' });
     }
+
+    // Releasing a rejected listing approves it, so it lands in the catalog rather than outside every list.
+    if (world.moderation_state === MODERATION_STATES.REJECTED) return approveOnRelease(req, res, world);
 
     World.release(world.id);
     const author = world.author_id === req.user.id ? null : User.findById(world.author_id);

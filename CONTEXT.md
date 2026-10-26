@@ -43,7 +43,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Staff** | Any account with moderation powers: `mod`, `dev`, or `admin`. Staff moderate the room, not each other. |
 | **Quarantine** | A listing hidden from everyone but its author and staff, deleted when its deadline passes unless staff release it. The author gets one grace extension per episode. |
 | **Moderation state** | Where a listing stands in listing review: `approved`, `pending`, or `rejected`, in `moderation_state`. Only approved listings are in circulation; the others are seen by their author and staff alone. Not the **Review state** of an add-on offer. |
-| **Pending listing** | A new listing waiting for a mod, published while the `listing_review` setting is on. It answers `404` to everyone but its author and staff. |
+| **Pending listing** | A listing waiting for a mod: a new one published while the `listing_review` setting is on, or a **Resubmission**. It answers `404` to everyone but its author and staff. |
 | **Pending update** | An edit to an approved listing that waits for a mod. The approved version stays live, unchanged, until the update is approved; a rejected update is dropped. |
 | **Resubmission** | An author's edit to a rejected listing, which sends it back to the review queue. Its quarantine deadline keeps running. |
 | **Trusted author** | An account an admin marked as trusted (`trusted_at`). Its uploads and updates skip review. Staff count as trusted without the mark. |

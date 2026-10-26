@@ -17,9 +17,24 @@ const { MODERATION_STATES, isApproved, inCirculationClause } = require('../confi
  */
 const AUTHOR_LIST_LIMIT = 1000;
 
-/** The SQL test for a pending listing in the review queue. `isPendingListing` is the same rule on a row. */
-const pendingListingClause = (alias) =>
-  `${alias}.moderation_state = '${MODERATION_STATES.PENDING}' AND ${alias}.quarantined_at IS NULL`;
+/**
+ * The SQL test for a listing in the review queue, quarantined or not. `isPendingListing` is the same rule
+ * on a row.
+ */
+const pendingListingClause = (alias) => `${alias}.moderation_state = '${MODERATION_STATES.PENDING}'`;
+
+/** Put a listing live as new and out of quarantine, when it still matches `clause`. Null when it does not. */
+const approveWhere = (id, clause) => {
+  const now = new Date().toISOString();
+  const { changes } = db.prepare(`
+    UPDATE worlds
+    SET moderation_state = @approved, listed_at = @now, updated_at = @now,
+        quarantined_at = NULL, quarantine_expires_at = NULL, quarantine_extended = 0
+    WHERE id = @id AND ${clause}
+  `).run({ id, now, approved: MODERATION_STATES.APPROVED });
+
+  return changes ? World.findById(id) : null;
+};
 
 /**
  * Ceiling for a staff like list, in either direction, and for the Anonymous Likes read beside it. Enough
@@ -628,12 +643,13 @@ const World = {
   },
 
   /**
-   * New listings waiting for a mod: contest entries first, then the longest-waiting.
+   * New and resubmitted listings waiting for a mod: contest entries first, then the longest-waiting.
    *
    * @returns {Array<Object>} Queue rows with the author's and the contest's columns joined in
    */
   reviewQueue: () => db.prepare(`
     SELECT w.id, w.kind, w.name, w.created_at, w.moderation_queued_at, w.contest_event_id,
+           w.quarantined_at, w.quarantine_expires_at,
            e.title AS contest_title,
            u.id AS author_id, u.username AS author_username, u.avatar_file AS author_avatar_file,
            u.account_type AS author_account_type
@@ -648,44 +664,67 @@ const World = {
   reviewQueueCount: () => db.prepare(`SELECT COUNT(*) AS count FROM worlds w WHERE ${pendingListingClause('w')}`).get().count,
 
   /**
-   * Whether a listing is a new one waiting in the queue.
+   * Whether a listing is a new or resubmitted one waiting in the queue.
    *
    * @param {Object} world - A world row
    * @returns {boolean} True when a mod can approve or reject it
    */
-  isPendingListing: (world) =>
-    Boolean(world) && world.moderation_state === MODERATION_STATES.PENDING && !world.quarantined_at,
+  isPendingListing: (world) => Boolean(world) && world.moderation_state === MODERATION_STATES.PENDING,
 
   /**
-   * Put a waiting new listing live. Conditional on it still waiting, so of two mods only one succeeds.
+   * Put a waiting listing live and end any quarantine on it. Conditional on it still waiting, so of two
+   * mods only one succeeds.
    *
    * @param {string} id - World ID
    * @returns {Object|null} The updated row, or null when it was no longer waiting
    */
-  approvePending: (id) => {
-    const now = new Date().toISOString();
-    const { changes } = db.prepare(`
-      UPDATE worlds SET moderation_state = @approved, listed_at = @now, updated_at = @now
-      WHERE id = @id AND ${pendingListingClause('worlds')}
-    `).run({ id, now, approved: MODERATION_STATES.APPROVED });
-
-    return changes ? World.findById(id) : null;
-  },
+  approvePending: (id) => approveWhere(id, pendingListingClause('worlds')),
 
   /**
-   * Reject a waiting new listing into quarantine, as one change.
+   * Approve a rejected listing that staff release from quarantine, so it lands in the catalog.
    *
    * @param {string} id - World ID
-   * @param {number} days - How long the author has before it is deleted
+   * @returns {Object|null} The updated row, or null when it was no longer rejected
+   */
+  approveRejected: (id) => approveWhere(id, `worlds.moderation_state = '${MODERATION_STATES.REJECTED}'`),
+
+  /**
+   * Reject a waiting listing, as one change. A new listing enters quarantine for `days`; a resubmission
+   * keeps the deadline and the extension flag it already had.
+   *
+   * @param {string} id - World ID
+   * @param {number} days - How long the author has before it is deleted, for a listing not yet quarantined
    * @returns {Object|null} The updated row, or null when it was no longer waiting
    */
   rejectPending: (id, days) => db.transaction(() => {
+    const before = World.findById(id);
     const { changes } = db.prepare(`
       UPDATE worlds SET moderation_state = @rejected WHERE id = @id AND ${pendingListingClause('worlds')}
     `).run({ id, rejected: MODERATION_STATES.REJECTED });
 
-    return changes ? World.quarantine(id, days) : null;
+    if (!changes) return null;
+    return before.quarantined_at ? World.findById(id) : World.quarantine(id, days);
   })(),
+
+  /**
+   * Send a rejected listing back to the queue, behind everything already waiting.
+   *
+   * @param {string} id - World ID
+   * @returns {Object|null} The updated row, or null when it was not rejected
+   */
+  resubmit: (id) => {
+    const { changes } = db.prepare(`
+      UPDATE worlds SET moderation_state = @pending, moderation_queued_at = @now
+      WHERE id = @id AND moderation_state = @rejected
+    `).run({
+      id,
+      now: new Date().toISOString(),
+      pending: MODERATION_STATES.PENDING,
+      rejected: MODERATION_STATES.REJECTED
+    });
+
+    return changes ? World.findById(id) : null;
+  },
 
   /**
    * Give a quarantined listing its one-time extension, counted from the deadline it already had.

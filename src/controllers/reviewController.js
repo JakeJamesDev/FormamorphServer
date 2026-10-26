@@ -8,12 +8,13 @@ const { authorPayload } = require('../utils/authorPayload');
 
 const NOT_FOUND = { success: false, error: 'World not found' };
 const NOT_PENDING = { success: false, error: 'This is no longer waiting for review' };
+const OWN_LISTING = { success: false, error: 'You cannot review your own listing' };
 
 /**
  * The listing a review route acts on and its author, or the refusal already sent.
  *
- * Applies the staff ladder against the author, so a mod cannot decide on an admin's listing. With
- * `orAuthor`, the author passes too.
+ * Applies the staff ladder against the author, so a mod cannot decide on an admin's listing, and refuses
+ * staff deciding on their own. With `orAuthor`, the author passes instead.
  *
  * @returns {Object|null} `{ world, author }`, or null when a response was sent
  */
@@ -31,6 +32,11 @@ const reviewTarget = (req, res, { orAuthor = false } = {}) => {
   // A player is told nothing exists, as on every other read of a waiting listing.
   if (!isStaff(req.user)) {
     res.status(404).json(NOT_FOUND);
+    return null;
+  }
+  // A listing submitted before its author's promotion is the one way staff work waits.
+  if (isAuthor) {
+    res.status(403).json(OWN_LISTING);
     return null;
   }
   if (!canModerate(req.user, author)) {
@@ -71,7 +77,7 @@ exports.getQueue = async (req, res, next) => {
       id: row.id,
       kind: row.kind || 'world',
       name: row.name,
-      type: 'new',
+      type: row.quarantined_at ? 'resubmitted' : 'new',
       author: row.author_id ? authorPayload({
         id: row.author_id,
         username: row.author_username,
@@ -80,7 +86,8 @@ exports.getQueue = async (req, res, next) => {
       }) : null,
       contest: row.contest_event_id ? { id: row.contest_event_id, title: row.contest_title } : null,
       queuedAt: row.moderation_queued_at,
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      quarantineExpiresAt: row.quarantined_at ? row.quarantine_expires_at : null
     }));
 
     res.status(200).json({ success: true, count: data.length, data });
@@ -120,7 +127,7 @@ exports.getContent = async (req, res, next) => {
 };
 
 /**
- * @desc    Put a waiting listing live, as new in the catalog and the follows feed
+ * @desc    Put a waiting listing live, as new in the catalog and the follows feed, ending any quarantine
  * @route   POST /api/reviews/:id/approve
  * @access  Private/Staff
  */
@@ -141,7 +148,26 @@ exports.approve = async (req, res, next) => {
 };
 
 /**
- * @desc    Reject a waiting listing into quarantine. Answers what the message to the author needs
+ * Approve a rejected listing that staff release from quarantine, and send the answer. The caller has
+ * applied the staff ladder already.
+ *
+ * @param {Object} req - The release request
+ * @param {Object} res - Its response
+ * @param {Object} world - The rejected listing's row
+ */
+exports.approveOnRelease = (req, res, world) => {
+  if (world.author_id === req.user.id) return res.status(403).json(OWN_LISTING);
+  if (!World.approveRejected(world.id)) return res.status(409).json(NOT_PENDING);
+
+  const author = world.author_id ? User.findById(world.author_id) : null;
+  recordDecision('listing_approved', req.user, { world, author });
+
+  return res.status(200).json({ success: true, data: {} });
+};
+
+/**
+ * @desc    Reject a waiting listing into quarantine. A resubmission keeps its deadline and ignores
+ *          `days`. Answers what the message to the author needs
  * @route   POST /api/reviews/:id/reject
  * @access  Private/Staff
  */
@@ -151,7 +177,7 @@ exports.reject = async (req, res, next) => {
     if (!target) return;
     if (!World.isPendingListing(target.world)) return res.status(409).json(NOT_PENDING);
 
-    const length = quarantineDays(req.body.days);
+    const length = target.world.quarantined_at ? { days: null } : quarantineDays(req.body.days);
     if (length.error) return res.status(400).json({ success: false, error: length.error });
 
     const rejected = World.rejectPending(target.world.id, length.days);
