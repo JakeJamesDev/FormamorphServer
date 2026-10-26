@@ -1,6 +1,7 @@
 # Spec: Listing review
 
-Status: ready-for-agent
+Status: done
+Status note: Closed 2026-10-26 with the client spec. Server tickets 01–06 landed, the last as cadbe1a; the close fixed one gap (7884f50). Server suite 2302/2302 on 2026-10-26.
 
 Client side: the formamorph repo, `docs-internal/specs/listing-review/spec.md`.
 
