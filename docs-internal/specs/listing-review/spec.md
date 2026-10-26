@@ -95,6 +95,7 @@ Answered for ticket 05:
 - **T27** `fields` uses the server names (`name`, `description`, `tags`, `models`, `model_license`), and lists only the values that differ from the approved ones. `app_version` and `placeholder` apply at approval but are not listed.
 - **T28** A held edit answers `200` with the approved listing plus `has_pending_update` and `pending_update`. The content route answers `404` for an update with no new content.
 - **T29** `DELETE /api/reviews/:id` is for the author only. It writes no audit entry, answers `{ success, data: { id } }`, and answers `404` when no update waits. Rejecting an update answers `{ id, author }`. `update_approved` and `update_rejected` carry `target_id` and the listing's name at decision time.
+- **T31** Erasing an account drops the pending updates of its listings, rows and files, in both erase modes. In keep-content mode, it also deletes the account's `pending` and `rejected` listings, because kept content means published content (the user's ruling).
 - **T30** The review routes take a Bearer token only, so the client fetches `thumbnail_url` with the token rather than as a plain image `src`.
 
 ## User Stories
