@@ -88,6 +88,15 @@ Answered for ticket 03:
 - **T23** Rejecting a resubmission answers in the T15 shape with the deadline unchanged, ignores `days` without validating it, and writes `listing_rejected`. A staff release of a `rejected` listing writes only `listing_approved` and sets `listed_at` and `updated_at` to now. A release of a pending, quarantined listing only lifts the quarantine, and the listing stays in the queue as `new`.
 - **T24** Approve, reject and the approving release refuse any staff member, admins included, acting on their own listing (`403`). The author can still read the pending content. Approving a resubmission sets `listed_at` to now.
 
+Answered for ticket 05:
+
+- **T25** A re-edit merges into the pending update. A sent field replaces its pending value, an omitted field keeps it, and a new file replaces the pending file. The table has every column ticket 06 needs. Visibility, dependency and compatibility writes in the main update apply at once until ticket 06 moves them.
+- **T26** Once a listing has a pending update, its author's next edit joins it, even if review was turned off or the author became trusted. Staff editing someone else's listing apply at once and leave the pending update alone.
+- **T27** `fields` uses the server names (`name`, `description`, `tags`, `models`, `model_license`), and lists only the values that differ from the approved ones. `app_version` and `placeholder` apply at approval but are not listed.
+- **T28** A held edit answers `200` with the approved listing plus `has_pending_update` and `pending_update`. The content route answers `404` for an update with no new content.
+- **T29** `DELETE /api/reviews/:id` is for the author only. It writes no audit entry, answers `{ success, data: { id } }`, and answers `404` when no update waits. Rejecting an update answers `{ id, author }`. `update_approved` and `update_rejected` carry `target_id` and the listing's name at decision time.
+- **T30** The review routes take a Bearer token only, so the client fetches `thumbnail_url` with the token rather than as a plain image `src`.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
