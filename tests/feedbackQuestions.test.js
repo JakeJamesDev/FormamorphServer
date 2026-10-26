@@ -339,9 +339,10 @@ describe('accepting an answer', () => {
       status: 'answered',
       acceptedAnswer: { id: commentId, body: 'Point it at the models folder.', author: { username: 'helper' } }
     });
+    expect(res.body.comments).toBeUndefined();
     // The pinned copy is the comment in the same shape the thread lists it.
-    expect(res.body.comments.map((comment) => comment.id)).toEqual([commentId]);
-    expect(res.body.data.acceptedAnswer).toEqual(res.body.comments[0]);
+    const detail = await read(asker, id);
+    expect(res.body.data.acceptedAnswer).toEqual(detail.body.comments.find((comment) => comment.id === commentId));
     expect((await read(player('reader'), id)).body.data.acceptedAnswer).toMatchObject({ id: commentId });
   });
 
@@ -385,7 +386,7 @@ describe('accepting an answer', () => {
 
     await accept(staff(), id, null);
 
-    expect(answerEntries().map((entry) => entry.snippet)).toEqual(['cleared the accepted answer']);
+    expect(answerEntries().map((entry) => entry.snippet)).toEqual([null]);
   });
 
   it('leaves the asker’s own pick out of the log', async () => {

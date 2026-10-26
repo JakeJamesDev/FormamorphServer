@@ -591,15 +591,15 @@ exports.setAnswer = async (req, res, next) => {
           targetUser: thread.reporter_id ? User.findById(thread.reporter_id) : null,
           targetKind: thread.type,
           targetName: thread.title,
-          snippet: comment ? comment.body : 'cleared the accepted answer'
+          // Null on a clear; the client labels the entry from its action.
+          snippet: comment ? comment.body : null
         });
       }
     }
 
     res.status(200).json({
       success: true,
-      data: toThreadDto(updated, { voted: Feedback.hasVoted(thread.id, req.user.id) }),
-      comments: Feedback.comments(thread.id).map(toCommentDto)
+      data: toThreadDto(updated, { voted: Feedback.hasVoted(thread.id, req.user.id) })
     });
   } catch (error) {
     next(error);
