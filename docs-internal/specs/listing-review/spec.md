@@ -98,6 +98,13 @@ Answered for ticket 05:
 - **T31** Erasing an account drops the pending updates of its listings, rows and files, in both erase modes. In keep-content mode, it also deletes the account's `pending` and `rejected` listings, because kept content means published content (the user's ruling).
 - **T30** The review routes take a Bearer token only, so the client fetches `thumbnail_url` with the token rather than as a plain image `src`.
 
+Answered for ticket 06:
+
+- **T32** `pending_update.fields` also lists `visibility`, `spoiler`, `required_dependencies` (source ids in declared order) and `compatible_worlds` (world ids), each in the `{ approved, pending }` shape and only when it differs.
+- **T33** `pending_update.changelog` holds ops in call order: `{ op: 'create' | 'edit', id, title, body, date }` and `{ op: 'delete', id }`. A held create gets its id at once. The 100-entry cap counts approved entries, plus held creates, minus held deletes.
+- **T34** A held side write keeps its route's answer shape. It shows the approved values plus `has_pending_update` and `pending_update`. A changelog create answers `201` with the held entry and `pending: true`. At approval, an op whose entry is gone or that is past the cap is skipped, and a dependency or compatibility id whose listing was deleted is dropped.
+- **T35** The judging hold answers `409` with the existing `CONTEST_LOCKED` body, for every approver. Reject and discard stay open during judging. Every side route uses the main update's held-or-live rule (T26), through one shared helper.
+
 ## User Stories
 
 1. As a player, I want to see only listings a mod approved, so that I never open content that breaks the rules.
