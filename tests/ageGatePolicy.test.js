@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import request from 'supertest';
-import { app, db, migrate } from './context.js';
+import { app, request, db, migrate } from './context.js';
 import { authHeader, createUser } from './helpers.js';
 
 const read = (user) => request(app).get('/api/policies/age-gate').set(authHeader(user));

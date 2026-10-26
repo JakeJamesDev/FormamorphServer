@@ -1,5 +1,6 @@
 import { createRequire } from 'module';
 import fs from 'fs';
+import http from 'http';
 import os from 'os';
 import path from 'path';
 
@@ -27,3 +28,30 @@ export const { initStorage } = require('../src/utils/fileStorage');
 export const Event = require('../src/models/Event');
 export const Changelog = require('../src/models/Changelog');
 export const { sweepEvents, cancelEvent } = require('../src/utils/sweepEvents');
+
+/**
+ * One listening server per worker, reached over kept-alive connections.
+ *
+ * Handed the bare app, supertest binds a fresh port and opens an unpooled connection for every request.
+ * A full run then leaves thousands of sockets in TIME_WAIT, and two or three runs in a row exhaust the
+ * ephemeral port range. `keepAliveTimeout = 0` stops the server closing an idle socket the agent is
+ * about to reuse; `closeServer` (setup.js) ends both once the file is done.
+ */
+const supertest = require('supertest');
+const server = http.createServer(app);
+server.keepAliveTimeout = 0;
+const keepAlive = new http.Agent({ keepAlive: true });
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+/** supertest's `request(app)`, sent to this worker's server. */
+export function request(target) {
+  if (target !== app) throw new Error('request() drives the shared app only');
+  const client = supertest(server);
+  return Object.fromEntries(Object.entries(client).map(([method, start]) => [method, (url) => start(url).agent(keepAlive)]));
+}
+
+export function closeServer() {
+  keepAlive.destroy();
+  server.closeAllConnections();
+  return new Promise((resolve) => server.close(resolve));
+}

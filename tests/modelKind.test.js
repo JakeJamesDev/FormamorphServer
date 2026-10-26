@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { app, db } from './context.js';
+import { app, request, db } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 import { makeVrm1, makeVrm0, makePlainGltf } from './glbFixture.js';
 

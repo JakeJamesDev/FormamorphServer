@@ -1,6 +1,6 @@
-import { afterEach } from 'vitest';
+import { afterAll, afterEach } from 'vitest';
 import { createRequire } from 'module';
-import { db, migrate, initStorage } from './context.js';
+import { db, migrate, initStorage, closeServer } from './context.js';
 
 const { PLACEHOLDER_ID } = createRequire(import.meta.url)('../src/config/accountDeletion');
 
@@ -20,3 +20,5 @@ afterEach(() => {
   db.exec('DELETE FROM settings; DELETE FROM reports; DELETE FROM events; DELETE FROM audit_log; DELETE FROM follows; DELETE FROM feedback; DELETE FROM policy_acceptances; DELETE FROM policies; DELETE FROM message_states; DELETE FROM messages; DELETE FROM comments; DELETE FROM worlds;');
   db.prepare('DELETE FROM users WHERE id <> ?').run(PLACEHOLDER_ID);
 });
+
+afterAll(closeServer);

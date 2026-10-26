@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import { app, db } from './context.js';
+import { app, request, db } from './context.js';
 import { createUser, authHeader, worldPayload } from './helpers.js';
 import { createRequire } from 'module';
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import path from 'path';
-import { db, app, paths } from './context.js';
+import { db, app, request, paths } from './context.js';
 
 // Proves the harness itself before anything relies on it: the native better-sqlite3 addon loads under
 // vitest, the database is in-memory and schema'd, storage points at scratch, and supertest can drive the

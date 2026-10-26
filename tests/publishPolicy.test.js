@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import { createRequire } from 'module';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { app, db, migrate } from './context.js';
+import { app, request, db, migrate } from './context.js';
 import { createUser } from './helpers.js';
 
 const require = createRequire(import.meta.url);

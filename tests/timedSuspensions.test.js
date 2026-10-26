@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import request from 'supertest';
-import { app, db } from './context.js';
+import { app, request, db } from './context.js';
 import { createRequire } from 'module';
 import { createUser, authHeader } from './helpers.js';
 

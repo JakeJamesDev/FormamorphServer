@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
-import { app, db, paths } from './context.js';
+import { app, request, db, paths } from './context.js';
 import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 
 /**

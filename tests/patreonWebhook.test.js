@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import request from 'supertest';
 import crypto from 'crypto';
 import { createRequire } from 'module';
-import { app } from './context.js';
+import { app, request } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 
 const require = createRequire(import.meta.url);

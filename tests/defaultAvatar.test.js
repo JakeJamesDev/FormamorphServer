@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
-import request from 'supertest';
-import { app, db, paths } from './context.js';
+import { app, request, db, paths } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 import { makeVrm1, makeVrm0 } from './glbFixture.js';
 

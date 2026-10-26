@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
-import request from 'supertest';
-import { app, db } from './context.js';
+import { app, request, db } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 
 const require = createRequire(import.meta.url);
