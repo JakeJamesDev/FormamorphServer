@@ -76,7 +76,7 @@ Every route below already exists unless it says new. This effort widens them.
 - **Statuses.** A question takes one of `open`, `answered`, `closed`. New questions start `open`.
 - **Status route.** On a question, staff may set only `open` or `closed`. `answered` comes only from accepting.
   - Setting `closed` also locks the thread (Q24).
-  - Setting `open` on a closed question unlocks it. When the question has an accepted answer, the status becomes `answered`. A lock set through the lock route stays: only leaving `closed` unlocks.
+  - Setting `open` on a closed question unlocks it. Whenever the result would be `open` and the question has an accepted answer, the status becomes `answered`. A lock set through the lock route stays: only leaving `closed` unlocks.
   - A locked or closed question still takes votes, as a locked suggestion does.
 - **Accept route (new).** `PUT /api/feedback/:id/answer` with `{ commentId: string | null }`.
   - The thread must be a question. Otherwise 400.
@@ -86,7 +86,7 @@ Every route below already exists unless it says new. This effort widens them.
   - A locked thread still allows accepting and clearing, for the asker and staff.
   - The route touches `updated_at`. It writes a `feedback_answer_set` audit entry when the caller is not the asker.
   - The response carries the thread in the same shape as thread detail.
-- **Thread shape.** Every thread DTO, on every route that returns one (detail, status, vote, edit, accept), gains `acceptedAnswer`: the accepted comment in the comment shape (id, author, role, body, dates), or `null`. Only a question can have a non-null value.
+- **Thread shape.** Every thread DTO, on every route that returns one (list, create, detail, status, lock, vote, edit, accept), gains `acceptedAnswer`: the accepted comment in the comment shape (id, author, role, body, dates), or `null`. Only a question can have a non-null value.
 - **Votes.** The vote route and the `votes` sort accept questions. Filing a question adds the asker's vote in the same transaction. A bug still refuses votes, and the refusal message names both votable types.
 - **Read markers for voters.** Adding a vote on a question records a read marker for the voter, so old replies do not count as unread. Opening a question records a read marker for a voter, as it does for the asker and commenters.
 - **Unread.** On a question, the parties are the asker, every commenter, and every voter (Q9). Staff are parties only by those same routes (Q23). The unread count includes questions (Q22).
