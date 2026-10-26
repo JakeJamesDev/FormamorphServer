@@ -186,6 +186,25 @@ const apply = (database) => {
     )
   `);
 
+  // An author's edit to an approved listing, waiting for a mod. One row per listing at most. `fields` is
+  // JSON of the worlds columns it replaces; a null side-edit column means that edit is not part of it.
+  // The two file names point into the pending directory, never at a live file.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS pending_updates (
+      world_id TEXT PRIMARY KEY,
+      fields TEXT NOT NULL DEFAULT '{}',
+      dependencies TEXT,
+      compatibility TEXT,
+      spoiler INTEGER,
+      changelog TEXT NOT NULL DEFAULT '[]',
+      content_file TEXT,
+      thumbnail_file TEXT,
+      submitted_at TEXT NOT NULL,
+      queued_at TEXT NOT NULL,
+      FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
+    )
+  `);
+
   // Messages table — admin-authored, one-way. `recipient_id` NULL means a broadcast; `recalled_at` is a
   // soft delete that hides it from users while keeping the audit trail. `created_at` is CURRENT_TIMESTAMP
   // so it shares a format with `users.created_at`, which the broadcast visibility rule compares against.

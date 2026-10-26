@@ -5,6 +5,9 @@ const User = require('../models/User');
 const { canModerate, isStaff, STAFF_PROTECTED } = require('../config/roles');
 const { quarantineDays } = require('../config/quarantine');
 const { authorPayload } = require('../utils/authorPayload');
+const PendingUpdate = require('../models/PendingUpdate');
+const { pendingStorageDir, THUMBNAIL_CONTENT_TYPES, readPendingContent } = require('../utils/fileStorage');
+const path = require('path');
 
 const NOT_FOUND = { success: false, error: 'World not found' };
 const NOT_PENDING = { success: false, error: 'This is no longer waiting for review' };
@@ -90,6 +93,29 @@ exports.getQueue = async (req, res, next) => {
       quarantineExpiresAt: row.quarantined_at ? row.quarantine_expires_at : null
     }));
 
+    const updates = PendingUpdate.queue().map((row) => ({
+      id: row.id,
+      kind: row.kind || 'world',
+      name: row.name,
+      type: 'update',
+      author: row.author_id ? authorPayload({
+        id: row.author_id,
+        username: row.author_username,
+        avatarFile: row.author_avatar_file,
+        role: row.author_account_type
+      }) : null,
+      contest: row.contest_event_id ? { id: row.contest_event_id, title: row.contest_title } : null,
+      queuedAt: row.queued_at,
+      createdAt: row.created_at,
+      pendingUpdate: PendingUpdate.payloadFor(World.findById(row.id), PendingUpdate.findByWorldId(row.id))
+    }));
+
+    // One order across both kinds of item: contest entries first, then the longest-waiting.
+    data.push(...updates);
+    data.sort((a, b) => (a.contest === null) - (b.contest === null)
+      || String(a.queuedAt).localeCompare(String(b.queuedAt))
+      || a.id.localeCompare(b.id));
+
     res.status(200).json({ success: true, count: data.length, data });
   } catch (error) {
     next(error);
@@ -103,7 +129,7 @@ exports.getQueue = async (req, res, next) => {
  */
 exports.getQueueCount = async (req, res, next) => {
   try {
-    res.status(200).json({ success: true, data: { count: World.reviewQueueCount() } });
+    res.status(200).json({ success: true, data: { count: World.reviewQueueCount() + PendingUpdate.count() } });
   } catch (error) {
     next(error);
   }
@@ -118,9 +144,71 @@ exports.getContent = async (req, res, next) => {
   try {
     const target = reviewTarget(req, res, { orAuthor: true });
     if (!target) return;
+
+    const update = PendingUpdate.findByWorldId(target.world.id);
+    if (update) {
+      if (!update.content_file) return res.status(404).json(NOT_FOUND);
+
+      let contentData;
+      try {
+        contentData = await readPendingContent(update.content_file);
+      } catch (error) {
+        // A decision or a re-edit took the file while it was being read.
+        if (error.code === 'ENOENT') return res.status(409).json(NOT_PENDING);
+        throw error;
+      }
+
+      const listing = World.findByIdWithAuthor(target.world.id, req.user, { withLiked: false });
+      return res.status(200).json({ success: true, data: { ...listing, contentData } });
+    }
     if (!World.isPendingListing(target.world)) return res.status(404).json(NOT_FOUND);
 
     res.status(200).json({ success: true, data: await World.getContent(target.world.id, req.user) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    The thumbnail a pending update holds. The public thumbnails route never reaches it
+ * @route   GET /api/reviews/:id/thumbnail
+ * @access  Private (staff, or the author)
+ */
+exports.getThumbnail = async (req, res, next) => {
+  try {
+    const target = reviewTarget(req, res, { orAuthor: true });
+    if (!target) return;
+
+    const update = PendingUpdate.findByWorldId(target.world.id);
+    const fileName = update && update.thumbnail_file ? path.basename(update.thumbnail_file) : null;
+    const type = fileName && THUMBNAIL_CONTENT_TYPES[path.extname(fileName).toLowerCase()];
+    if (!type) return res.status(404).json(NOT_FOUND);
+
+    // The URL stays the same across re-edits, so the reader asks again every time.
+    res.set('Cache-Control', 'private, no-cache');
+    res.type(type);
+    res.sendFile(fileName, { root: pendingStorageDir }, (error) => {
+      if (error && !res.headersSent) res.status(404).json(NOT_FOUND);
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    The author withdraws their pending update. The approved listing stays as it is
+ * @route   DELETE /api/reviews/:id
+ * @access  Private (the author)
+ */
+exports.discard = async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world || world.author_id !== req.user.id) return res.status(404).json(NOT_FOUND);
+
+    const dropped = await PendingUpdate.drop(world.id);
+    if (!dropped) return res.status(404).json(NOT_FOUND);
+
+    res.status(200).json({ success: true, data: { id: world.id } });
   } catch (error) {
     next(error);
   }
@@ -135,6 +223,18 @@ exports.approve = async (req, res, next) => {
   try {
     const target = reviewTarget(req, res);
     if (!target) return;
+
+    // A listing holds a pending state or a pending update, never both.
+    if (PendingUpdate.findByWorldId(target.world.id)) {
+      const updated = await PendingUpdate.approve(target.world.id);
+      if (!updated) return res.status(409).json(NOT_PENDING);
+
+      recordDecision('update_approved', req.user, target);
+      return res.status(200).json({
+        success: true,
+        data: { id: updated.id, revision: updated.revision, updatedAt: updated.updated_at }
+      });
+    }
 
     const approved = World.approvePending(target.world.id);
     if (!approved) return res.status(409).json(NOT_PENDING);
@@ -175,6 +275,15 @@ exports.reject = async (req, res, next) => {
   try {
     const target = reviewTarget(req, res);
     if (!target) return;
+
+    // A rejected update is dropped and the approved listing stays live, so `days` means nothing here.
+    if (PendingUpdate.findByWorldId(target.world.id)) {
+      if (!(await PendingUpdate.drop(target.world.id))) return res.status(409).json(NOT_PENDING);
+
+      recordDecision('update_rejected', req.user, target);
+      return res.status(200).json({ success: true, data: { id: target.world.id, author: authorOf(target.author) } });
+    }
+
     if (!World.isPendingListing(target.world)) return res.status(409).json(NOT_PENDING);
 
     const length = target.world.quarantined_at ? { days: null } : quarantineDays(req.body.days);

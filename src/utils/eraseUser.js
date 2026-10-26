@@ -1,7 +1,9 @@
 const db = require('../config/db');
 const AuditLog = require('../models/AuditLog');
 const { PLACEHOLDER_ID, PLACEHOLDER_USERNAME } = require('../config/accountDeletion');
-const { deleteWorldContent, deleteThumbnail, deleteAvatar } = require('./fileStorage');
+const { deleteWorldContent, deleteThumbnail, deleteAvatar, deletePendingFile } = require('./fileStorage');
+const PendingUpdate = require('../models/PendingUpdate');
+const { MODERATION_STATES } = require('../config/listingReview');
 
 /**
  * Every row change, in one transaction, handing back the files the caller must remove afterwards.
@@ -10,7 +12,7 @@ const { deleteWorldContent, deleteThumbnail, deleteAvatar } = require('./fileSto
  */
 const eraseRows = db.transaction((user, removeContent) => {
   const worlds = db
-    .prepare('SELECT id, content_file, thumbnail_file FROM worlds WHERE author_id = ?')
+    .prepare('SELECT id, content_file, thumbnail_file, moderation_state FROM worlds WHERE author_id = ?')
     .all(user.id);
   const comments = db
     .prepare('SELECT COUNT(*) AS count FROM comments WHERE author_id = ?')
@@ -18,13 +20,22 @@ const eraseRows = db.transaction((user, removeContent) => {
 
   const contentFiles = [];
   const thumbnailFiles = [];
+  const pendingFiles = [];
+
+  // Kept work is only what a mod approved: a listing still waiting or rejected goes, and so does every
+  // pending update, so nothing unreviewed goes live after the account is gone.
+  const removed = removeContent ? worlds : worlds.filter((world) => world.moderation_state !== MODERATION_STATES.APPROVED);
+  for (const world of removed) {
+    if (world.content_file) contentFiles.push(world.content_file);
+    if (world.thumbnail_file) thumbnailFiles.push(world.thumbnail_file);
+  }
+  for (const update of PendingUpdate.filesFor(worlds.map((world) => world.id))) {
+    if (update.content_file) pendingFiles.push(update.content_file);
+    if (update.thumbnail_file) pendingFiles.push(update.thumbnail_file);
+  }
+  db.prepare('DELETE FROM pending_updates WHERE world_id IN (SELECT id FROM worlds WHERE author_id = ?)').run(user.id);
 
   if (removeContent) {
-    for (const world of worlds) {
-      if (world.content_file) contentFiles.push(world.content_file);
-      if (world.thumbnail_file) thumbnailFiles.push(world.thumbnail_file);
-    }
-
     // Their comments on listings that are staying: each of those listings has to lose the count with them,
     // since the total is stored on the row rather than counted at read time.
     db.prepare(`
@@ -39,6 +50,8 @@ const eraseRows = db.transaction((user, removeContent) => {
     // Their own listings, and with them the comments, likes and changelog entries that cascade.
     db.prepare('DELETE FROM worlds WHERE author_id = ?').run(user.id);
   } else {
+    db.prepare(`DELETE FROM worlds WHERE author_id = ? AND moderation_state <> '${MODERATION_STATES.APPROVED}'`).run(user.id);
+
     // The work stays where it is and only the name behind it changes. Both columns are NOT NULL, which is
     // why there is a reserved row to point them at rather than a null.
     db.prepare('UPDATE worlds SET author_id = ? WHERE author_id = ?').run(PLACEHOLDER_ID, user.id);
@@ -60,6 +73,7 @@ const eraseRows = db.transaction((user, removeContent) => {
     comments,
     contentFiles,
     thumbnailFiles,
+    pendingFiles,
     avatarFile: user.avatar_file || null
   };
 });
@@ -123,6 +137,7 @@ const eraseUser = async (user, { removeContent = false } = {}) => {
   // Past the commit, so nothing here can undo it.
   await removeQuietly(deleteWorldContent, erased.contentFiles, user.username);
   await removeQuietly(deleteThumbnail, erased.thumbnailFiles, user.username);
+  await removeQuietly(deletePendingFile, erased.pendingFiles, user.username);
   await removeQuietly(deleteAvatar, erased.avatarFile ? [erased.avatarFile] : [], user.username);
 
   return {

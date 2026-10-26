@@ -1,6 +1,6 @@
 const express = require('express');
 const {
-  getMeta, getQueue, getQueueCount, getContent, approve, reject, getAutoApprovals
+  getMeta, getQueue, getQueueCount, getContent, getThumbnail, approve, reject, discard, getAutoApprovals
 } = require('../controllers/reviewController');
 const { protect, staff } = require('../middleware/auth');
 
@@ -16,7 +16,9 @@ router.get('/', protect, staff, getQueue);
 router.get('/count', protect, staff, getQueueCount);
 // The author reads their own waiting content too, so the staff gate is in the controller.
 router.get('/:id/content', protect, getContent);
+router.get('/:id/thumbnail', protect, getThumbnail);
 router.post('/:id/approve', protect, staff, approve);
 router.post('/:id/reject', protect, staff, reject);
+router.delete('/:id', protect, discard);
 
 module.exports = router;

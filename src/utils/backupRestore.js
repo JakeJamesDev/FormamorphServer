@@ -12,7 +12,7 @@ const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
 // Define paths (the shared, configurable ones come from config/paths)
-const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR, AVATARS_DIR } = require('../config/paths');
+const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR, PENDING_DIR, AVATARS_DIR } = require('../config/paths');
 const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
 // Utility function to ensure directory exists
@@ -141,6 +141,11 @@ const createBackupManifest = async (backupDir) => {
         directory: 'avatars/',
         fileCount: 0,
         totalSize: 0
+      },
+      pending: {
+        directory: 'pending/',
+        fileCount: 0,
+        totalSize: 0
       }
     }
   };
@@ -210,6 +215,19 @@ const createBackupManifest = async (backupDir) => {
     manifest.contents.avatars.totalSize = avatarsSize;
   } catch (error) {
     console.warn('Warning: Could not get avatars info:', error.message);
+  }
+
+  // Get pending update files info
+  try {
+    manifest.contents.pending.fileCount = await getFileCount(PENDING_DIR);
+
+    let pendingSize = 0;
+    for (const entry of await readdir(PENDING_DIR)) {
+      if (entry !== '.gitkeep') pendingSize += (await stat(path.join(PENDING_DIR, entry))).size;
+    }
+    manifest.contents.pending.totalSize = pendingSize;
+  } catch (error) {
+    console.warn('Warning: Could not get pending update files info:', error.message);
   }
 
   // Write manifest
@@ -289,6 +307,15 @@ const backupAvatars = async (backupDir) => {
   console.log(`✓ ${finalCount} profile images backed up successfully`);
 };
 
+// Backup the files of updates waiting for review
+const backupPending = async (backupDir) => {
+  console.log('Backing up pending update files...');
+  // A server that has not booted since pending updates existed has no such directory yet.
+  if (!fs.existsSync(PENDING_DIR)) await ensureDir(PENDING_DIR);
+  const finalCount = await copyDirectory(PENDING_DIR, path.join(backupDir, 'pending'));
+  console.log(`✓ ${finalCount} pending update files backed up successfully`);
+};
+
 // Create complete backup
 const createBackup = async (customBackupName = null) => {
   try {
@@ -308,7 +335,8 @@ const createBackup = async (customBackupName = null) => {
     await backupWorldFiles(backupDir);
     await backupThumbnails(backupDir);
     await backupAvatars(backupDir);
-    
+    await backupPending(backupDir);
+
     // Create manifest
     console.log('Creating backup manifest...');
     const manifest = await createBackupManifest(backupDir);
@@ -473,6 +501,22 @@ const restoreAvatars = async (backupDir) => {
   console.log(`✓ ${finalCount} profile images restored successfully`);
 };
 
+// Restore the files of updates waiting for review
+const restorePending = async (backupDir) => {
+  console.log('Restoring pending update files...');
+  const pendingBackupDir = path.join(backupDir, 'pending');
+
+  // Not an error when absent: a backup taken before pending updates existed has no such directory.
+  if (!fs.existsSync(pendingBackupDir)) {
+    console.warn('Warning: No pending update files in this backup, skipping');
+    return;
+  }
+
+  await ensureDir(PENDING_DIR);
+  const finalCount = await copyDirectory(pendingBackupDir, PENDING_DIR);
+  console.log(`✓ ${finalCount} pending update files restored successfully`);
+};
+
 // Restore from backup
 const restoreFromBackup = async (backupName) => {
   try {
@@ -494,7 +538,8 @@ const restoreFromBackup = async (backupName) => {
     await restoreWorldFiles(backupPath);
     await restoreThumbnails(backupPath);
     await restoreAvatars(backupPath);
-    
+    await restorePending(backupPath);
+
     console.log('\n=== Restore Complete ===');
     console.log('All data has been restored from backup');
     console.log('You may need to restart the server for changes to take effect');
@@ -620,5 +665,7 @@ module.exports = {
   restoreWorldFiles,
   restoreThumbnails,
   backupAvatars,
-  restoreAvatars
+  restoreAvatars,
+  backupPending,
+  restorePending
 };

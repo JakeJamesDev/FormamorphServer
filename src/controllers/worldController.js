@@ -39,11 +39,43 @@ const { appVersionOf } = require('../utils/appVersion');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
-const { submissionFor } = require('../utils/listingReview');
-const { MODERATION_STATES } = require('../config/listingReview');
+const { submissionFor, reviewEnabled } = require('../utils/listingReview');
+const { MODERATION_STATES, isApproved, skipsReview } = require('../config/listingReview');
+const PendingUpdate = require('../models/PendingUpdate');
+const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
+
+/**
+ * Write an edit into the listing's pending update instead of onto the listing. The files go to the
+ * pending directory; nothing players are served changes.
+ *
+ * @param {string} worldId - World ID
+ * @param {Object} edit - `{ thumbnail, contentData, updateData }` as the update route built them
+ */
+const holdUpdate = async (worldId, { thumbnail, contentData, updateData }) => {
+  const fields = {};
+  for (const name of PendingUpdate.HELD_FIELDS) {
+    if (updateData[name] !== undefined) fields[name] = updateData[name];
+  }
+
+  const saved = [];
+  try {
+    const thumbnailFile = thumbnail ? await savePendingThumbnail(thumbnail) : null;
+    if (thumbnailFile) saved.push(thumbnailFile);
+    const contentFile = contentData ? await savePendingContent(contentData) : null;
+    if (contentFile) saved.push(contentFile);
+
+    if (!thumbnailFile && !contentFile && Object.keys(fields).length === 0) return;
+
+    const { replacedFiles } = PendingUpdate.submit(worldId, { fields, contentFile, thumbnailFile });
+    for (const file of replacedFiles) await deletePendingFile(file);
+  } catch (error) {
+    for (const file of saved) await deletePendingFile(file);
+    throw error;
+  }
+};
 
 /**
  * Whether this server lets a guest press the heart at all.
@@ -722,24 +754,35 @@ exports.updateWorld = async (req, res, next) => {
     if (models) updateData.models = JSON.stringify(models);
     if (rulesFor(kind).stampsAppVersion && contentData) updateData.app_version = appVersionOf(contentData);
 
-    try {
-      // If thumbnail is provided, update it
-      if (thumbnail) {
-        // Delete old thumbnail
-        if (world.thumbnail_file) {
-          await deleteThumbnail(world.thumbnail_file);
-        }
-        
-        // Save new thumbnail
-        const thumbnailFile = await saveThumbnail(thumbnail);
-        updateData.thumbnail_file = thumbnailFile;
-        updateData.placeholder = 0;
-      }
+    // On an approved listing, the author's edit waits for a mod unless they skip review. Once an update
+    // waits, every edit of theirs joins it, so its approval never overwrites a newer live edit.
+    const ownApproved = isApproved(world) && req.user.id === world.author_id;
+    const holds = ownApproved
+      && (Boolean(PendingUpdate.findByWorldId(world.id)) || (reviewEnabled() && !skipsReview(req.user)));
+    const autoApproved = ownApproved && !holds && reviewEnabled();
 
-      // If content data is provided, update it
-      if (contentData) {
-        // Save new content
-        await saveWorldContent(world.id, contentData);
+    try {
+      if (holds) {
+        await holdUpdate(world.id, { thumbnail, contentData, updateData });
+      } else {
+        // If thumbnail is provided, update it
+        if (thumbnail) {
+          // Delete old thumbnail
+          if (world.thumbnail_file) {
+            await deleteThumbnail(world.thumbnail_file);
+          }
+
+          // Save new thumbnail
+          const thumbnailFile = await saveThumbnail(thumbnail);
+          updateData.thumbnail_file = thumbnailFile;
+          updateData.placeholder = 0;
+        }
+
+        // If content data is provided, update it
+        if (contentData) {
+          // Save new content
+          await saveWorldContent(world.id, contentData);
+        }
       }
 
       // Neither declaration touches the row: visibility changes nothing a downloader receives, and a
@@ -751,8 +794,20 @@ exports.updateWorld = async (req, res, next) => {
 
       // Update world in database. New content alone is an update too — it is the whole of what a
       // downloader receives — so the row's date and revision move with it even when no field changed.
-      if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
+      if (holds) {
+        if (dependenciesChanged) world = World.update(req.params.id, {});
+      } else if (contentData || dependenciesChanged || Object.keys(updateData).length > 0) {
         world = World.update(req.params.id, updateData);
+      }
+
+      if (autoApproved) {
+        AuditLog.tryRecord({
+          action: 'listing_auto_approved',
+          actor: req.user,
+          targetKind: world.kind || 'world',
+          targetName: world.name,
+          targetId: world.id
+        });
       }
 
       // The author's fix sends a rejected listing back to the queue, whatever the setting or their trust:
@@ -1505,8 +1560,12 @@ exports.deleteWorld = async (req, res, next) => {
       await deleteThumbnail(world.thumbnail_file);
     }
 
+    // Read before the row goes: the pending update cascades with it.
+    const pendingFiles = PendingUpdate.filesFor([world.id]);
+
     // Delete world from database
     World.delete(req.params.id);
+    await PendingUpdate.deleteFiles(pendingFiles);
 
     // An author taking their own listing down neither punishes nor absolves them: any open report on it
     // stays open, flagged, leaning on the snapshot to say what was there. A staff takedown is a

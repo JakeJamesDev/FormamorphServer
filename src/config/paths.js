@@ -25,6 +25,9 @@ const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join(PROJECT_ROOT, 'src', 
 const WORLDS_DIR = path.join(STORAGE_ROOT, 'worlds');
 const THUMBNAILS_DIR = path.join(STORAGE_ROOT, 'thumbnails');
 
+/** Pending updates' content and thumbnails, apart so a review decision never deletes a live file. */
+const PENDING_DIR = path.join(STORAGE_ROOT, 'pending');
+
 /** Profile images. Separate from thumbnails so a listing's art and a person's face never collide. */
 const AVATARS_DIR = path.join(STORAGE_ROOT, 'avatars');
 
@@ -43,6 +46,7 @@ module.exports = {
   STORAGE_ROOT,
   WORLDS_DIR,
   THUMBNAILS_DIR,
+  PENDING_DIR,
   AVATARS_DIR,
   EVENT_POSTERS_DIR,
   BUNDLED_FINGERPRINTS_PATH,

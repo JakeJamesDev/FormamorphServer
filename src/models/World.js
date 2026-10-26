@@ -8,6 +8,7 @@ const { authorPayload } = require('../utils/authorPayload');
 const { isStaff } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
 const Event = require('./Event');
+const PendingUpdate = require('./PendingUpdate');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
 const { MODERATION_STATES, isApproved, inCirculationClause } = require('../config/listingReview');
 
@@ -72,6 +73,8 @@ const stripModeration = (world, viewer) => {
 
   delete world.moderation_state;
   delete world.moderation_queued_at;
+  delete world.has_pending_update;
+  delete world.pending_update;
   return world;
 };
 
@@ -121,6 +124,12 @@ const World = {
     if (!world) {
       return null;
     }
+
+    // Read off the stored columns, before the parsing below rewrites them. `stripModeration` drops both
+    // for a player.
+    const pendingUpdate = PendingUpdate.findByWorldId(id);
+    world.has_pending_update = Boolean(pendingUpdate);
+    world.pending_update = pendingUpdate ? PendingUpdate.payloadFor({ ...world }, pendingUpdate) : null;
 
     // The same pair the catalog rows carry, so a listing read on its own says the same thing as the card
     // it was opened from. `liked` is absent rather than false without a reader — see `getAll`.
@@ -227,7 +236,8 @@ const World = {
       let query = `SELECT w.*, u.username as author_username, u.avatar_file as author_avatar_file, u.account_type as author_account_type,
         (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id)
           + (SELECT COUNT(*) FROM anonymous_likes a WHERE a.world_id = w.id) AS like_count,
-        ce.results_announced_at AS contest_results_announced_at
+        ce.results_announced_at AS contest_results_announced_at,
+        EXISTS (SELECT 1 FROM pending_updates pu WHERE pu.world_id = w.id) AS has_pending_update
         FROM worlds w JOIN users u ON w.author_id = u.id
         LEFT JOIN events ce ON ce.id = w.contest_event_id`;
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
@@ -331,6 +341,7 @@ const World = {
         world.placeholder = world.placeholder === 1;
 
         world.models = parseModels(world.models);
+        world.has_pending_update = world.has_pending_update === 1;
         stripModeration(world, viewer);
 
         // How many liked it, and whether this reader is one of them. `liked` is absent rather than false

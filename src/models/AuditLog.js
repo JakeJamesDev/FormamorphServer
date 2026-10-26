@@ -56,6 +56,9 @@ const ACTIONS = [
   // A mod's decision on a new listing waiting for review. A rejection also starts its quarantine.
   'listing_approved',
   'listing_rejected',
+  // A mod's decision on an author's pending update to an approved listing.
+  'update_approved',
+  'update_rejected',
   // A listing that skipped review because of who published it, so mods can spot-check it.
   'listing_auto_approved',
   // An admin made an account a trusted author, whose uploads skip review, or took that away.

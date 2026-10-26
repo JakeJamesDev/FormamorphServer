@@ -6,6 +6,7 @@ const { v4: uuidv4 } = require('uuid');
 const {
   WORLDS_DIR: worldsStorageDir,
   THUMBNAILS_DIR: thumbnailsStorageDir,
+  PENDING_DIR: pendingStorageDir,
   AVATARS_DIR: avatarsStorageDir,
   EVENT_POSTERS_DIR: eventPostersStorageDir
 } = require('../config/paths');
@@ -47,6 +48,9 @@ const initStorage = () => {
   }
   if (!fs.existsSync(thumbnailsStorageDir)) {
     fs.mkdirSync(thumbnailsStorageDir, { recursive: true });
+  }
+  if (!fs.existsSync(pendingStorageDir)) {
+    fs.mkdirSync(pendingStorageDir, { recursive: true });
   }
   if (!fs.existsSync(avatarsStorageDir)) {
     fs.mkdirSync(avatarsStorageDir, { recursive: true });
@@ -304,8 +308,93 @@ const deleteEventPoster = (fileName) => deleteImageAsset(fileName, {
   noun: 'poster'
 });
 
+/**
+ * Save a pending update's content under a fresh name in the pending directory.
+ *
+ * Never `${worldId}.json`: that is the live file's name, and a pending copy under it would be served.
+ *
+ * @param {Object} content - The world content
+ * @returns {Promise<string>} The stored filename
+ */
+const savePendingContent = async (content) => {
+  const contentString = JSON.stringify(content);
+  if (Buffer.byteLength(contentString) > MAX_CONTENT_SIZE) {
+    throw new Error('World content exceeds maximum size of 100MB');
+  }
+
+  const fileName = `${uuidv4()}.json`;
+  await fs.promises.writeFile(path.join(pendingStorageDir, fileName), contentString);
+  return fileName;
+};
+
+/**
+ * Read a pending update's content.
+ *
+ * @param {string} fileName - The stored filename
+ * @returns {Promise<Object>} The parsed content
+ */
+const readPendingContent = async (fileName) =>
+  JSON.parse(await fs.promises.readFile(path.join(pendingStorageDir, path.basename(fileName)), 'utf8'));
+
+/**
+ * Save a pending update's thumbnail in the pending directory, returning its stored filename.
+ *
+ * @param {string} base64Image - A `data:image/(jpeg|jpg|png|gif|webp);base64,...` URI
+ * @returns {Promise<string>} The stored filename
+ */
+const savePendingThumbnail = (base64Image) => saveImageAsset(base64Image, {
+  directory: pendingStorageDir,
+  allowedTypes: ALLOWED_THUMBNAIL_TYPES,
+  maxBytes: MAX_THUMBNAIL_SIZE,
+  noun: 'thumbnail',
+  oversized: 'Thumbnail exceeds maximum size of 5MB'
+});
+
+/**
+ * Delete a pending update's file. Reaches only the pending directory, so it can never remove a live file.
+ *
+ * @param {string} fileName - The stored filename
+ */
+const deletePendingFile = (fileName) => deleteImageAsset(fileName, {
+  directory: pendingStorageDir,
+  noun: 'pending file'
+});
+
+/**
+ * Whether every file a pending update names is still in the pending directory.
+ *
+ * @param {Object} update - A row carrying `content_file` and `thumbnail_file`
+ * @returns {boolean} True when none is missing
+ */
+const pendingFilesExist = (update) => [update.content_file, update.thumbnail_file]
+  .filter(Boolean)
+  .every((fileName) => fs.existsSync(path.join(pendingStorageDir, path.basename(fileName))));
+
+/**
+ * Move an approved update's files over the live ones. Synchronous, so no request reads the listing
+ * between the row change and the file change.
+ *
+ * @param {Object} files - `{ content, contentTarget, thumbnail }`; `content` replaces the live file named
+ *   `contentTarget`, and `thumbnail` moves into the thumbnails directory under its own name
+ */
+const promotePendingFiles = ({ content, contentTarget, thumbnail }) => {
+  if (content) {
+    fs.renameSync(path.join(pendingStorageDir, path.basename(content)), path.join(worldsStorageDir, path.basename(contentTarget)));
+  }
+  if (thumbnail) {
+    fs.renameSync(path.join(pendingStorageDir, path.basename(thumbnail)), path.join(thumbnailsStorageDir, path.basename(thumbnail)));
+  }
+};
+
 module.exports = {
   initStorage,
+  savePendingContent,
+  readPendingContent,
+  savePendingThumbnail,
+  deletePendingFile,
+  pendingFilesExist,
+  promotePendingFiles,
+  pendingStorageDir,
   saveWorldContent,
   saveThumbnail,
   readWorldContent,
