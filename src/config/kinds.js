@@ -2,7 +2,7 @@
  * What a `worlds` row can hold. The table predates the others and keeps its name; `kind` is what
  * distinguishes them, so comments, downloads, tags, ownership, and search work the same for every kind.
  */
-const KINDS = ['world', 'entity', 'dictionary', 'model', 'prompt'];
+const KINDS = ['world', 'entity', 'dictionary', 'model', 'prompt', 'mascot'];
 
 /**
  * The kind assumed when a request doesn't name one.
@@ -79,6 +79,15 @@ const KIND_RULES = {
     canEnterContest: false,
     maxContentBytes: 1024 * 1024, // text only
     label: 'Prompt',
+  },
+  // A Mascot card: rig, picks, Mask, Voice, transition, and every layer as a data URL.
+  mascot: {
+    requiresDescription: false,
+    requiresThumbnail: true, // the client fills it from the card's Initial render
+    canEnterContest: false,
+    maxContentBytes: 10 * 1024 * 1024, // decoded image bytes, not the serialized JSON
+    measuresDecodedImages: true,
+    label: 'Mascot',
   },
 };
 

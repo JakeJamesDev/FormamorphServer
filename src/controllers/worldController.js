@@ -6,6 +6,7 @@ const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, ge
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
+const { decodedImageBytes } = require('../utils/decodedImageBytes');
 const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense } = require('../utils/vrmLicenseGate');
 const {
   isBundledWorld,
@@ -169,9 +170,15 @@ const EXTENSION_DAYS = DEFAULT_QUARANTINE_DAYS;
  */
 function contentSizeError(contentData, rules) {
   if (!contentData) return null;
+  const limitMb = Math.round(rules.maxContentBytes / 1024 / 1024);
+  if (rules.measuresDecodedImages) {
+    const decoded = decodedImageBytes(contentData);
+    if (decoded <= rules.maxContentBytes) return null;
+    return `${rules.label} content is ${(decoded / 1024 / 1024).toFixed(1)}MB, over the ${limitMb}MB limit`;
+  }
   const bytes = Buffer.byteLength(JSON.stringify(contentData));
   if (bytes <= rules.maxContentBytes) return null;
-  return `${rules.label} content exceeds the ${Math.round(rules.maxContentBytes / 1024 / 1024)}MB limit`;
+  return `${rules.label} content exceeds the ${limitMb}MB limit`;
 }
 
 /**
