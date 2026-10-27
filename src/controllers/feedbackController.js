@@ -280,8 +280,12 @@ exports.searchThreads = async (req, res, next) => {
     if (types.some((type) => !Feedback.TYPES.includes(type))) {
       return res.status(400).json({ success: false, error: 'Unknown type' });
     }
-    const rows = Feedback.searchThreads({ query: asText(req.query.q), types, limit: SEARCH_LIMIT })
-      .filter((row) => Feedback.canRead(row, req.user));
+    const rows = Feedback.searchThreads({
+      query: asText(req.query.q),
+      types,
+      limit: SEARCH_LIMIT,
+      readable: (row) => Feedback.canRead(row, req.user)
+    });
     res.status(200).json({ success: true, data: rows.map(threadSummary) });
   } catch (error) {
     next(error);

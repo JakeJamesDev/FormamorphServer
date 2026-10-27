@@ -257,6 +257,22 @@ describe('searching threads', () => {
     }
   });
 
+  it('fills the page with readable threads when unreadable ones rank first', async () => {
+    const caller = createUser({ username: 'caller' });
+    const made = await fileMany(20, SUGGESTION);
+    const hidden = new Set(made.map((thread) => thread.number).sort((a, b) => b - a).slice(0, 10));
+    const Feedback = (await import('module')).createRequire(import.meta.url)('../src/models/Feedback');
+    const original = Feedback.canRead;
+    Feedback.canRead = (row) => !hidden.has(row.number);
+    try {
+      const numbers = (await threads(caller, { q: 'rename' })).body.data.map((entry) => entry.number);
+      expect(numbers).toHaveLength(8);
+      expect(numbers.some((number) => hidden.has(number))).toBe(false);
+    } finally {
+      Feedback.canRead = original;
+    }
+  });
+
   it('refuses a guest', async () => {
     expect((await request(app).get('/api/feedback/search/threads').query({ q: 'a' })).status).toBe(401);
   });

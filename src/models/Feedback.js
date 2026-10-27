@@ -375,10 +375,11 @@ const Feedback = {
   /**
    * Threads whose number starts with the digits typed, or whose title has a word starting with each typed
    * word. An exact number ranks first, then the newest.
-   * @param {Object} options - `{ query, types, limit }`; `types` narrows to those thread types
+   * Rows `readable` rejects are skipped before the limit counts, so unreadable matches never hide readable ones.
+   * @param {Object} options - `{ query, types, limit, readable }`; `types` narrows to those thread types, `readable` takes a row
    * @returns {Object[]} The matching rows, `number`, `title`, `type` and `status` among their columns
    */
-  searchThreads: ({ query = '', types = [], limit = 8 }) => {
+  searchThreads: ({ query = '', types = [], limit = 8, readable = () => true }) => {
     const text = String(query).trim().slice(0, SEARCH_MAX);
     const digits = /^\d{1,15}$/.test(text) ? text : '';
     const words = searchWords(digits ? '' : text);
@@ -401,13 +402,23 @@ const Feedback = {
       types.forEach((value, index) => { params[`type${index}`] = value; });
     }
     params.exact = digits ? Number(digits) : -1;
-    return db.prepare(`
-      SELECT r.number, r.title, r.type, r.status
+    const page = db.prepare(`
+      SELECT r.id, r.reporter_id, r.number, r.title, r.type, r.status
       FROM feedback r
       WHERE ${where.join(' AND ')}
       ORDER BY (r.number = @exact) DESC, r.created_at DESC, r.rowid DESC
-      LIMIT @limit
-    `).all(params);
+      LIMIT @limit OFFSET @offset
+    `);
+    const found = [];
+    for (let offset = 0; found.length < limit; offset += limit) {
+      const rows = page.all({ ...params, offset });
+      for (const row of rows) {
+        if (readable(row)) found.push(row);
+        if (found.length === limit) break;
+      }
+      if (rows.length < limit) break;
+    }
+    return found;
   },
 
 
