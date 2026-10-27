@@ -29,6 +29,7 @@ Make three feedback reads optional-auth. A guest can list and read the Votable b
   - `GET /api/feedback`: `optionalAuth`. A guest must send `scope=all` and a Votable board type. A guest request for type `bug`, or without `scope=all`, answers 401 (sign-in needed), not an empty list. Guest rows carry `voted: false` and `unread: false`.
   - `GET /api/feedback/:id`: `optionalAuth`. A guest reading a bug answers 404, the same as a missing thread. A guest read records no seen-marker. `voted` is false.
   - `GET /api/feedback/unread-count` and every write route stay `protect`.
+- **Guest means no Authorization header (ticket 01 ruling).** The three reads use a feedback-read middleware, not stock `optionalAuth`. With no header, the request is a guest. With a header, the middleware is exactly `protect`: 401 on a bad or expired token, 403 `PRIVACY_REQUIRED` on an unaccepted policy. A stale token never quietly becomes a guest. `GET /api/feedback/:id` stays UUID only; `#N` lookup belongs to the feedback-links effort.
 - **One rule, in the model.** The read check takes an optional user. A thread is guest-readable when its type is a Votable board. The signed-in rule does not change.
 - **Rate limit.** Guest reads use the global limit. No new limiter.
 - **No schema change.**
