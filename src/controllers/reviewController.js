@@ -7,7 +7,7 @@ const { quarantineDays } = require('../config/quarantine');
 const { authorPayload } = require('../utils/authorPayload');
 const PendingUpdate = require('../models/PendingUpdate');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
-const { pendingStorageDir, THUMBNAIL_CONTENT_TYPES, readPendingContent } = require('../utils/fileStorage');
+const { THUMBNAIL_CONTENT_TYPES, readPendingContent, readPendingBytes } = require('../utils/fileStorage');
 const path = require('path');
 
 const NOT_FOUND = { success: false, error: 'World not found' };
@@ -187,11 +187,12 @@ exports.getThumbnail = async (req, res, next) => {
     if (!type) return res.status(404).json(NOT_FOUND);
 
     // The URL stays the same across re-edits, so the reader asks again every time.
+    const bytes = await readPendingBytes(fileName);
+    if (!bytes) return res.status(404).json(NOT_FOUND);
+
     res.set('Cache-Control', 'private, no-cache');
     res.type(type);
-    res.sendFile(fileName, { root: pendingStorageDir }, (error) => {
-      if (error && !res.headersSent) res.status(404).json(NOT_FOUND);
-    });
+    res.send(bytes);
   } catch (error) {
     next(error);
   }

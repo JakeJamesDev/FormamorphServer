@@ -1,17 +1,6 @@
-const fs = require('fs');
-const path = require('path');
 const { addColumns } = require('../columns');
-const { WORLDS_DIR } = require('../../config/paths');
+const { readWorldContentSync: readContent } = require('../../utils/fileStorage');
 const { appVersionOf } = require('../../utils/appVersion');
-
-/** A stored content file's parsed JSON, or null when it is gone or unreadable. */
-const readContent = (fileName) => {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(WORLDS_DIR, fileName), 'utf8'));
-  } catch {
-    return null;
-  }
-};
 
 /**
  * The app version a prompt listing's preset was made for, copied from its content at publish.

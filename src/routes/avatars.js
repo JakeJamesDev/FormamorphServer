@@ -1,4 +1,4 @@
-const { AVATARS_DIR } = require('../config/paths');
+const { openAvatar } = require('../utils/fileStorage');
 const { createImageAssetRouter } = require('./imageAssetRouter');
 
 /**
@@ -7,7 +7,7 @@ const { createImageAssetRouter } = require('./imageAssetRouter');
  * @access  Public
  */
 module.exports = createImageAssetRouter({
-  directory: AVATARS_DIR,
+  open: openAvatar,
   // Only what `saveAvatar` writes.
   contentTypes: {
     '.webp': 'image/webp',

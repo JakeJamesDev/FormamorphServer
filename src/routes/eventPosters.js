@@ -1,4 +1,4 @@
-const { EVENT_POSTERS_DIR } = require('../config/paths');
+const { openEventPoster } = require('../utils/fileStorage');
 const { createImageAssetRouter } = require('./imageAssetRouter');
 
 /**
@@ -7,7 +7,7 @@ const { createImageAssetRouter } = require('./imageAssetRouter');
  * @access  Public
  */
 module.exports = createImageAssetRouter({
-  directory: EVENT_POSTERS_DIR,
+  open: openEventPoster,
   // Only what `saveEventPoster` writes.
   contentTypes: {
     '.jpeg': 'image/jpeg',

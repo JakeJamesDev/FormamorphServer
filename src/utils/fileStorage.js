@@ -8,7 +8,8 @@ const {
   THUMBNAILS_DIR: thumbnailsStorageDir,
   PENDING_DIR: pendingStorageDir,
   AVATARS_DIR: avatarsStorageDir,
-  EVENT_POSTERS_DIR: eventPostersStorageDir
+  EVENT_POSTERS_DIR: eventPostersStorageDir,
+  SUPPORTER_PRIVATE_DIR: supporterStorageDir
 } = require('../config/paths');
 
 // Maximum world content size in bytes (100MB)
@@ -58,6 +59,7 @@ const initStorage = () => {
   if (!fs.existsSync(eventPostersStorageDir)) {
     fs.mkdirSync(eventPostersStorageDir, { recursive: true });
   }
+  fs.mkdirSync(supporterStorageDir, { recursive: true });
 };
 
 // Save world content to a file
@@ -386,8 +388,105 @@ const promotePendingFiles = ({ content, contentTarget, thumbnail }) => {
   }
 };
 
+// A name inside `directory`; basename strips any traversal segment.
+const storedPath = (directory, fileName) => path.join(directory, path.basename(fileName));
+
+// A stored file under `directory`, or null when it is gone.
+const readStored = async (directory, fileName) => {
+  try {
+    return await fs.promises.readFile(storedPath(directory, fileName));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+};
+
+// A read stream over a stored file, or null when it is gone.
+const openStored = (directory, fileName) => {
+  const filePath = storedPath(directory, fileName);
+  return fs.existsSync(filePath) ? fs.createReadStream(filePath) : null;
+};
+
+/** A listing's content file as raw bytes, or null when it is gone. */
+const readWorldContentBytes = (fileName) => readStored(worldsStorageDir, fileName);
+
+/** A listing's thumbnail as raw bytes, or null when it is gone. */
+const readThumbnailBytes = (fileName) => readStored(thumbnailsStorageDir, fileName);
+
+/** A pending update's file as raw bytes, or null when it is gone. */
+const readPendingBytes = (fileName) => readStored(pendingStorageDir, fileName);
+
+/** A listing's content parsed, or null when it is gone or unreadable. Synchronous, for migrations. */
+const readWorldContentSync = (fileName) => {
+  try {
+    return JSON.parse(fs.readFileSync(storedPath(worldsStorageDir, fileName), 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Whether a stored thumbnail holds exactly these bytes. A missing file holds nothing.
+ *
+ * @param {string} fileName - The stored filename
+ * @param {Buffer} expected - The bytes to compare with
+ * @returns {boolean} True on a byte-for-byte match
+ */
+const thumbnailEquals = (fileName, expected) => {
+  const filePath = storedPath(thumbnailsStorageDir, fileName);
+
+  try {
+    // The size first, so a listing with real art is never read in full.
+    return fs.statSync(filePath).size === expected.length && fs.readFileSync(filePath).equals(expected);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+};
+
+/** Read streams for the public image routes; each is null when the file is gone. */
+const openThumbnail = (fileName) => openStored(thumbnailsStorageDir, fileName);
+const openAvatar = (fileName) => openStored(avatarsStorageDir, fileName);
+const openEventPoster = (fileName) => openStored(eventPostersStorageDir, fileName);
+
+/**
+ * The private Supporter area. No route serves its directory, so a file here leaves the server only
+ * through a route that reads it by name. Keys are flat file names; basename strips traversal.
+ */
+const saveSupporterFile = async (fileName, data) => {
+  const name = path.basename(fileName);
+  await fs.promises.writeFile(path.join(supporterStorageDir, name), data);
+  return name;
+};
+
+/** A private Supporter file as raw bytes, or null when it is gone. */
+const readSupporterFile = (fileName) => readStored(supporterStorageDir, fileName);
+
+/** Delete a private Supporter file. Never throws on a file that is already gone. */
+const deleteSupporterFile = (fileName) => deleteImageAsset(fileName, {
+  directory: supporterStorageDir,
+  noun: 'supporter file'
+});
+
+/** Whether a private Supporter file exists. */
+const supporterFileExists = (fileName) =>
+  fs.existsSync(storedPath(supporterStorageDir, fileName));
+
 module.exports = {
   initStorage,
+  readWorldContentBytes,
+  readThumbnailBytes,
+  readPendingBytes,
+  readWorldContentSync,
+  thumbnailEquals,
+  openThumbnail,
+  openAvatar,
+  openEventPoster,
+  saveSupporterFile,
+  readSupporterFile,
+  deleteSupporterFile,
+  supporterFileExists,
+  supporterStorageDir,
   savePendingContent,
   readPendingContent,
   savePendingThumbnail,

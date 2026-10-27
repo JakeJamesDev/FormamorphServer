@@ -1,5 +1,4 @@
-const { THUMBNAILS_DIR } = require('../config/paths');
-const { THUMBNAIL_CONTENT_TYPES } = require('../utils/fileStorage');
+const { THUMBNAIL_CONTENT_TYPES, openThumbnail } = require('../utils/fileStorage');
 const { createImageAssetRouter } = require('./imageAssetRouter');
 
 /**
@@ -8,7 +7,7 @@ const { createImageAssetRouter } = require('./imageAssetRouter');
  * @access  Public
  */
 module.exports = createImageAssetRouter({
-  directory: THUMBNAILS_DIR,
+  open: openThumbnail,
   // Shared with `getThumbnailBase64`, which answers for these same files.
   contentTypes: THUMBNAIL_CONTENT_TYPES,
   noun: 'Thumbnail'

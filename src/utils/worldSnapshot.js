@@ -3,15 +3,14 @@ const path = require('path');
 const archiver = require('archiver');
 const { promisify } = require('util');
 const db = require('../config/db');
-const { readWorldContent } = require('./fileStorage');
+const { readWorldContentBytes, readThumbnailBytes } = require('./fileStorage');
 const Comment = require('../models/Comment');
 
-const readFile = promisify(fs.readFile);
 const mkdir = promisify(fs.mkdir);
 const stat = promisify(fs.stat);
 
 // Define paths (the shared, configurable ones come from config/paths)
-const { PROJECT_ROOT, WORLDS_DIR, THUMBNAILS_DIR } = require('../config/paths');
+const { PROJECT_ROOT } = require('../config/paths');
 const SNAPSHOTS_DIR = process.env.SNAPSHOTS_DIR || path.join(PROJECT_ROOT, 'snapshots');
 
 // Ensure directory exists
@@ -241,9 +240,8 @@ const createWorldSnapshot = async (customName = null) => {
         
         // Add world content file
         try {
-          const contentPath = path.join(WORLDS_DIR, world.content_file);
-          if (fs.existsSync(contentPath)) {
-            const contentData = await readFile(contentPath);
+          const contentData = await readWorldContentBytes(world.content_file);
+          if (contentData) {
             archive.append(contentData, {
               name: `${worldFolderName}/content.json`
             });
@@ -260,11 +258,10 @@ const createWorldSnapshot = async (customName = null) => {
         try {
           // Extract just the filename from the path
           const thumbnailFilename = world.thumbnail_file.split('/').pop();
-          const thumbnailPath = path.join(THUMBNAILS_DIR, thumbnailFilename);
-          
-          if (fs.existsSync(thumbnailPath)) {
+          const thumbnailData = await readThumbnailBytes(thumbnailFilename);
+
+          if (thumbnailData) {
             const thumbnailExt = path.extname(thumbnailFilename);
-            const thumbnailData = await readFile(thumbnailPath);
             archive.append(thumbnailData, {
               name: `${worldFolderName}/thumbnail${thumbnailExt}`
             });

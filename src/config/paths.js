@@ -34,6 +34,9 @@ const AVATARS_DIR = path.join(STORAGE_ROOT, 'avatars');
 /** Event poster artwork. Its own directory so deleting an event can never reach a listing's thumbnail. */
 const EVENT_POSTERS_DIR = path.join(STORAGE_ROOT, 'event-posters');
 
+/** Supporter-only content. No route serves this directory; only the storage interface reaches it. */
+const SUPPORTER_PRIVATE_DIR = path.join(STORAGE_ROOT, 'supporter-private');
+
 /** The bundled fingerprint list, copied in from the client repo. Tests point it at a fixture list. */
 const BUNDLED_FINGERPRINTS_PATH = process.env.BUNDLED_FINGERPRINTS_PATH
   ? path.resolve(PROJECT_ROOT, process.env.BUNDLED_FINGERPRINTS_PATH)
@@ -49,5 +52,6 @@ module.exports = {
   PENDING_DIR,
   AVATARS_DIR,
   EVENT_POSTERS_DIR,
+  SUPPORTER_PRIVATE_DIR,
   BUNDLED_FINGERPRINTS_PATH,
 };

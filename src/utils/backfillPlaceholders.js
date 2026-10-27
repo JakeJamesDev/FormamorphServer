@@ -1,7 +1,5 @@
-const fs = require('fs');
-const path = require('path');
 const db = require('../config/db');
-const { THUMBNAILS_DIR } = require('../config/paths');
+const { thumbnailEquals: storedBytesEqual } = require('./fileStorage');
 const { KINDS, rulesFor } = require('../config/kinds');
 const { placeholderFor } = require('../config/placeholderThumbnails');
 
@@ -13,25 +11,6 @@ const { placeholderFor } = require('../config/placeholderThumbnails');
  * @returns {Buffer} The stored bytes
  */
 const storedStandIn = (kind) => Buffer.from(placeholderFor(kind).split(',')[1], 'base64');
-
-/**
- * Whether a stored thumbnail holds exactly these bytes. A missing file holds nothing.
- *
- * @param {string} fileName - The stored filename
- * @param {Buffer} expected - The bytes to compare with
- * @returns {boolean} True on a byte-for-byte match
- */
-const storedBytesEqual = (fileName, expected) => {
-  const filePath = path.join(THUMBNAILS_DIR, path.basename(fileName));
-
-  try {
-    // The size first, so a listing with real art is never read in full.
-    return fs.statSync(filePath).size === expected.length && fs.readFileSync(filePath).equals(expected);
-  } catch (error) {
-    if (error.code === 'ENOENT') return false;
-    throw error;
-  }
-};
 
 /**
  * Flag the listings published before the flag existed whose thumbnail is still the stand-in.

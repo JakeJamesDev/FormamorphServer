@@ -12,7 +12,14 @@ const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
 // Define paths (the shared, configurable ones come from config/paths)
-const { PROJECT_ROOT, DB_PATH: DATABASE_PATH, WORLDS_DIR, THUMBNAILS_DIR, PENDING_DIR, AVATARS_DIR } = require('../config/paths');
+const { PROJECT_ROOT, DB_PATH: DATABASE_PATH } = require('../config/paths');
+const {
+  worldsStorageDir: WORLDS_DIR,
+  thumbnailsStorageDir: THUMBNAILS_DIR,
+  pendingStorageDir: PENDING_DIR,
+  avatarsStorageDir: AVATARS_DIR,
+  supporterStorageDir: SUPPORTER_DIR
+} = require('./fileStorage');
 const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
 // Utility function to ensure directory exists
@@ -316,6 +323,14 @@ const backupPending = async (backupDir) => {
   console.log(`✓ ${finalCount} pending update files backed up successfully`);
 };
 
+// Backup the private Supporter content
+const backupSupporter = async (backupDir) => {
+  console.log('Backing up Supporter content...');
+  await ensureDir(SUPPORTER_DIR);
+  const finalCount = await copyDirectory(SUPPORTER_DIR, path.join(backupDir, 'supporter-private'));
+  console.log(`✓ ${finalCount} Supporter content files backed up successfully`);
+};
+
 // Create complete backup
 const createBackup = async (customBackupName = null) => {
   try {
@@ -336,6 +351,7 @@ const createBackup = async (customBackupName = null) => {
     await backupThumbnails(backupDir);
     await backupAvatars(backupDir);
     await backupPending(backupDir);
+    await backupSupporter(backupDir);
 
     // Create manifest
     console.log('Creating backup manifest...');
@@ -517,6 +533,22 @@ const restorePending = async (backupDir) => {
   console.log(`✓ ${finalCount} pending update files restored successfully`);
 };
 
+// Restore the private Supporter content
+const restoreSupporter = async (backupDir) => {
+  console.log('Restoring Supporter content...');
+  const supporterBackupDir = path.join(backupDir, 'supporter-private');
+
+  // Not an error when absent: a backup taken before Supporter content existed has no such directory.
+  if (!fs.existsSync(supporterBackupDir)) {
+    console.warn('Warning: No Supporter content in this backup, skipping');
+    return;
+  }
+
+  await ensureDir(SUPPORTER_DIR);
+  const finalCount = await copyDirectory(supporterBackupDir, SUPPORTER_DIR);
+  console.log(`✓ ${finalCount} Supporter content files restored successfully`);
+};
+
 // Restore from backup
 const restoreFromBackup = async (backupName) => {
   try {
@@ -539,6 +571,7 @@ const restoreFromBackup = async (backupName) => {
     await restoreThumbnails(backupPath);
     await restoreAvatars(backupPath);
     await restorePending(backupPath);
+    await restoreSupporter(backupPath);
 
     console.log('\n=== Restore Complete ===');
     console.log('All data has been restored from backup');

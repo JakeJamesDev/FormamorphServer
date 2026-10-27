@@ -1,6 +1,5 @@
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 
 /**
  * A router serving one directory of uploaded images.
@@ -11,12 +10,12 @@ const fs = require('fs');
  * factory rather than a copy each, so a fix to any of that lands on all of them at once.
  *
  * @param {Object} options
- * @param {string} options.directory - Where the files are stored
+ * @param {function(string): (import('fs').ReadStream|null)} options.open - The storage opener; null on a miss
  * @param {Object} options.contentTypes - Lowercase extension (with the dot) to the type it is served as
  * @param {string} options.noun - What the 404 calls a miss, capitalized ("Avatar", "Poster")
  * @returns {import('express').Router} A router with the filename route mounted at its root
  */
-const createImageAssetRouter = ({ directory, contentTypes, noun }) => {
+const createImageAssetRouter = ({ open, contentTypes, noun }) => {
   const router = express.Router();
   const types = Object.assign(Object.create(null), contentTypes);
   const notFound = { success: false, error: `${noun} not found` };
@@ -32,8 +31,8 @@ const createImageAssetRouter = ({ directory, contentTypes, noun }) => {
         return res.status(404).json(notFound);
       }
 
-      const filePath = path.join(directory, filename);
-      if (!fs.existsSync(filePath)) {
+      const stream = open(filename);
+      if (!stream) {
         return res.status(404).json(notFound);
       }
 
@@ -47,7 +46,8 @@ const createImageAssetRouter = ({ directory, contentTypes, noun }) => {
       // Cross-Origin-Resource-Policy — otherwise the browser blocks the image from loading.
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      fs.createReadStream(filePath).pipe(res);
+      stream.on('error', next);
+      stream.pipe(res);
     } catch (error) {
       next(error);
     }
