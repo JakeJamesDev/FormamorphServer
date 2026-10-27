@@ -26,7 +26,7 @@ The client spec holds the full list. The server owns these:
 
 ## Implementation Decisions
 
-- **Thread number.** A schema step adds a unique, non-null `number` to feedback, one sequence across all types. It backfills existing rows in creation order (ties broken by id). New threads take the next number in the same transaction as the insert. Every thread DTO returns `number`. Thread reads accept a number as well as the UUID.
+- **Thread number.** A schema step adds a unique, non-null `number` to feedback, one sequence across all types. It backfills existing rows in creation order (ties broken by id). New threads take the next number from a never-reused counter, seeded from the backfill and advanced in the insert's transaction, so a deleted thread's number stays dead (client Q30). Every thread DTO returns `number`. Thread reads accept a number as well as the UUID.
 - **Mentions table.** A `feedback_mentions` record holds (thread, source post, mentioned user). The source is the thread body or one comment. It cascades on thread, comment and user delete. Writes to a body or a comment replace that source's rows in the same transaction.
 - **Parse on write.** The grammar matches the client spec: skip fenced code and inline code, word boundary before `@` and `#`, case-insensitive usernames. Only usernames that resolve to an account are recorded. Self-mentions are dropped. Repeats count once.
 - **Cap.** Distinct mentioned users per post, after self and unknowns are dropped: admin no cap, moderator 10, everyone else 5. Over the cap, the write is refused with a 400 that names the cap. The role is the writer's role at write time.
