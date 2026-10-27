@@ -101,6 +101,7 @@ describe('the account payload', () => {
   it.each([
     ['an inner space stays and an outside character drops', 'ann  lee!', 'ann lee'],
     ['an inner tab drops', 'ann\tlee', 'annlee'],
+    ['spaces around a dropped character collapse before the cut', 'abcdefghij . klmnopqrs', 'abcdefghij klmnopqrs'],
     ['other characters drop', 'zoë.lee!', 'zolee'],
     ['the cleaned name is cut to 20', 'a long name with many words', 'a long name with man'],
     ['a cut that leaves a trailing space is trimmed', 'abcdefghijklmnopqrs tu', 'abcdefghijklmnopqrs'],
