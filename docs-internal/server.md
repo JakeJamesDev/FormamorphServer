@@ -183,6 +183,13 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-27** — deployed `25c7d7b`: listing review with pending updates and trusted authors, feedback
+  questions, numbers, links, mentions and guest reads, the username character rule with flagged renames,
+  and an updated bundled fingerprint list. All 2,503 tests passed in 31.9 s wall time. Backup
+  `backups/pre-deploy-8ea2778-2026-10-27T12-32-51.262Z.db`, integrity `ok`. Boot applied `feedbackQuestions`,
+  `acceptedAnswer`, `moderationState`, `auditTarget`, `trustedAt`, `feedbackNumber` and `usernameRename`.
+  `feedbackQuestions` rebuilds the `feedback` table, so a rollback needs the backup restored. Service active
+  with zero restarts, boot logged `Server running on port`, public route 200.
 - **2026-10-23** — OS update, no code change: `apt-get upgrade` took systemd to 259.9, Node to 24.22.1, Caddy
   to 2.11.7, plus snapd and netplan. `cloud-init` and `tmux` stayed held back. The API and the other flagged
   services restarted; boot logged `Server running on port`, public routes 200. A reboot then loaded kernel
