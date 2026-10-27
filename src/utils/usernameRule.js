@@ -1,9 +1,5 @@
 const User = require('../models/User');
-
-// The feedback mention token's character set, so every name can be mentioned.
-const USERNAME_PATTERN = /^[A-Za-z0-9_-]{3,20}$/;
-
-const USERNAME_RULE = '3–20 letters, numbers, _ or -';
+const { USERNAME_PATTERN, OUTSIDE_USERNAME_CHARS, USERNAME_MAX, USERNAME_RULE } = require('../config/username');
 
 const USERNAME_TAKEN = { code: 'USERNAME_TAKEN', error: 'Username already exists' };
 
@@ -33,4 +29,31 @@ const checkUsername = (name, { exceptUserId } = {}) => {
   return { ok: true, name: trimmed };
 };
 
-module.exports = { checkUsername, USERNAME_RULE, USERNAME_TAKEN };
+/**
+ * The name a flagged account's rename field starts with, or null when the cleaned name would be refused.
+ *
+ * @param {Object} user - A users row with `id` and `username`
+ * @returns {string|null}
+ */
+const renameSuggestion = (user) => {
+  const cleaned = user.username
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(OUTSIDE_USERNAME_CHARS, '')
+    .slice(0, USERNAME_MAX);
+  const verdict = checkUsername(cleaned, { exceptUserId: user.id });
+
+  return verdict.ok ? verdict.name : null;
+};
+
+/**
+ * The account payload's rename state.
+ *
+ * @param {Object} user - A users row with `username_rename_required`
+ * @returns {{required: true, suggestion: string|null} | null}
+ */
+const usernameRename = (user) => (user.username_rename_required
+  ? { required: true, suggestion: renameSuggestion(user) }
+  : null);
+
+module.exports = { checkUsername, usernameRename, USERNAME_RULE, USERNAME_TAKEN };

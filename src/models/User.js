@@ -46,8 +46,21 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, email, email_verified_at, status, suspended_until, account_type, trusted_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, username_rename_required, email, email_verified_at, status, suspended_until, account_type, trusted_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
+
+  /**
+   * Give a flagged account its new name and clear the flag, in one statement.
+   *
+   * @param {string} id - User ID
+   * @param {string} username - The checked new name
+   * @returns {boolean} Whether this call renamed it
+   */
+  renameFlagged: (id, username) => db.prepare(`
+    UPDATE users
+    SET username = @username, username_rename_required = 0, updated_at = @now
+    WHERE id = @id AND username_rename_required = 1
+  `).run({ id, username, now: new Date().toISOString() }).changes > 0,
 
   /**
    * Grant or revoke trusted-author status. A grant keeps the first `trusted_at`.

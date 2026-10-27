@@ -50,6 +50,8 @@ const ACTIONS = [
   'account_deletion_requested',
   'account_deletion_canceled',
   'account_deleted',
+  // A flagged account chose a new name. The old name is the target name, the new one the snippet.
+  'username_changed',
   // Somebody read the accounts a Signal links to another account. Logged because linkage data is the
   // one thing in here that says where a person was, so looking at it is itself an act with a name on it.
   'signals_viewed',

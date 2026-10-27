@@ -1,7 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { register, login, getMe, changePassword, requestAccountDeletion, verifyEmail, setEmail, resendVerification, requestPasswordReset, resetPassword } = require('../controllers/authController');
+const { register, login, getMe, renameUsername, changePassword, requestAccountDeletion, verifyEmail, setEmail, resendVerification, requestPasswordReset, resetPassword } = require('../controllers/authController');
 const { protect, protectBeforePolicy, protectDeletionRequest } = require('../middleware/auth');
 const { clientIpKeyGenerator, resetAccountKeyGenerator } = require('../utils/rateLimitKey');
 const { MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS } = require('../config/mail');
@@ -115,6 +115,9 @@ router.post(
 
 // Get current user
 router.get('/me', protect, getMe);
+
+// Choose a new name, for an account the username rule flagged.
+router.post('/username', authLimiter, protect, renameUsername);
 
 // Change password. Exempt from the Privacy Policy gate: securing an account you suspect is compromised
 // must not wait on reading a policy.

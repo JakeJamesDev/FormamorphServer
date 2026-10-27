@@ -50,6 +50,7 @@ const STEPS = [
   require('./steps/auditTarget'),
   require('./steps/trustedAt'),
   require('./steps/feedbackNumber'),
+  require('./steps/usernameRename'),
   require('./indexes')
 ];
 

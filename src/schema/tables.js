@@ -55,6 +55,8 @@ const apply = (database) => {
       email_verified_at TEXT,
       -- When an admin made this account a trusted author, whose uploads skip review. Null when not.
       trusted_at TEXT,
+      -- Set when the name breaks the username rule or is a newer case twin; the rename route clears it.
+      username_rename_required INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

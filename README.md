@@ -153,7 +153,8 @@ server/
 - `POST /api/auth/resend-verification` - Ask for the verification mail again. No body
 - `POST /api/auth/request-password-reset` - Ask for a reset link. Body: `account`, an email address or a username. Always answers the same
 - `POST /api/auth/reset-password` - Set a new password. Body: the `token` out of the mailed link and `newPassword`
-- `GET /api/auth/me` - Get current user profile, including `email` and `emailVerified`
+- `GET /api/auth/me` - Get current user profile, including `email`, `emailVerified` and `usernameRename`
+- `POST /api/auth/username` - Choose a new name for an account flagged by the username rule. Body: `username`. Applies the register checks and codes, clears the flag and answers `{ success, user }` with no new token. An unflagged account is refused with 403
 
 #### Email and verification
 
@@ -438,12 +439,27 @@ client has a screen to open rather than a message to print. An older build that 
 | `TERMS_REQUIRED` | 403 | Publishing or updating a listing while the upload gate is enabled and unaccepted | Opens the contributor terms, then retries |
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
 | `EMAIL_TAKEN` | 409 | Registering with, or setting, an address another account already holds | Points at sign-in and password reset, rather than at the email box |
-| `USERNAME_INVALID` | 400 | Registering with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, _ or -" |
-| `USERNAME_TAKEN` | 400 | Registering with a name another account holds, ignoring case | Asks for another name |
+| `USERNAME_INVALID` | 400 | Registering or renaming with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, _ or -" |
+| `USERNAME_TAKEN` | 400 | Registering or renaming with a name another account holds, ignoring case | Asks for another name |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
 **Username rule.** Registration trims the typed name, then accepts only `[A-Za-z0-9_-]{3,20}` that no
-other account holds ignoring case. Accounts made before the rule keep their names.
+other account holds ignoring case.
+
+**Rename flag.** A one-time schema step flags every account whose name breaks the rule, and every account
+in a case-twin group except the oldest. The `[deleted user]` placeholder is never flagged. A flagged
+account signs in with its old name. Every account payload (register, login, `/me`, set-email, rename)
+carries `usernameRename`:
+
+| Value | Meaning |
+|---|---|
+| `null` | No rename needed |
+| `{ required: true, suggestion }` | The account must call `POST /api/auth/username` |
+
+`suggestion` is the old name trimmed, with whitespace runs turned into `_`, other characters dropped and
+cut to 20. It is `null` when that is shorter than 3 or taken ignoring case. A rename writes a
+`username_changed` audit row: the old name as target, the new one as snippet. Older log rows keep the
+name they recorded, and the old name reaches no profile.
 
 `PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,
 change-password, delete-account, and everything under `/api/policies`. It applies to suspended accounts

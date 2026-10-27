@@ -10,7 +10,7 @@ const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
 const { VERIFY, RESET } = require('../config/accountTokens');
 const { PASSWORD_MIN_LENGTH, PASSWORD_RULE } = require('../config/password');
-const { checkUsername, USERNAME_TAKEN } =require('../utils/usernameRule');
+const { checkUsername, usernameRename, USERNAME_TAKEN } = require('../utils/usernameRule');
 const { validationResult } = require('express-validator');
 
 /**
@@ -31,7 +31,8 @@ const accountSummary = (user) => ({
   status: user.status,
   suspendedUntil: user.suspended_until,
   accountType: user.account_type,
-  avatarUrl: avatarUrlFor(user.avatar_file)
+  avatarUrl: avatarUrlFor(user.avatar_file),
+  usernameRename: usernameRename(user)
 });
 
 /**
@@ -305,6 +306,46 @@ exports.getMe = async (req, res, next) => {
     res.status(200).json({
       success: true,
       user: { ...accountSummary(user), createdAt: user.created_at }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const NO_RENAME_NEEDED = { success: false, error: 'This account does not need a new username' };
+
+/**
+ * @desc    Choose a new name for an account flagged by the username rule
+ * @route   POST /api/auth/username
+ * @access  Private (flagged accounts only)
+ */
+exports.renameUsername = async (req, res, next) => {
+  try {
+    const current = User.findById(req.user.id);
+
+    // Only a flagged account can rename.
+    if (!current.username_rename_required) return res.status(403).json(NO_RENAME_NEEDED);
+
+    const verdict = checkUsername(req.body.username, { exceptUserId: current.id });
+    if (!verdict.ok) {
+      return res.status(400).json({ success: false, code: verdict.code, error: verdict.error });
+    }
+
+    // Nothing awaits between the check and the write, so no other request can take the name in between.
+    User.renameFlagged(current.id, verdict.name);
+
+    AuditLog.tryRecord({
+      action: 'username_changed',
+      actor: current,
+      targetUser: current,
+      targetKind: 'account',
+      targetName: current.username,
+      snippet: verdict.name
+    });
+
+    res.status(200).json({
+      success: true,
+      user: accountSummary(User.findById(current.id))
     });
   } catch (error) {
     next(error);
