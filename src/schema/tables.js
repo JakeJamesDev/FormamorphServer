@@ -392,6 +392,20 @@ const apply = (database) => {
     )
   `);
 
+  // Who each post mentions: the thread body when `comment_id` is null, else that comment. Rewritten with
+  // the post, so it always matches the current text. `created_at` is when the mention first appeared.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_mentions (
+      feedback_id TEXT NOT NULL,
+      comment_id TEXT,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (feedback_id) REFERENCES feedback (id) ON DELETE CASCADE,
+      FOREIGN KEY (comment_id) REFERENCES feedback_comments (id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   // One like per account per listing. Separate from the `downloads` counter on the row rather than a
   // second column beside it, because the two answer different questions: downloads count how many people
   // tried something, likes how many were glad they did — and only the second needs to know who, so it can

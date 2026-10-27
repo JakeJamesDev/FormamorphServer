@@ -20,7 +20,7 @@ describe('harness', () => {
       .all()
       .map((r) => r.name);
     expect(tables).toEqual([
-      'account_tokens', 'anonymous_likes', 'audit_log', 'comments', 'event_placements', 'events', 'feedback', 'feedback_comments', 'feedback_reads',
+      'account_tokens', 'anonymous_likes', 'audit_log', 'comments', 'event_placements', 'events', 'feedback', 'feedback_comments', 'feedback_mentions', 'feedback_reads',
       'feedback_sequence', 'feedback_votes', 'follows', 'install_claims', 'listing_compatibility', 'listing_dependencies', 'message_states', 'messages',
       'patreon_links', 'patreon_pending_links', 'pending_updates', 'policies', 'policy_acceptances', 'reports', 'settings', 'signals', 'users', 'world_changelog', 'world_likes', 'worlds'
     ]);

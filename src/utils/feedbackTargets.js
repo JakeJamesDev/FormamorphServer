@@ -1,6 +1,8 @@
 const Feedback = require('../models/Feedback');
 const World = require('../models/World');
 const { parseLinks } = require('./feedbackLinks');
+const { accountsFor } = require('./feedbackMentions');
+const { avatarUrlFor } = require('./avatarUrl');
 
 /**
  * What a reader may know about a thread they can read.
@@ -13,7 +15,8 @@ const threadSummary = (row) => ({ number: row.number, title: row.title, type: ro
  * Resolve the links of many posts for one reader, in one query per link kind.
  *
  * A target the reader cannot read and one that does not exist come back the same: `available: false`
- * and nothing else. A listing resolves only while it is publicly visible, whoever is reading.
+ * and nothing else. A listing resolves only while it is publicly visible, whoever is reading; a user only
+ * while their profile is shown by name.
  *
  * @param {Array<string>} texts - Thread bodies and comments; titles are never passed
  * @param {Object} [reader] - The signed-in user, or none for a guest
@@ -41,7 +44,15 @@ const resolverFor = (texts, reader) => {
     for (const row of World.findPublicByIds([...listingIds])) listings.set(`${row.kind}/${row.id}`, row);
   }
 
-  const targetOf = ({ kind, ref }) => {
+  const accountsOf = accountsFor(texts);
+
+  const targetOf = ({ kind, ref }, accounts) => {
+    if (kind === 'user') {
+      const user = accounts.get(ref);
+      return user
+        ? { kind, ref, available: true, id: user.id, username: user.username, avatarUrl: avatarUrlFor(user.avatar_file) }
+        : { kind, ref, available: false };
+    }
     if (kind === 'thread') {
       const row = threads.get(ref);
       return row ? { kind, ref, available: true, ...threadSummary(row) } : { kind, ref, available: false };
@@ -63,12 +74,12 @@ const resolverFor = (texts, reader) => {
   return (text) => {
     const seen = new Set();
     const targets = [];
+    const accounts = accountsOf(text);
     for (const link of parseLinks(text)) {
       const key = `${link.kind}:${link.ref}`;
-      // A mention carries no target here.
-      if (link.kind === 'user' || seen.has(key)) continue;
+      if (seen.has(key)) continue;
       seen.add(key);
-      targets.push(targetOf(link));
+      targets.push(targetOf(link, accounts));
     }
     return targets;
   };

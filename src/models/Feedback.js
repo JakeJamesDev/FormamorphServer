@@ -1,5 +1,5 @@
 const db = require('../config/db');
-const { isStaff } = require('../config/roles');
+const { isStaff, STAFF_ROLES } = require('../config/roles');
 const { v4: uuidv4 } = require('uuid');
 
 /** The three branches of the tree. They share a thread, a status and a read-marker; little else. */
@@ -105,8 +105,9 @@ const FEEDBACK_SELECT = `
  *
  * The branches answer it differently. A bug is between its reporter and the team, so admins are a
  * party to every one — that is what makes the queue badge work. A suggestion is open to everyone, where
- * the only meaningful line is whether you have written in it: filed it, or replied to it. A question adds
- * its voters, since a "me too" is waiting on the answer as much as the asker is. Staff get no blanket
+ * the only meaningful line is whether you have written in it: filed it, or replied to it — or been
+ * mentioned in it, which pulls you in as a reply would. A question adds its voters, since a "me too" is
+ * waiting on the answer as much as the asker is. A mention in a bug grants nothing. Staff get no blanket
  * claim on suggestions or questions. Must agree with `hasParticipated`.
  *
  * @param {boolean} isAdmin - Whether the reader is an admin
@@ -122,6 +123,10 @@ const participationClause = (isAdmin) => `
         SELECT 1 FROM feedback_comments mine
         WHERE mine.feedback_id = r.id AND mine.author_id = @userId
       )
+      OR EXISTS (
+        SELECT 1 FROM feedback_mentions mention
+        WHERE mention.feedback_id = r.id AND mention.user_id = @userId
+      )
       OR (r.type = 'question' AND EXISTS (
         SELECT 1 FROM feedback_votes myvote
         WHERE myvote.feedback_id = r.id AND myvote.user_id = @userId
@@ -129,6 +134,48 @@ const participationClause = (isAdmin) => `
     ))
   )
 `;
+
+/**
+ * Whether a thread holds something this reader has not seen: somebody else's comment, or, on a
+ * suggestion or a question, a mention of them. A SQL predicate over `r` and the reader's marker `s`,
+ * reading `@userId`; pairs with `participationClause`.
+ */
+const NEWS_CLAUSE = `
+  (
+    EXISTS (
+      SELECT 1 FROM feedback_comments c
+      WHERE c.feedback_id = r.id
+        AND (c.author_id IS NULL OR c.author_id <> @userId)
+        AND (s.last_seen_at IS NULL OR c.created_at > s.last_seen_at)
+    )
+    OR (r.type IN ('suggestion', 'question') AND EXISTS (
+      SELECT 1 FROM feedback_mentions m
+      WHERE m.feedback_id = r.id AND m.user_id = @userId
+        AND (s.last_seen_at IS NULL OR m.created_at > s.last_seen_at)
+    ))
+  )
+`;
+
+/**
+ * Make one post's mention rows match the users it now mentions. A mention kept across an edit keeps its
+ * time, so re-saving a post never badges anyone again. Call inside the write's transaction.
+ *
+ * @param {string} feedbackId - Feedback ID
+ * @param {string|null} commentId - The comment, or null for the thread body
+ * @param {Array<string>} userIds - Everyone the post mentions now
+ * @param {string} now - The write's ISO time
+ */
+const setMentions = (feedbackId, commentId, userIds, now) => {
+  const kept = new Set(userIds);
+  const stored = db.prepare('SELECT user_id FROM feedback_mentions WHERE feedback_id = ? AND comment_id IS ?')
+    .all(feedbackId, commentId).map((row) => row.user_id);
+
+  const remove = db.prepare('DELETE FROM feedback_mentions WHERE feedback_id = ? AND comment_id IS ? AND user_id = ?');
+  for (const userId of stored) if (!kept.has(userId)) remove.run(feedbackId, commentId, userId);
+
+  const add = db.prepare('INSERT INTO feedback_mentions (feedback_id, comment_id, user_id, created_at) VALUES (?, ?, ?, ?)');
+  for (const userId of kept) if (!stored.includes(userId)) add.run(feedbackId, commentId, userId, now);
+};
 
 /** Orders the list may be asked for. A whitelist: the value is interpolated into the ORDER BY. */
 const SORT_FIELDS = Object.assign(Object.create(null), {
@@ -163,10 +210,11 @@ const Feedback = {
    * A suggestion or a question is auto-voted by its author in the same transaction: nobody files something
    * they don't want, and a board of zeroes reads as nobody caring.
    *
-   * @param {Object} data - `{ type, reporterId, title, category, body, diagnostics }`
+   * @param {Object} data - `{ type, reporterId, title, category, body, diagnostics, mentions }`; `mentions`
+   *   is the user ids the body mentions
    * @returns {Object} The stored thread
    */
-  create: ({ type = 'bug', reporterId, reporterRole = null, title, category, body, diagnostics }) => {
+  create: ({ type = 'bug', reporterId, reporterRole = null, title, category, body, diagnostics, mentions = [] }) => {
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -183,6 +231,7 @@ const Feedback = {
         INSERT INTO feedback (id, number, type, reporter_id, reporter_role, title, category, body, status, diagnostics, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
       `).run(id, next, type, reporterId, reporterRole, title, category, body, JSON.stringify(diagnostics || {}), now, now);
+      setMentions(id, null, mentions, now);
 
       if (isVotableBoard(type)) {
         db.prepare('INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)')
@@ -372,13 +421,15 @@ const Feedback = {
    * and the version/platform line was collected under bug rules.
    *
    * Votes stay across a move; an accepted answer does not. A move into a question makes every voter a party
-   * to it, so each gets a read marker in the same transaction: the move alone must not raise their badge.
+   * to it, and a move out of bugs does the same for everyone mentioned, so each gets a read marker in the
+   * same transaction: the move alone must not raise their badge.
    *
    * @param {string} id - Feedback ID
-   * @param {Object} fields - `{ title, body, category, type }`, any subset
+   * @param {Object} fields - `{ title, body, category, type, mentions }`, any subset; `mentions` goes with
+   *   `body` and is the user ids it mentions
    * @returns {Object|undefined} The updated thread
    */
-  update: (id, { title, body, category, type } = {}) => {
+  update: (id, { title, body, category, type, mentions = [] } = {}) => {
     const sets = [];
     const params = [];
 
@@ -394,9 +445,23 @@ const Feedback = {
 
     const now = new Date().toISOString();
     db.transaction(() => {
+      const before = db.prepare('SELECT type, reporter_id FROM feedback WHERE id = ?').get(id);
       db.prepare(`UPDATE feedback SET ${sets.join(', ')}, edited_at = ?, updated_at = ? WHERE id = ?`)
         .run(...params, now, now, id);
 
+      // Before this write's own mentions are stored: one added now is news, not part of the move.
+      if (before && before.type === 'bug' && isVotableBoard(type)) {
+        // The reporter and staff were parties to the bug already, so their unread state stands.
+        db.prepare(`
+          INSERT INTO feedback_reads (feedback_id, user_id, last_seen_at)
+          SELECT DISTINCT m.feedback_id, m.user_id, @now FROM feedback_mentions m
+          JOIN users u ON u.id = m.user_id
+          WHERE m.feedback_id = @id AND m.user_id IS NOT @reporter
+            AND u.account_type NOT IN (SELECT value FROM json_each(@staff))
+          ON CONFLICT(feedback_id, user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+        `).run({ id, now, reporter: before.reporter_id, staff: JSON.stringify(STAFF_ROLES) });
+      }
+      if (body !== undefined) setMentions(id, null, mentions, now);
       if (type === 'question') {
         db.prepare(`
           INSERT INTO feedback_reads (feedback_id, user_id, last_seen_at)
@@ -528,20 +593,24 @@ const Feedback = {
   /**
    * Add a comment, and touch the thread so an admin's queue sorts by real activity.
    *
-   * @param {Object} data - `{ feedbackId, authorId, body }`
+   * @param {Object} data - `{ feedbackId, authorId, body, authorRole, mentions }`; `mentions` is the user
+   *   ids the body mentions
    * @returns {Object} The stored comment
    */
-  addComment: ({ feedbackId, authorId, body, authorRole = null }) => {
+  addComment: ({ feedbackId, authorId, body, authorRole = null, mentions = [] }) => {
     const id = uuidv4();
     const now = new Date().toISOString();
 
-    // `authorRole` is a snapshot, not a join: a reply signed by the team has to keep saying so after the
-    // person who wrote it stops being staff, and must not start saying so when somebody is promoted.
-    db.prepare(`
-      INSERT INTO feedback_comments (id, feedback_id, author_id, body, created_at, author_role)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, feedbackId, authorId, body, now, authorRole);
-    db.prepare('UPDATE feedback SET updated_at = ? WHERE id = ?').run(now, feedbackId);
+    db.transaction(() => {
+      // `authorRole` is a snapshot, not a join: a reply signed by the team has to keep saying so after the
+      // person who wrote it stops being staff, and must not start saying so when somebody is promoted.
+      db.prepare(`
+        INSERT INTO feedback_comments (id, feedback_id, author_id, body, created_at, author_role)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, feedbackId, authorId, body, now, authorRole);
+      db.prepare('UPDATE feedback SET updated_at = ? WHERE id = ?').run(now, feedbackId);
+      setMentions(feedbackId, id, mentions, now);
+    })();
 
     return db.prepare(`
       SELECT c.*, u.username AS author_username, u.account_type AS author_account_type,
@@ -562,13 +631,17 @@ const Feedback = {
   /**
    * Rewrite a comment, stamping `edited_at` so the thread can say so.
    *
-   * @param {string} id - Comment ID
+   * @param {Object} comment - The comment row, `{ id, feedback_id }`
    * @param {string} body - The new text
+   * @param {Array<string>} [mentions] - The user ids the new text mentions
    * @returns {Object} The updated comment, with its author's name
    */
-  updateComment: (id, body) => {
-    db.prepare('UPDATE feedback_comments SET body = ?, edited_at = ? WHERE id = ?')
-      .run(body, new Date().toISOString(), id);
+  updateComment: ({ id, feedback_id: feedbackId }, body, mentions = []) => {
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare('UPDATE feedback_comments SET body = ?, edited_at = ? WHERE id = ?').run(body, now, id);
+      setMentions(feedbackId, id, mentions, now);
+    })();
 
     return db.prepare(`
       SELECT c.*, u.username AS author_username, u.account_type AS author_account_type,
@@ -580,8 +653,9 @@ const Feedback = {
   },
 
   /**
-   * Remove a comment outright. The thread's own `updated_at` is left alone: it records when the thread
-   * last had something to read, and taking words away is not new activity to sort a queue by.
+   * Remove a comment outright, and its mentions with it (ON DELETE CASCADE). The thread's own `updated_at`
+   * is left alone: it records when the thread last had something to read, and taking words away is not
+   * new activity to sort a queue by.
    *
    * @param {string} id - Comment ID
    */
@@ -590,9 +664,10 @@ const Feedback = {
   },
 
   /**
-   * Whether this user has written in a thread — filed it, or replied to it — or, on a question, voted on
-   * it. What decides whether a new comment is theirs to be told about, and so whether reading records a
-   * marker at all. Must agree with `participationClause`.
+   * Whether this user has written in a thread — filed it, or replied to it — or, on a suggestion or a
+   * question, been mentioned in it, or, on a question, voted on it. What decides whether a new comment is
+   * theirs to be told about, and so whether reading records a marker at all. Must agree with
+   * `participationClause`.
    *
    * @param {Object} thread - The thread row
    * @param {string} userId - User ID
@@ -605,6 +680,11 @@ const Feedback = {
     const row = db.prepare('SELECT 1 AS found FROM feedback_comments WHERE feedback_id = ? AND author_id = ? LIMIT 1')
       .get(thread.id, userId);
     if (row) return true;
+    if (!isVotableBoard(thread.type)) return false;
+
+    const mentioned = db.prepare('SELECT 1 AS found FROM feedback_mentions WHERE feedback_id = ? AND user_id = ? LIMIT 1')
+      .get(thread.id, userId);
+    if (mentioned) return true;
 
     return thread.type === 'question' && Feedback.hasVoted(thread.id, userId);
   },
@@ -623,11 +703,11 @@ const Feedback = {
   },
 
   /**
-   * How many of this user's threads hold a comment they have not seen.
+   * How many of this user's threads hold something they have not seen.
    *
    * Only somebody else's comments count — your own reply is not news to you — and a thread never read
-   * counts as soon as anyone else has written in it. Which threads count as theirs differs by type; see
-   * `participationClause`.
+   * counts as soon as anyone else has written in it. A mention is news too, until read. Which threads
+   * count as theirs differs by type; see `participationClause`.
    *
    * Compared as raw ISO strings rather than through `datetime()`, which truncates to whole seconds: a
    * reply landing in the same second as the read would otherwise never raise the badge.
@@ -637,20 +717,18 @@ const Feedback = {
    */
   unreadCount: (user) => {
     const row = db.prepare(`
-      SELECT COUNT(DISTINCT c.feedback_id) AS count
-      FROM feedback_comments c
-      JOIN feedback r ON r.id = c.feedback_id
-      LEFT JOIN feedback_reads s ON s.feedback_id = c.feedback_id AND s.user_id = @userId
-      WHERE (c.author_id IS NULL OR c.author_id <> @userId)
-        AND ${participationClause(isStaff(user))}
-        AND (s.last_seen_at IS NULL OR c.created_at > s.last_seen_at)
+      SELECT COUNT(*) AS count
+      FROM feedback r
+      LEFT JOIN feedback_reads s ON s.feedback_id = r.id AND s.user_id = @userId
+      WHERE ${participationClause(isStaff(user))}
+        AND ${NEWS_CLAUSE}
     `).get({ userId: user.id });
 
     return row ? row.count : 0;
   },
 
   /**
-   * Which of the given threads hold a comment this user has not seen, so a list can flag them without a
+   * Which of the given threads hold something this user has not seen, so a list can flag them without a
    * query per row. Scoped exactly as `unreadCount` — a thread somebody is merely reading is never
    * unread to them, since reading it records no marker they could ever clear.
    *
@@ -665,17 +743,15 @@ const Feedback = {
     const idParams = Object.fromEntries(ids.map((id, index) => [`id${index}`, id]));
 
     const rows = db.prepare(`
-      SELECT DISTINCT c.feedback_id
-      FROM feedback_comments c
-      JOIN feedback r ON r.id = c.feedback_id
-      LEFT JOIN feedback_reads s ON s.feedback_id = c.feedback_id AND s.user_id = @userId
-      WHERE c.feedback_id IN (${placeholders})
-        AND (c.author_id IS NULL OR c.author_id <> @userId)
+      SELECT r.id
+      FROM feedback r
+      LEFT JOIN feedback_reads s ON s.feedback_id = r.id AND s.user_id = @userId
+      WHERE r.id IN (${placeholders})
         AND ${participationClause(isStaff(user))}
-        AND (s.last_seen_at IS NULL OR c.created_at > s.last_seen_at)
+        AND ${NEWS_CLAUSE}
     `).all({ userId: user.id, ...idParams });
 
-    return new Set(rows.map((row) => row.feedback_id));
+    return new Set(rows.map((row) => row.id));
   },
 
   /**

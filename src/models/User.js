@@ -104,6 +104,15 @@ const User = {
   },
 
   /**
+   * `findAllByUsernameFolded` for many names in one query.
+   * @param {Array<string>} usernames - Names, in any capitals
+   * @returns {Array<Object>} Every matching user row, oldest first
+   */
+  findAllByUsernamesFolded: (usernames) => db
+    .prepare('SELECT * FROM users WHERE username COLLATE NOCASE IN (SELECT value FROM json_each(?)) ORDER BY created_at, id')
+    .all(JSON.stringify(usernames)),
+
+  /**
    * Find a user by email address, however either side spells the capitals.
    *
    * `COLLATE NOCASE` here is what lets the unique index on `email` answer the query, and it is the same

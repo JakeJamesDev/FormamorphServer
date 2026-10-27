@@ -164,10 +164,14 @@ describe('targets on every post', () => {
     const user = createUser({ username: 'filer' });
     const worlds = Array.from({ length: 12 }, () => listing(user));
     // Filed by many players, as a busy board is: the filing limit is per account.
-    for (let i = 0; i < 12; i += 1) await file(createUser());
-    const { body: { data: sparse } } = await file(user, { body: '#1' });
+    const players = [];
+    for (let i = 0; i < 12; i += 1) {
+      players.push(createUser({ username: `player-${i}` }));
+      await file(players[i]);
+    }
+    const { body: { data: sparse } } = await file(user, { body: '#1 @player-0' });
     const { body: { data: dense } } = await file(user, {
-      body: `${Array.from({ length: 12 }, (_, i) => `#${i + 1}`).join(' ')} ${worlds.map((w) => `${SITE}/community/world/${w.id}`).join(' ')}`
+      body: `${Array.from({ length: 12 }, (_, i) => `#${i + 1}`).join(' ')} ${worlds.map((w) => `${SITE}/community/world/${w.id}`).join(' ')} ${players.slice(0, 5).map((p) => `@${p.username}`).join(' ')}`
     });
     for (const [thread, body, count] of [[sparse, '#2 #3', 1], [dense, '#4 #5 #6 #7', 5]]) {
       for (let i = 0; i < count; i += 1) {

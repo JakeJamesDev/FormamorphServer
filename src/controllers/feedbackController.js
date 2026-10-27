@@ -5,6 +5,7 @@ const { threadSummary } = require('../utils/feedbackTargets');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { resolverFor } = require('../utils/feedbackTargets');
+const { mentionsOf } = require('../utils/feedbackMentions');
 
 /**
  * A thread as any reader of it sees it. `unread`, `voted` and `targetsOf` are per-reader, so the caller
@@ -129,6 +130,10 @@ exports.createThread = async (req, res, next) => {
     if (encoded.length > Feedback.DIAGNOSTICS_MAX) {
       return res.status(400).json({ success: false, error: 'Diagnostics are too large' });
     }
+    const { mentions, error: capError } = mentionsOf(body, req.user);
+    if (capError) {
+      return res.status(400).json({ success: false, error: capError });
+    }
 
     const thread = Feedback.create({
       type,
@@ -139,7 +144,8 @@ exports.createThread = async (req, res, next) => {
       title,
       category,
       body,
-      diagnostics: JSON.parse(encoded)
+      diagnostics: JSON.parse(encoded),
+      mentions
     });
 
     // A board post is auto-voted by whoever filed it, so the response says so rather than showing a
@@ -311,7 +317,14 @@ exports.addComment = async (req, res, next) => {
       return res.status(400).json({ success: false, error: `A comment is limited to ${Feedback.COMMENT_MAX} characters` });
     }
 
-    const comment = Feedback.addComment({ feedbackId: thread.id, authorId: req.user.id, body, authorRole: roleOf(req.user) });
+    const { mentions, error: capError } = mentionsOf(body, req.user);
+    if (capError) {
+      return res.status(400).json({ success: false, error: capError });
+    }
+
+    const comment = Feedback.addComment({
+      feedbackId: thread.id, authorId: req.user.id, body, authorRole: roleOf(req.user), mentions
+    });
     // Writing in a thread means having read it; leaving it unread would badge the author's own reply.
     // It is also what makes them a party to a suggestion from here on.
     Feedback.markSeen(thread.id, req.user.id);
@@ -378,7 +391,12 @@ exports.updateComment = async (req, res, next) => {
       return res.status(400).json({ success: false, error: `A comment is limited to ${Feedback.COMMENT_MAX} characters` });
     }
 
-    res.status(200).json({ success: true, data: commentOut(Feedback.updateComment(comment.id, body), req.user) });
+    const { mentions, error: capError } = mentionsOf(body, req.user);
+    if (capError) {
+      return res.status(400).json({ success: false, error: capError });
+    }
+
+    res.status(200).json({ success: true, data: commentOut(Feedback.updateComment(comment, body, mentions), req.user) });
   } catch (error) {
     next(error);
   }
@@ -468,7 +486,13 @@ exports.updateThread = async (req, res, next) => {
         if (body.length > Feedback.BODY_MAX) {
           return res.status(400).json({ success: false, error: `A description is limited to ${Feedback.BODY_MAX} characters` });
         }
+        // Judged against whoever is editing, who may be staff rewriting a bug, not the reporter.
+        const { mentions, error: capError } = mentionsOf(body, req.user);
+        if (capError) {
+          return res.status(400).json({ success: false, error: capError });
+        }
         fields.body = body;
+        fields.mentions = mentions;
       }
     }
 

@@ -12,6 +12,7 @@ const InstallClaim = require('../models/InstallClaim');
 const { NO_INSTALL, installIdFrom } = require('../config/anonymousLikes');
 const { recordSignal } = require('../utils/recordSignal');
 const { liftExpiredSuspension } = require('../utils/liftSuspension');
+const { shownPublicly, pickByName } = require('../utils/accountByName');
 const { sweepSuspensions } = require('../utils/sweepSuspensions');
 const Signal = require('../models/Signal');
 const { ASSIGNABLE_ROLES, STAFF_PROTECTED, canModerate, isAdmin, roleOf } = require('../config/roles');
@@ -173,9 +174,6 @@ const publicProfile = (user, viewer) => {
   };
 };
 
-/** Whether an account may be read through either public profile lookup. */
-const shownPublicly = (user) => Boolean(user) && user.status !== 'suspended';
-
 /**
  * The public face of an account.
  *
@@ -204,14 +202,6 @@ exports.getUserProfile = async (req, res, next) => {
 };
 
 /**
- * Whether a name may lead a stranger to this account at all.
- *
- * @param {Object} user - A candidate the name matched
- * @returns {boolean} Whether the profile is shown
- */
-const shownByName = (user) => shownPublicly(user) && user.id !== PLACEHOLDER_ID;
-
-/**
  * The same profile, found by the name in a shared link.
  *
  * `formamorph.ai/u/<username>` is what a creator hands somebody, so the site holds a name where every
@@ -219,10 +209,7 @@ const shownByName = (user) => shownPublicly(user) && user.id !== PLACEHOLDER_ID;
  * name are looked up differently, and the in-app dialog already has an id. The id rides along in the
  * answer, which is what the caller reads creations with.
  *
- * Two accounts can hold one name in different capitals, so the pick is in two parts. Asked for a name
- * byte for byte, that account answers, shown or refused on its own status — a suspended account is not
- * reachable by spelling it differently. Asked for a spelling nobody holds, the oldest account still
- * shown answers, so a live creator's link keeps working even when a suspended namesake is older.
+ * Two accounts can hold one name in different capitals; `pickByName` decides which one answers.
  *
  * One refusal covers three cases — a name nobody has, a suspended account, and the reserved
  * `[deleted user]` row — and reads identically, so the 404 cannot be used to ask which names were acted
@@ -236,9 +223,9 @@ exports.getUserProfileByUsername = async (req, res, next) => {
   try {
     const named = req.params.username;
     const candidates = User.findAllByUsernameFolded(named).map((row) => liftExpiredSuspension(row));
-    const user = candidates.find((row) => row.username === named) || candidates.find(shownByName);
+    const user = pickByName(candidates, named);
 
-    if (!user || !shownByName(user)) {
+    if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
