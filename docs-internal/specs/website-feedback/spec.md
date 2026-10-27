@@ -1,6 +1,7 @@
 # Spec: Feedback on the website (server)
 
-Status: ready-for-agent
+Status: done
+Status note: Closed 2026-10-27. Server ticket 01 landed as 880e5211d; the client spec holds the close record.
 
 Client side: the formamorph repo, `docs-internal/specs/website-feedback/spec.md`. That spec holds the rulings (Q1–Q10) and the user stories. This spec holds the read-access contract.
 
