@@ -204,8 +204,9 @@ const byName = (a, b) => a.name.localeCompare(b.name);
  * ALTER lands at the end of its table, and the shape is the same shape wherever it sits.
  */
 const shapeOf = (database) => Object.fromEntries(tableNames(database).sort().map((table) => [table, {
-  columns: database.prepare(`PRAGMA table_info(${table})`).all()
-    .map(({ name, type, notnull, dflt_value, pk }) => ({ name, type, notnull, dflt_value, pk }))
+  // `table_xinfo`, so a generated column is part of the shape.
+  columns: database.prepare(`PRAGMA table_xinfo(${table})`).all()
+    .map(({ name, type, notnull, dflt_value, pk, hidden }) => ({ name, type, notnull, dflt_value, pk, hidden }))
     .sort(byName),
   foreignKeys: database.prepare(`PRAGMA foreign_key_list(${table})`).all()
     .map(({ table: to, from, to: column, on_update, on_delete }) => ({ from, to, column, on_update, on_delete }))

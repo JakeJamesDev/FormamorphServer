@@ -9,6 +9,7 @@
 
 const { columnNames } = require('./columns');
 const { ACCEPTED_ANSWER_TRIGGER_SQL } = require('./triggers');
+const { foldedUsernameSql } = require('../config/username');
 
 const tableNames = (database) => database
   .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -57,6 +58,8 @@ const apply = (database) => {
       trusted_at TEXT,
       -- Set when the name breaks the username rule or is a newer case twin; the rename route clears it.
       username_rename_required INTEGER NOT NULL DEFAULT 0,
+      -- The name folded for every lookup; see \`foldedUsernameSql\`.
+      username_key TEXT GENERATED ALWAYS AS (${foldedUsernameSql('username')}) VIRTUAL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

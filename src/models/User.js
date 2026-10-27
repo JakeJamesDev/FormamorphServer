@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { PLACEHOLDER_ID } = require('../config/accountDeletion');
 const { foldedAddress } = require('../utils/emailAddress');
+const { foldedUsernameSql } = require('../config/username');
 
 /**
  * User model
@@ -90,7 +91,7 @@ const User = {
   },
 
   /**
-   * Every account whose name matches this one once the capitals are folded away, oldest first.
+   * Every account whose name matches this one once folded (capitals, and a space as `_`), oldest first.
    *
    * Plural because the unique constraint on `username` compares byte for byte: `wren` and `Wren` are two
    * accounts, and a lookup that returned one row would have to decide which — a choice that depends on
@@ -103,8 +104,6 @@ const User = {
    * Same-second signups tie on `created_at` and settle on the id. That only makes the order stable — the
    * same link keeps reaching the same account — and the id itself means nothing.
    *
-   * NOCASE folds ASCII only, which is the same folding the email index applies.
-   *
    * @param {*} username - Whatever arrived in the name position of a URL
    * @returns {Array<Object>} Matching user rows, oldest first; empty when the field is not a name
    */
@@ -112,7 +111,7 @@ const User = {
     if (typeof username !== 'string' || !username) return [];
 
     return db
-      .prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE ORDER BY created_at, id')
+      .prepare(`SELECT * FROM users WHERE username_key = ${foldedUsernameSql('?')} ORDER BY created_at, id`)
       .all(username);
   },
 
@@ -123,7 +122,7 @@ const User = {
    * @returns {Array<Object>} Every matching unflagged user row, oldest first
    */
   findAllUnflaggedByUsernamesFolded: (usernames) => db
-    .prepare('SELECT * FROM users WHERE username COLLATE NOCASE IN (SELECT value FROM json_each(?)) AND username_rename_required = 0 ORDER BY created_at, id')
+    .prepare(`SELECT * FROM users WHERE username_key IN (SELECT ${foldedUsernameSql('value')} FROM json_each(?)) AND username_rename_required = 0 ORDER BY created_at, id`)
     .all(JSON.stringify(usernames)),
 
   /**
@@ -468,14 +467,16 @@ const User = {
     let filter = ' WHERE u.id <> ?';
 
     if (search) {
-      // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
-      const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
+      // The name side compares folded keys, so a space and `_` match each other.
+      const byName = `instr(u.username_key, ${foldedUsernameSql('?')}) > 0`;
       if (includeEmail) {
-        filter += " AND (u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')";
-        params.push(term, term);
+        // Escape LIKE wildcards so a search for `%` matches a literal percent instead of every row.
+        const term = `%${String(search).replace(/[\\%_]/g, '\\$&')}%`;
+        filter += ` AND (${byName} OR u.email LIKE ? ESCAPE '\\')`;
+        params.push(String(search), term);
       } else {
-        filter += " AND u.username LIKE ? ESCAPE '\\'";
-        params.push(term);
+        filter += ` AND ${byName}`;
+        params.push(String(search));
       }
     }
 

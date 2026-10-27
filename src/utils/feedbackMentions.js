@@ -36,9 +36,9 @@ const accountsFor = (texts) => {
   const candidates = new Map();
   if (refs.size) {
     for (const row of User.findAllUnflaggedByUsernamesFolded([...refs])) {
-      const key = row.username.toLowerCase();
-      if (!candidates.has(key)) candidates.set(key, []);
-      candidates.get(key).push(liftExpiredSuspension(row));
+      // A mention ref has no space, so its lowercase form is already its fold.
+      if (!candidates.has(row.username_key)) candidates.set(row.username_key, []);
+      candidates.get(row.username_key).push(liftExpiredSuspension(row));
     }
   }
 

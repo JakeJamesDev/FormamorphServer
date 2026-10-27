@@ -16,6 +16,15 @@ const OUTSIDE_USERNAME_CHARS = new RegExp(`[^${USERNAME_CHARS}]`, 'g');
 const USERNAME_RULE = `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -`;
 
 /**
+ * The SQL fold every name lookup compares: ASCII lowercase (SQLite's `lower` without ICU), a space as `_`.
+ * The `username_key` column and each lookup's argument use this one expression.
+ *
+ * @param {string} expression - A SQL expression holding a name
+ * @returns {string} The folded expression
+ */
+const foldedUsernameSql = (expression) => `replace(lower(${expression}), ' ', '_')`;
+
+/**
  * The setting that turns the rename gate on. Ships off: the operator enables it after the client release
  * that answers the refusal. Admin-only, so one mod cannot switch it.
  */
@@ -41,6 +50,7 @@ module.exports = {
   OUTSIDE_USERNAME_CHARS,
   USERNAME_MAX,
   USERNAME_RULE,
+  foldedUsernameSql,
   USERNAME_RENAME_GATE,
   RENAME_REFUSAL,
   validateUsernameRenameGate

@@ -6,8 +6,8 @@ const USERNAME_TAKEN = { code: 'USERNAME_TAKEN', error: 'Username already exists
 /**
  * The one username rule, for registration and for the rename route.
  *
- * Trims first, then checks the pattern, then checks every account (flagged ones too) for the same name
- * ignoring case. The unique constraint still backstops a race, but it compares byte for byte.
+ * Trims first, then checks the pattern, then checks every account (flagged ones too) for the same folded
+ * key. The unique constraint still backstops a race, but it compares byte for byte.
  *
  * @param {*} name - The typed name
  * @param {Object} [options]

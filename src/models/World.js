@@ -7,6 +7,7 @@ const Comment = require('./Comment');
 const { authorPayload } = require('../utils/authorPayload');
 const { isStaff } = require('../config/roles');
 const { parseModels } = require('../utils/modelList');
+const { foldedUsernameSql } = require('../config/username');
 const Event = require('./Event');
 const PendingUpdate = require('./PendingUpdate');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
@@ -283,10 +284,10 @@ const World = {
         params.push(authorId);
       }
       
-      // Search by author name
+      // Search by author name, as a folded key, so a space and `_` match each other
       if (searchByAuthor && search) {
-        whereClause.push('u.username LIKE ?');
-        params.push(`%${search}%`);
+        whereClause.push(`instr(u.username_key, ${foldedUsernameSql('?')}) > 0`);
+        params.push(String(search));
       }
       
       // Search by world name, description, or tags

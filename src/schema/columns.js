@@ -30,8 +30,9 @@ const tableExists = (database, table) => Boolean(
   database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(table)
 );
 
+// `table_xinfo`, because `table_info` leaves out generated columns.
 const columnNames = (database, table) => database
-  .prepare(`PRAGMA table_info(${table})`)
+  .prepare(`PRAGMA table_xinfo(${table})`)
   .all()
   .map((column) => column.name);
 

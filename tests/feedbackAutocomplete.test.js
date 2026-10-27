@@ -92,7 +92,7 @@ describe('searching usernames', () => {
     expect(names(await users(caller, {}))).toEqual([]);
   });
 
-  it('skips names a mention cannot parse', async () => {
+  it('skips names a mention cannot reach, and lists a spaced one', async () => {
     const caller = createUser({ username: 'caller' });
     createUser({ username: 'ok-name_1' });
     createUser({ username: 'ok' });
@@ -100,7 +100,7 @@ describe('searching usernames', () => {
     createUser({ username: 'ok.name' });
     createUser({ username: 'ok-this-name-is-too-long' });
 
-    expect(names(await users(caller, { q: 'ok' }))).toEqual(['ok-name_1']);
+    expect(names(await users(caller, { q: 'ok' }))).toEqual(['ok name', 'ok-name_1']);
   });
 
   it('skips a suspended account, even a thread participant', async () => {

@@ -104,6 +104,11 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE);
   `);
 
+  // Every name lookup compares the folded key. Not unique: flagged twins keep their names until they rename.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_users_username_key ON users(username_key);
+  `);
+
   // A link arrives as a token and is looked up by its hash; re-issuing one first deletes what the same
   // account already holds for the same purpose. Nothing asks anything else of this table.
   database.exec(`
