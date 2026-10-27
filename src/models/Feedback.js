@@ -344,7 +344,8 @@ const Feedback = {
 
   /**
    * Accounts whose username starts with the prefix, the thread's reporter and commenters first.
-   * Only names a mention can parse (`[A-Za-z0-9_-]{3,20}`), never a suspended or rename-flagged account.
+   * Only names a mention can parse (`[A-Za-z0-9_-]{3,20}`), never an account inside its suspension
+   * (an expired one counts as lifted, with no write) or rename-flagged.
    * An empty prefix lists the thread's participants alone, and nothing without a thread.
    * @param {Object} options - `{ prefix, thread, limit }`; `thread` is a row, or none
    * @returns {Object[]} `{ id, username, avatar_file, account_type, participant }` rows
@@ -361,13 +362,15 @@ const Feedback = {
       FROM users u
       WHERE u.username LIKE @pattern ESCAPE '\\' ${text ? '' : `AND ${participant}`}
         AND LENGTH(u.username) BETWEEN 3 AND 20 AND u.username NOT GLOB '*[^A-Za-z0-9_-]*'
-        AND u.status != 'suspended' AND u.username_rename_required = 0
+        AND (u.status != 'suspended' OR (u.suspended_until IS NOT NULL AND u.suspended_until <= @now))
+        AND u.username_rename_required = 0
       ORDER BY participant DESC, u.username COLLATE NOCASE, u.id
       LIMIT @limit
     `).all({
       pattern: `${text.replace(/[\\%_]/g, '\\$&')}%`,
       reporterId: thread ? thread.reporter_id : null,
       threadId: thread ? thread.id : null,
+      now: new Date().toISOString(),
       limit
     });
   },

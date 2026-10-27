@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { app, request, db } from './context.js';
+import { createRequire } from 'module';
 import { createUser, authHeader, fromItsOwnAddress } from './helpers.js';
+
+const require = createRequire(import.meta.url);
+const { accountsFor } = require('../src/utils/feedbackMentions');
 
 /**
  * The editor's two autocomplete reads: usernames by prefix (a thread's participants first) and threads by
@@ -107,6 +111,33 @@ describe('searching usernames', () => {
     await reply(reporter, thread.id);
 
     expect(names(await users(caller, { q: 'zed', thread: thread.id }))).toEqual(['zed-active']);
+  });
+
+  it('agrees with mention resolution on every suspension state, and the search writes nothing', async () => {
+    const caller = createUser({ username: 'caller' });
+    const states = {
+      'st-normal': { status: 'normal', until: null, shown: true },
+      'st-open-ended': { status: 'suspended', until: null, shown: false },
+      'st-running': { status: 'suspended', until: '2999-01-01T00:00:00.000Z', shown: false },
+      'st-expired': { status: 'suspended', until: '2000-01-01T00:00:00.000Z', shown: true }
+    };
+    for (const [username, { status, until }] of Object.entries(states)) {
+      const user = createUser({ username, status });
+      db.prepare('UPDATE users SET suspended_until = ? WHERE id = ?').run(until, user.id);
+    }
+
+    const auditBefore = db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n;
+    // Searched first: mention resolution lifts an expired suspension, which would hide the difference.
+    const found = names(await users(caller, { q: 'st-' }));
+    expect(db.prepare("SELECT status FROM users WHERE username = 'st-expired'").get().status).toBe('suspended');
+    expect(db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n).toBe(auditBefore);
+
+    const text = Object.keys(states).map((name) => `@${name}`).join(' ');
+    const mentioned = accountsFor([text])(text);
+    for (const [username, { shown }] of Object.entries(states)) {
+      expect(found.includes(username), `search: ${username}`).toBe(shown);
+      expect(Boolean(mentioned.get(username)), `mention: ${username}`).toBe(shown);
+    }
   });
 
   it('skips a flagged twin until it renames, then lists its new name', async () => {
