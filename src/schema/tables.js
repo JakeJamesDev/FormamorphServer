@@ -314,6 +314,10 @@ const apply = (database) => {
       -- A question's accepted answer, one comment on this thread. A trigger reopens the question when
       -- that comment is deleted.
       accepted_comment_id TEXT REFERENCES feedback_comments (id) ON DELETE SET NULL,
+      -- The short name of a thread, one sequence for every type. The default is only what ALTER needs to
+      -- add the column to an old table; Feedback.create always writes the real number, and the unique
+      -- index refuses a second 0.
+      number INTEGER NOT NULL DEFAULT 0,
       CHECK (
         (type = 'bug' AND status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')
                       AND category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other'))
@@ -350,6 +354,15 @@ const apply = (database) => {
 
   // An older `feedback` gets this trigger from the acceptedAnswer step, after its rebuild and column.
   if (columnNames(database, 'feedback').includes('accepted_comment_id')) database.exec(ACCEPTED_ANSWER_TRIGGER_SQL);
+
+  // The last thread number handed out. Kept apart from the threads so deleting the newest one never frees
+  // its number for the next: a link to a deleted thread must not open a different one.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS feedback_sequence (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_number INTEGER NOT NULL
+    )
+  `);
 
   // One row per reader per thread. The badge counts threads holding a comment newer than this, written
   // by somebody else — the same shape as message read-state, kept separate because a thread is read as

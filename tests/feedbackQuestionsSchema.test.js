@@ -127,8 +127,8 @@ const legacyDatabase = () => {
 };
 
 const insertThread = (database, { id, type, category, status }) => database.prepare(`
-  INSERT INTO feedback (id, type, title, category, body, status, created_at, updated_at)
-  VALUES (?, ?, 'title', ?, 'body', ?, '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z')
+  INSERT INTO feedback (id, number, type, title, category, body, status, created_at, updated_at)
+  VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM feedback), ?, 'title', ?, 'body', ?, '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z')
 `).run(id, type, category, status);
 
 /** What a question-aware table must take and refuse, on either path. */

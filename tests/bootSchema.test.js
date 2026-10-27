@@ -514,6 +514,52 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('numbers the threads already there in creation order, ties broken by id, once', () => {
+    const legacy = oldestDatabase();
+    legacy.exec(`
+      INSERT INTO feedback (id, type, title, category, body, created_at, updated_at) VALUES
+        ('t-late', 'bug', 'Late', 'crash', 'b', '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'),
+        ('t-b', 'suggestion', 'Tied b', 'gameplay', 'b', '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z'),
+        ('t-a', 'suggestion', 'Tied a', 'gameplay', 'b', '2026-02-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z'),
+        ('t-first', 'bug', 'First', 'crash', 'b', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    `);
+
+    expect(migrate(legacy)).toContain('feedbackNumber');
+
+    const numbered = legacy.prepare('SELECT id, number FROM feedback ORDER BY number').all();
+    expect(numbered).toEqual([
+      { id: 't-first', number: 1 },
+      { id: 't-a', number: 2 },
+      { id: 't-b', number: 3 },
+      { id: 't-late', number: 4 }
+    ]);
+
+    // The counter starts at the highest backfilled number, so the next thread is 5.
+    expect(legacy.prepare('SELECT last_number FROM feedback_sequence').get()).toEqual({ last_number: 4 });
+
+    // Once only: a later boot must not renumber over live numbers.
+    legacy.prepare("UPDATE feedback SET number = 9 WHERE id = 't-first'").run();
+    expect(migrate(legacy)).toEqual([]);
+    expect(legacy.prepare("SELECT number FROM feedback WHERE id = 't-first'").get().number).toBe(9);
+    expect(legacy.prepare('SELECT last_number FROM feedback_sequence').get()).toEqual({ last_number: 4 });
+
+    legacy.close();
+  });
+
+  it('refuses a second thread with a number already taken', () => {
+    const fresh = openDatabase();
+    migrate(fresh);
+    const insert = fresh.prepare(`
+      INSERT INTO feedback (id, title, category, body, number, created_at, updated_at)
+      VALUES (?, 't', 'other', 'b', ?, 'x', 'x')
+    `);
+    insert.run('a', 1);
+
+    expect(() => insert.run('b', 1)).toThrow(/UNIQUE/);
+
+    fresh.close();
+  });
+
   it('gives the audit log a target id, null on every entry already there', () => {
     const legacy = oldestDatabase();
     legacy.exec("INSERT INTO audit_log (action, created_at) VALUES ('listing_deleted', '2025-06-01T00:00:00.000Z')");

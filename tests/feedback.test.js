@@ -862,8 +862,8 @@ describe('paging a tied list', () => {
     const user = reporter('bulk');
     const sameMoment = new Date().toISOString();
     const insert = db.prepare(`
-      INSERT INTO feedback (id, reporter_id, title, category, body, status, diagnostics, created_at, updated_at)
-      VALUES (?, ?, ?, 'other', 'x', 'open', '{}', ?, ?)
+      INSERT INTO feedback (id, number, reporter_id, title, category, body, status, diagnostics, created_at, updated_at)
+      VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM feedback), ?, ?, 'other', 'x', 'open', '{}', ?, ?)
     `);
     for (let i = 0; i < 12; i += 1) {
       insert.run(`r-${String(i).padStart(2, '0')}`, user.id, `Report ${i}`, sameMoment, sameMoment);

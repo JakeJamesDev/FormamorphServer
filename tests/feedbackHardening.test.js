@@ -15,8 +15,8 @@ const seed = (userId, count, votedBy = null) => {
     const id = `seed-${i}`;
     const now = new Date(Date.now() - (count - i) * 1000).toISOString();
     db.prepare(`
-      INSERT INTO feedback (id, type, reporter_id, title, category, body, status, created_at, updated_at)
-      VALUES (?, 'suggestion', ?, ?, 'gameplay', 'Body.', 'open', ?, ?)
+      INSERT INTO feedback (id, number, type, reporter_id, title, category, body, status, created_at, updated_at)
+      VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM feedback), 'suggestion', ?, ?, 'gameplay', 'Body.', 'open', ?, ?)
     `).run(id, userId, `Idea ${i}`, now, now);
     if (votedBy) {
       db.prepare('INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)')

@@ -12,6 +12,7 @@ const AuditLog = require('../models/AuditLog');
  */
 const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
   id: row.id,
+  number: row.number,
   type: row.type,
   title: row.title,
   category: row.category,
@@ -187,12 +188,12 @@ exports.getThreads = async (req, res, next) => {
 
 /**
  * @desc    Read one thread and its comments. Reading marks it seen for anyone it badges.
- * @route   GET /api/feedback/:id
+ * @route   GET /api/feedback/:id (a UUID or a thread number)
  * @access  Public (any signed-in account; a guest reads a suggestion or a question)
  */
 exports.getThread = async (req, res, next) => {
   try {
-    const thread = Feedback.findById(req.params.id);
+    const thread = Feedback.findByRef(req.params.id);
     if (!thread) {
       return res.status(404).json({ success: false, error: 'Not found' });
     }

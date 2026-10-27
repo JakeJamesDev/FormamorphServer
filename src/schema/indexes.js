@@ -124,6 +124,7 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_feedback_reads_user ON feedback_reads(user_id);
     CREATE INDEX IF NOT EXISTS idx_feedback_votes_thread ON feedback_votes(feedback_id);
     CREATE INDEX IF NOT EXISTS idx_feedback_accepted_comment ON feedback(accepted_comment_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_number ON feedback(number);
     CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, id);
   `);
 

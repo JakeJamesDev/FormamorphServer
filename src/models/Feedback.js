@@ -171,10 +171,18 @@ const Feedback = {
     const now = new Date().toISOString();
 
     db.transaction(() => {
+      // The counter never goes down, so a deleted thread's number is not handed out again. It also clears
+      // any number stored past it, such as one written by hand.
+      const { next } = db.prepare(`
+        INSERT INTO feedback_sequence (id, last_number)
+        VALUES (1, (SELECT COALESCE(MAX(number), 0) + 1 FROM feedback))
+        ON CONFLICT(id) DO UPDATE SET last_number = MAX(last_number, (SELECT COALESCE(MAX(number), 0) FROM feedback)) + 1
+        RETURNING last_number AS next
+      `).get();
       db.prepare(`
-        INSERT INTO feedback (id, type, reporter_id, reporter_role, title, category, body, status, diagnostics, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
-      `).run(id, type, reporterId, reporterRole, title, category, body, JSON.stringify(diagnostics || {}), now, now);
+        INSERT INTO feedback (id, number, type, reporter_id, reporter_role, title, category, body, status, diagnostics, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+      `).run(id, next, type, reporterId, reporterRole, title, category, body, JSON.stringify(diagnostics || {}), now, now);
 
       if (isVotableBoard(type)) {
         db.prepare('INSERT INTO feedback_votes (feedback_id, user_id, created_at) VALUES (?, ?, ?)')
@@ -191,6 +199,20 @@ const Feedback = {
    * @returns {Object|undefined} The row, or undefined when there is no such thread
    */
   findById: (id) => db.prepare(`${FEEDBACK_SELECT} WHERE r.id = ?`).get(id),
+
+  /**
+   * Read one thread by its number.
+   * @param {number} number - The thread number
+   * @returns {Object|undefined} The row, or undefined when there is no such thread
+   */
+  findByNumber: (number) => db.prepare(`${FEEDBACK_SELECT} WHERE r.number = ?`).get(number),
+
+  /**
+   * Read one thread by whichever name the caller has: a UUID, or digits for a number.
+   * @param {string} ref - A feedback ID or a thread number
+   * @returns {Object|undefined} The row, or undefined when there is no such thread
+   */
+  findByRef: (ref) => (/^[1-9]\d{0,14}$/.test(ref) ? Feedback.findByNumber(Number(ref)) : Feedback.findById(ref)),
 
   /**
    * A page of threads.
