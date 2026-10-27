@@ -1,7 +1,7 @@
 # Spec: Username Spaces (server)
 
-Status: ready-for-agent
-Status note: Tickets 01–03 live in the client spec's issues folder; they run here.
+Status: done
+Status note: Closed 2026-10-27. Tickets 01–03 landed here (last 3078f867c4); the client spec holds the close record.
 
 Client side: the formamorph repo, `docs-internal/specs/username-spaces/spec.md`. That spec holds the rulings (Q1–Q11) and the user stories. This spec holds the folded key, the re-flag pass and the lookup contract.
 
@@ -13,7 +13,7 @@ The rule in `src/config/username.js` allows only `[A-Za-z0-9_-]`. The `usernameR
 
 ## Solution
 
-Registration and rename accept single inner spaces. A folded key (ASCII lowercase, space to `_`) backs uniqueness, mention resolution, username search and profile lookup. A new schema step clears flags under the new rule.
+Registration and rename accept single inner spaces. A folded key (ASCII lowercase, space to `_`) backs uniqueness, mention resolution, username search and profile lookup. The key step clears flags under the new rule when it adds the key.
 
 ## User Stories
 
@@ -31,7 +31,7 @@ Registration and rename accept single inner spaces. A folded key (ASCII lowercas
 - **Rule.** `src/config/username.js` holds the new pattern: 3–20 characters of `[A-Za-z0-9_-]` and single inner spaces, with no space at either end. `USERNAME_RULE` takes the client spec's Q11 text. `checkUsername` trims, collapses space runs, then checks.
 - **Folded key.** A `username_key` VIRTUAL generated column holds the folded name, `replace(lower(username), ' ', '_')` (client Q14). A schema step adds it, so every writer carries it without setting it. An index on it serves every lookup. It is not unique: dormant flagged twins keep their names (username-charset Q15).
 - **Lookups.** `findAllByUsernameFolded` and `findAllUnflaggedByUsernamesFolded` compare the folded key of the argument with `username_key`. Profile lookup, mention resolution, the uniqueness check and the username search (`User.js` list filter and the feedback mention suggestions) all go through the key.
-- **Re-flag pass.** A new schema step, run once, recomputes `username_rename_required` (client Q6):
+- **Re-flag pass.** The `usernameKey` step, in the run that adds the key (client Q18), recomputes `username_rename_required` (client Q6):
   - Clear the flag on every account whose name passes the new rule and that has no twin under the key.
   - In a twin group, an account whose name passed the old rule keeps the name, and every other member stays or becomes flagged.
   - When no member passed the old rule, the oldest (`created_at`, then `id`) keeps the name.
