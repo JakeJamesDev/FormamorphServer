@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const { isStaff, STAFF_ROLES } = require('../config/roles');
 const { v4: uuidv4 } = require('uuid');
-const { foldedUsernameSql } = require('../config/username');
+const { foldedUsernameSql, usernameCharsSql } = require('../config/username');
 
 /** The three branches of the tree. They share a thread, a status and a read-marker; little else. */
 const TYPES = ['bug', 'suggestion', 'question'];
@@ -345,7 +345,7 @@ const Feedback = {
 
   /**
    * Accounts whose folded username starts with the folded prefix, the thread's reporter and commenters
-   * first. Only names a mention can reach (`[A-Za-z0-9_ -]{3,20}`, a space as `_`), never an account
+   * first. Only names a mention can reach (rule characters and length, a space as `_`), never an account
    * inside its suspension (an expired one counts as lifted, with no write) or rename-flagged.
    * An empty prefix lists the thread's participants alone, and nothing without a thread.
    * @param {Object} options - `{ prefix, thread, limit }`; `thread` is a row, or none
@@ -362,7 +362,7 @@ const Feedback = {
       SELECT u.id, u.username, u.avatar_file, u.account_type, ${participant} AS participant
       FROM users u
       WHERE substr(u.username_key, 1, length(@prefix)) = ${foldedUsernameSql('@prefix')} ${text ? '' : `AND ${participant}`}
-        AND LENGTH(u.username) BETWEEN 3 AND 20 AND u.username NOT GLOB '*[^A-Za-z0-9_ -]*'
+        AND ${usernameCharsSql('u.username')}
         AND (u.status != 'suspended' OR (u.suspended_until IS NOT NULL AND u.suspended_until <= @now))
         AND u.username_rename_required = 0
       ORDER BY participant DESC, u.username COLLATE NOCASE, u.id

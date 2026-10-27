@@ -17,6 +17,15 @@ const USERNAME_SHAPE = new RegExp(`^[${USERNAME_CHARS}]+(?: [${USERNAME_CHARS}]+
 /** Every character outside the set and the space, for the rename suggestion to drop. */
 const OUTSIDE_USERNAME_CHARS = new RegExp(`[^ ${USERNAME_CHARS}]`, 'g');
 
+/**
+ * SQL that holds when a name column has only rule characters at a rule length. It does not check the shape.
+ *
+ * @param {string} column - A SQL expression holding a name
+ * @returns {string} The condition
+ */
+const usernameCharsSql = (column) => `LENGTH(${column}) BETWEEN ${USERNAME_MIN} AND ${USERNAME_MAX}`
+  + ` AND ${column} NOT GLOB '*[^ ${USERNAME_CHARS}]*'`;
+
 const USERNAME_RULE = `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, spaces, _ or -`;
 
 /**
@@ -72,6 +81,7 @@ module.exports = {
   collapseUsername,
   isValidUsername,
   OUTSIDE_USERNAME_CHARS,
+  usernameCharsSql,
   USERNAME_MAX,
   USERNAME_RULE,
   foldedUsernameSql,

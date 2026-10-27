@@ -5,7 +5,8 @@ import { createUser, fromItsOwnAddress } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const { checkUsername } = require('../src/utils/usernameRule');
-const { USERNAME_RULE } = require('../src/config/username');
+const { USERNAME_RULE, collapseUsername, isValidUsername } = require('../src/config/username');
+const CASES = require('./fixtures/usernameRuleCases.json');
 
 /**
  * The username rule at registration: 3–20 of `[A-Za-z0-9_-]`, trimmed first, unique ignoring case.
@@ -15,6 +16,13 @@ const { USERNAME_RULE } = require('../src/config/username');
 const register = (username) => fromItsOwnAddress(
   request(app).post('/api/auth/register').send({ username, password: 'password123' })
 );
+
+describe('the username rule', () => {
+  it.each(CASES.map((c) => [c.name, c]))('%s', (_name, { typed, username }) => {
+    const collapsed = collapseUsername(typed);
+    expect(isValidUsername(collapsed) ? collapsed : null).toBe(username);
+  });
+});
 
 describe('registering a username', () => {
   it('accepts a name at each length boundary and every allowed character', async () => {
