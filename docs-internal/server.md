@@ -183,6 +183,12 @@ rclone size r2:formamorph-files
 
 ## Deploy log
 
+- **2026-10-27** — deployed `a0c0689`: usernames accept single inner spaces, with a folded `username_key`
+  for every name lookup and rename flags cleared under the spaced rule. All 2,562 tests passed in 27.0 s
+  wall time. Backup `backups/pre-deploy-25c7d7b-2026-10-27T14-16-46.072Z.db`, integrity `ok`. Boot applied
+  `usernameKey` and `indexes`. The step is additive, so old code runs on the new schema; only the cleared
+  flags need the backup to undo. Service active with zero restarts, boot logged `Server running on port`,
+  public route 200.
 - **2026-10-27** — deployed `25c7d7b`: listing review with pending updates and trusted authors, feedback
   questions, numbers, links, mentions and guest reads, the username character rule with flagged renames,
   and an updated bundled fingerprint list. All 2,503 tests passed in 31.9 s wall time. Backup
