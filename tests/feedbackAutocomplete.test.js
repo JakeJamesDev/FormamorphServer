@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { app, request } from './context.js';
-import { createUser, authHeader } from './helpers.js';
+import { app, request, db } from './context.js';
+import { createUser, authHeader, fromItsOwnAddress } from './helpers.js';
 
 /**
  * The editor's two autocomplete reads: usernames by prefix (a thread's participants first) and threads by
@@ -107,6 +107,21 @@ describe('searching usernames', () => {
     await reply(reporter, thread.id);
 
     expect(names(await users(caller, { q: 'zed', thread: thread.id }))).toEqual(['zed-active']);
+  });
+
+  it('skips a flagged twin until it renames, then lists its new name', async () => {
+    const caller = createUser({ username: 'caller' });
+    createUser({ username: 'Quill', createdAt: '2024-01-01 00:00:00' });
+    const twin = createUser({ username: 'quill', createdAt: '2024-02-01 00:00:00' });
+    db.prepare('UPDATE users SET username_rename_required = 1 WHERE id = ?').run(twin.id);
+
+    expect(names(await users(caller, { q: 'quill' }))).toEqual(['Quill']);
+
+    const renamed = await fromItsOwnAddress(
+      request(app).post('/api/auth/username').set(authHeader(twin)).send({ username: 'quill_two' })
+    );
+    expect(renamed.status).toBe(200);
+    expect(names(await users(caller, { q: 'quill' }))).toEqual(['Quill', 'quill_two']);
   });
 
   it('caps the result count', async () => {

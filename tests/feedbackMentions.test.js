@@ -66,6 +66,18 @@ describe('a mention on a suggestion or a question', () => {
     expect(await unread(wren)).toBe(1);
   });
 
+  it('reaches the unflagged account of a shared name and badges only that one', async () => {
+    const { filer } = cast();
+    const keeper = createUser({ username: 'Sage', createdAt: '2024-01-01 00:00:00' });
+    const twin = createUser({ username: 'sage', createdAt: '2024-02-01 00:00:00' });
+    db.prepare('UPDATE users SET username_rename_required = 1 WHERE id = ?').run(twin.id);
+
+    await file(filer, 'Hello @sage.');
+
+    expect(await unread(keeper)).toBe(1);
+    expect(await unread(twin)).toBe(0);
+  });
+
   it('badges a mention edited into a body or a comment, and not again when the edit keeps it', async () => {
     const { filer, wren } = cast();
     const { body: { data: thread } } = await file(filer, 'Plain.');
