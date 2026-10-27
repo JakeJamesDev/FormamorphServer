@@ -124,7 +124,7 @@ describe('registering with an email', () => {
 
     expect(name.status).toBe(400);
     expect(name.body.error).toMatch(/username/i);
-    expect(name.body.code).toBeUndefined();
+    expect(name.body.code).toBe('USERNAME_TAKEN');
     expect(address.status).toBe(409);
     expect(address.body.code).toBe('EMAIL_TAKEN');
     expect(address.body.error).toMatch(/email/i);

@@ -144,7 +144,7 @@ server/
 ## API Endpoints
 
 ### Authentication
-- `POST /api/auth/register` - Register a new user. `email` is optional; a taken one is refused with `EMAIL_TAKEN`
+- `POST /api/auth/register` - Register a new user. `email` is optional; a taken one is refused with `EMAIL_TAKEN`. `username` is trimmed, then must be 3–20 letters, numbers, `_` or `-` and unused ignoring case; refusals carry `USERNAME_INVALID` or `USERNAME_TAKEN` (see "Refusals a client acts on")
 - `POST /api/auth/login` - Login and get JWT token
 - `POST /api/auth/change-password` - Change password
 - `POST /api/auth/delete-account` - Ask for this account to be erased after a seven-day Grace Period. Body: `password` and `deleteContent` (no default). Answers `deletionScheduledFor`
@@ -438,7 +438,12 @@ client has a screen to open rather than a message to print. An older build that 
 | `TERMS_REQUIRED` | 403 | Publishing or updating a listing while the upload gate is enabled and unaccepted | Opens the contributor terms, then retries |
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
 | `EMAIL_TAKEN` | 409 | Registering with, or setting, an address another account already holds | Points at sign-in and password reset, rather than at the email box |
+| `USERNAME_INVALID` | 400 | Registering with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, _ or -" |
+| `USERNAME_TAKEN` | 400 | Registering with a name another account holds, ignoring case | Asks for another name |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
+
+**Username rule.** Registration trims the typed name, then accepts only `[A-Za-z0-9_-]{3,20}` that no
+other account holds ignoring case. Accounts made before the rule keep their names.
 
 `PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,
 change-password, delete-account, and everything under `/api/policies`. It applies to suspended accounts

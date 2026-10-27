@@ -10,6 +10,7 @@ const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
 const { VERIFY, RESET } = require('../config/accountTokens');
 const { PASSWORD_MIN_LENGTH, PASSWORD_RULE } = require('../config/password');
+const { checkUsername, USERNAME_TAKEN } =require('../utils/usernameRule');
 const { validationResult } = require('express-validator');
 
 /**
@@ -91,8 +92,14 @@ exports.register = async (req, res, next) => {
       });
     }
 
-    const { username, password, email } = req.body;
+    const { password, email } = req.body;
     const address = addressGiven(email);
+
+    const verdict = checkUsername(req.body.username);
+    if (!verdict.ok) {
+      return res.status(400).json({ success: false, code: verdict.code, error: verdict.error });
+    }
+    const username = verdict.name;
 
     // Create user. Both a taken name and a taken address are refused by the unique constraint rather than
     // by a lookup first: a lookup would still have to be backed by this branch, because two registrations
@@ -101,7 +108,7 @@ exports.register = async (req, res, next) => {
     //
     // The two refusals are separate because the fixes are: pick another name, or recover the account that
     // already holds the address. One shared message would send half the people who hit this down the
-    // wrong one. The name keeps its original 400 and no code, because clients already read it that way.
+    // wrong one. `checkUsername` refuses a case twin first; this branch only catches a byte-identical race.
     let user;
     try {
       user = await User.create({ username, password, email: address });
@@ -118,7 +125,8 @@ exports.register = async (req, res, next) => {
 
       return res.status(400).json({
         success: false,
-        error: 'Username already exists'
+        code: USERNAME_TAKEN.code,
+        error: USERNAME_TAKEN.error
       });
     }
 

@@ -53,8 +53,8 @@ router.post(
   '/register',
   authLimiter,
   [
-    check('username', 'Username is required').not().isEmpty(),
-    check('username', 'Username must be between 3 and 20 characters').isLength({ min: 3, max: 20 }),
+    // Trimmed here so a blank box reads as missing; the pattern and uniqueness checks run in the controller.
+    check('username', 'Username is required').trim().not().isEmpty(),
     check('password', 'Password must be at least 6 characters long').isLength({ min: 6 }),
     // `values: 'falsy'` so a form that posts an empty box reads as no address rather than a bad one.
     check('email', 'Please include a valid email').optional({ values: 'falsy' }).isEmail()
