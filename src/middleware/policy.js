@@ -1,4 +1,6 @@
 const Policy = require('../models/Policy');
+const Setting = require('../models/Setting');
+const { USERNAME_RENAME_GATE, RENAME_REFUSAL } = require('../config/username');
 
 /**
  * How the server refuses a user who has not accepted a policy, or null when it has nothing to refuse.
@@ -59,3 +61,18 @@ exports.privacyRefusal = (user) => refusalFor(Policy.PRIVACY_POLICY, user.id, {
   code: 'PRIVACY_REQUIRED',
   error: 'Formamorph needs updating to continue.'
 });
+
+/**
+ * How the server refuses a write from an account the username rule flagged, or null to let it through.
+ *
+ * Refuses nothing while the `username_rename_gate` setting is off, which is how it ships.
+ *
+ * @param {Object} user - The authenticated user row, with `username_rename_required`
+ * @returns {Object|null} The 403 body, or null to let the request through
+ */
+exports.renameRefusal = (user) => {
+  if (!user.username_rename_required) return null;
+  if (Setting.get(USERNAME_RENAME_GATE) !== true) return null;
+
+  return { ...RENAME_REFUSAL };
+};

@@ -1,6 +1,7 @@
 const { validateClientMinimums } = require('./clientVersion');
 const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
+const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username');
 
 /**
  * The settings staff can change without a deploy.
@@ -34,6 +35,8 @@ const SETTINGS = {
   [ANONYMOUS_LIKES]: { default: false, validate: validateAnonymousLikes },
   // Off until the client that shows a pending listing ships. Admin-only, so one mod cannot turn it off.
   [LISTING_REVIEW]: { default: false, validate: validateListingReview, adminOnly: true },
+  // Off until the client that answers the rename refusal ships. `config/username` says what it gates.
+  [USERNAME_RENAME_GATE]: { default: false, validate: validateUsernameRenameGate, adminOnly: true },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true }
 };

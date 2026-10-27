@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
 const { isAdmin, isStaff } = require('../config/roles');
-const { privacyRefusal } = require('./policy');
+const { privacyRefusal, renameRefusal: renameRefusalFor } = require('./policy');
 const { utcMinute } = require('../config/suspension');
 const { liftExpiredSuspension } = require('../utils/liftSuspension');
 
@@ -24,10 +24,15 @@ const sameGeneration = (decoded, user) => (decoded.tv || 0) === (user.token_vers
  *   `allowSuspended` — when true, a suspended account may also make write requests. Only for routes that
  *   write nothing but the caller's own read/dismiss state.
  *   `allowUnacceptedPolicy` — when true, the Privacy Policy gate is not applied. Only for the routes a
- *   refused account needs to stop being refused.
+ *   refused account needs to stop being refused. Also skips the rename gate.
+ *   `allowRenameRequired` — when true, the username rename gate is not applied. Only for the rename route.
  * @returns {Function} Express middleware
  */
-const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } = {}) => async (req, res, next) => {
+const authenticate = ({
+  allowSuspended = false,
+  allowUnacceptedPolicy = false,
+  allowRenameRequired = false
+} = {}) => async (req, res, next) => {
   let token;
 
   // Check if token exists in Authorization header
@@ -53,7 +58,7 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
 
     // Get user from database. An ended suspension is lifted here, so no request is refused past its end.
     const user = liftExpiredSuspension(db
-      .prepare('SELECT id, username, email, status, suspended_until, account_type, trusted_at, token_version, created_at FROM users WHERE id = ?')
+      .prepare('SELECT id, username, email, status, suspended_until, account_type, trusted_at, token_version, username_rename_required, created_at FROM users WHERE id = ?')
       .get(decoded.id));
 
     // Check if user exists
@@ -93,6 +98,15 @@ const authenticate = ({ allowSuspended = false, allowUnacceptedPolicy = false } 
           : 'Your account has been suspended',
         suspendedUntil: user.suspended_until
       });
+    }
+
+    // The rename gate answers last, so a suspended flagged account sees its suspension first rather than a
+    // rename dialog whose submit the suspension would refuse. Routes that skip the policy gate skip this too.
+    if (!allowRenameRequired && !allowUnacceptedPolicy && req.method !== 'GET') {
+      const renameRefusal = renameRefusalFor(user);
+      if (renameRefusal) {
+        return res.status(403).json(renameRefusal);
+      }
     }
 
     next();
@@ -139,6 +153,12 @@ exports.protectBeforePolicy = authenticate({ allowUnacceptedPolicy: true });
  * generic suspension message instead of being pointed at Feedback.
  */
 exports.protectDeletionRequest = authenticate({ allowSuspended: true, allowUnacceptedPolicy: true });
+
+/**
+ * Authentication for the rename route: the one write a flagged account must reach while the rename gate is
+ * on. Still refuses a suspended account, and still applies the Privacy Policy gate.
+ */
+exports.protectRename = authenticate({ allowRenameRequired: true });
 
 /**
  * Authentication for a read that serves guests but must not change for a signed-in caller.

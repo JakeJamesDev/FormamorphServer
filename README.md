@@ -440,6 +440,7 @@ client has a screen to open rather than a message to print. An older build that 
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
 | `EMAIL_TAKEN` | 409 | Registering with, or setting, an address another account already holds | Points at sign-in and password reset, rather than at the email box |
 | `USERNAME_INVALID` | 400 | Registering or renaming with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, _ or -" |
+| `USERNAME_RENAME_REQUIRED` | 403 | A write from an account flagged for rename, while the `username_rename_gate` setting is on | Opens the rename dialog, or sends the player to the rename page |
 | `USERNAME_TAKEN` | 400 | Registering or renaming with a name another account holds, ignoring case | Asks for another name |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
@@ -460,6 +461,13 @@ carries `usernameRename`:
 cut to 20. It is `null` when that is shorter than 3 or taken ignoring case. A rename writes a
 `username_changed` audit row: the old name as target, the new one as snippet. Older log rows keep the
 name they recorded, and the old name reaches no profile.
+
+**Rename gate.** The `username_rename_gate` setting (admin-only, boolean, ships **off**) makes `protect`
+refuse a flagged account's non-GET requests with 403 `USERNAME_RENAME_REQUIRED` and the `error`
+"Update Formamorph to choose a new username." The operator turns it on after the client release that
+answers the code. Order: Privacy Policy, then suspension, then rename. The rename route, change-password,
+delete-account and everything under `/api/policies` pass. The rename route still refuses a suspended
+account.
 
 `PRIVACY_REQUIRED` is exempted only on the routes that get an account out of it: register, login,
 change-password, delete-account, and everything under `/api/policies`. It applies to suspended accounts

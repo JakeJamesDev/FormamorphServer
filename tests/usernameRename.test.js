@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db } from './context.js';
-import { createUser, authHeader, fromItsOwnAddress } from './helpers.js';
+import { createUser, authHeader, fromItsOwnAddress, worldPayload } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -228,5 +228,114 @@ describe('the rename route', () => {
     expect(before).toEqual({ target_username: 'logged one', target_name: 'logged one' });
     const entry = db.prepare("SELECT * FROM audit_log WHERE action = 'username_changed' AND target_user_id = ?").get(user.id);
     expect(entry).toMatchObject({ actor_id: user.id, target_name: 'logged one', snippet: 'logged_one' });
+  });
+});
+
+describe('the rename gate', () => {
+  const GATE = 'username_rename_gate';
+  const CODE = 'USERNAME_RENAME_REQUIRED';
+
+  const setGate = (actor, value) =>
+    request(app).put(`/api/settings/${GATE}`).set(authHeader(actor)).send({ value });
+  const gateOn = async () => {
+    const root = createUser({ username: 'gate-admin', accountType: 'admin' });
+    expect((await setGate(root, true)).status).toBe(200);
+    return root;
+  };
+  const publish = (user) => request(app).post('/api/worlds').set(authHeader(user)).send(worldPayload());
+  const read = (user) => request(app).get('/api/users/me').set(authHeader(user));
+  const changePassword = (user) => fromItsOwnAddress(
+    request(app).post('/api/auth/change-password').set(authHeader(user))
+      .send({ currentPassword: user.password, newPassword: 'a-fresh-password-1' })
+  );
+  const askToDelete = (user) => fromItsOwnAddress(
+    request(app).post('/api/auth/delete-account').set(authHeader(user)).send({ password: user.password })
+  );
+  const enablePrivacy = (root) => request(app).put('/api/policies/privacy_policy').set(authHeader(root))
+    .send({ enabled: true, title: 'Privacy Policy', body: 'What we store about you.' });
+
+  it('ships off: a flagged account writes as before', async () => {
+    const user = flagged('off gate');
+
+    expect((await publish(user)).status).toBe(201);
+  });
+
+  it('refuses a flagged account\'s write with the code while on, and lets its read pass', async () => {
+    await gateOn();
+    const user = flagged('on gate');
+
+    const res = await publish(user);
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      success: false,
+      code: CODE,
+      error: 'Update Formamorph to choose a new username.'
+    });
+    expect((await read(user)).status).toBe(200);
+  });
+
+  it('does not refuse an unflagged account while on', async () => {
+    await gateOn();
+
+    expect((await publish(createUser({ username: 'clear-account' }))).status).toBe(201);
+  });
+
+  it('stops refusing once the account renames', async () => {
+    await gateOn();
+    const user = flagged('soon renamed');
+    expect((await publish(user)).status).toBe(403);
+
+    expect((await rename(user, 'soon_renamed')).status).toBe(200);
+
+    expect((await publish(user)).status).toBe(201);
+  });
+
+  it('answers the Privacy Policy refusal first', async () => {
+    const root = await gateOn();
+    expect((await enablePrivacy(root)).status).toBe(200);
+    const user = flagged('both gates');
+
+    const res = await publish(user);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('PRIVACY_REQUIRED');
+  });
+
+  it('answers the suspension first, so the rename never loops on it', async () => {
+    await gateOn();
+    const user = flagged('sus gate', { status: 'suspended' });
+
+    const res = await publish(user);
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBeUndefined();
+    expect(res.body.error).toMatch(/suspended/);
+  });
+
+  it('lets the rename route, password change and account deletion through', async () => {
+    await gateOn();
+    const user = flagged('exempt one');
+
+    expect((await changePassword(user)).body.code).not.toBe(CODE);
+    expect((await askToDelete(user)).body.code).not.toBe(CODE);
+    expect((await rename(user, 'exempt_one')).status).toBe(200);
+  });
+
+  it('lets the policy routes through, which skip the policy gate', async () => {
+    const root = await gateOn();
+    const user = flagged('exempt two');
+    expect((await enablePrivacy(root)).status).toBe(200);
+
+    const res = await request(app).post('/api/policies/privacy-policy/accept').set(authHeader(user));
+
+    expect(res.status).toBe(200);
+  });
+
+  it('is an admin-only setting that rejects a non-boolean', async () => {
+    const root = await gateOn();
+
+    expect((await setGate(createUser({ username: 'gate-mod', accountType: 'mod' }), false)).status).toBe(403);
+    expect((await setGate(root, 'yes')).status).toBe(400);
   });
 });
