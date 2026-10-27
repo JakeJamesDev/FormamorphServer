@@ -1,6 +1,7 @@
 const Feedback = require('../models/Feedback');
 const { authorPayload } = require('../utils/authorPayload');
 const { isStaff, roleOf } = require('../config/roles');
+const { threadSummary } = require('../utils/feedbackTargets');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
 const { resolverFor } = require('../utils/feedbackTargets');
@@ -231,6 +232,51 @@ exports.getThread = async (req, res, next) => {
       data: toThreadDto(thread, { voted: Boolean(req.user) && Feedback.hasVoted(thread.id, req.user.id), targetsOf }),
       comments: comments.map((comment) => toCommentDto(comment, targetsOf))
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const SEARCH_LIMIT = 8;
+
+/**
+ * @desc    Usernames starting with `q`, the given thread's participants first
+ * @route   GET /api/feedback/search/users?q=&thread=
+ * @access  Private
+ */
+exports.searchUsers = async (req, res, next) => {
+  try {
+    const found = req.query.thread ? Feedback.findByRef(String(req.query.thread)) : null;
+    const thread = found && Feedback.canRead(found, req.user) ? found : null;
+    const rows = Feedback.searchUsers({ prefix: asText(req.query.q), thread, limit: SEARCH_LIMIT });
+    res.status(200).json({
+      success: true,
+      data: rows.map((row) => ({
+        ...authorPayload({
+          id: row.id, username: row.username, avatarFile: row.avatar_file, role: row.account_type
+        }),
+        participant: Boolean(row.participant)
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Threads the caller can read, by number prefix or title words; `types` narrows (comma list)
+ * @route   GET /api/feedback/search/threads?q=&types=
+ * @access  Private
+ */
+exports.searchThreads = async (req, res, next) => {
+  try {
+    const types = req.query.types === undefined ? [] : String(req.query.types).split(',').filter(Boolean);
+    if (types.some((type) => !Feedback.TYPES.includes(type))) {
+      return res.status(400).json({ success: false, error: 'Unknown type' });
+    }
+    const rows = Feedback.searchThreads({ query: asText(req.query.q), types, limit: SEARCH_LIMIT })
+      .filter((row) => Feedback.canRead(row, req.user));
+    res.status(200).json({ success: true, data: rows.map(threadSummary) });
   } catch (error) {
     next(error);
   }

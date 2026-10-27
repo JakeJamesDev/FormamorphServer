@@ -293,6 +293,74 @@ const Feedback = {
     return { threads, count: threads.length, total: countRow ? countRow.count : 0 };
   },
 
+  /**
+   * Accounts whose username starts with the prefix, the thread's reporter and commenters first.
+   * Only names a mention can parse (`[A-Za-z0-9_-]{3,20}`), never a suspended account.
+   * An empty prefix lists the thread's participants alone, and nothing without a thread.
+   * @param {Object} options - `{ prefix, thread, limit }`; `thread` is a row, or none
+   * @returns {Object[]} `{ id, username, avatar_file, account_type, participant }` rows
+   */
+  searchUsers: ({ prefix = '', thread = null, limit = 8 }) => {
+    const text = String(prefix).trim();
+    if (!text && !thread) return [];
+    const participant = thread
+      ? `(u.id = @reporterId OR EXISTS (
+           SELECT 1 FROM feedback_comments c WHERE c.feedback_id = @threadId AND c.author_id = u.id))`
+      : '0';
+    return db.prepare(`
+      SELECT u.id, u.username, u.avatar_file, u.account_type, ${participant} AS participant
+      FROM users u
+      WHERE u.username LIKE @pattern ESCAPE '\\' ${text ? '' : `AND ${participant}`}
+        AND LENGTH(u.username) BETWEEN 3 AND 20 AND u.username NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND u.status != 'suspended'
+      ORDER BY participant DESC, u.username COLLATE NOCASE, u.id
+      LIMIT @limit
+    `).all({
+      pattern: `${text.replace(/[\\%_]/g, '\\$&')}%`,
+      reporterId: thread ? thread.reporter_id : null,
+      threadId: thread ? thread.id : null,
+      limit
+    });
+  },
+
+  /**
+   * Threads whose number starts with the digits typed, or whose title has a word starting with each typed
+   * word. An exact number ranks first, then the newest.
+   * @param {Object} options - `{ query, types, limit }`; `types` narrows to those thread types
+   * @returns {Object[]} The matching rows, `number`, `title`, `type` and `status` among their columns
+   */
+  searchThreads: ({ query = '', types = [], limit = 8 }) => {
+    const text = String(query).trim().slice(0, SEARCH_MAX);
+    const digits = /^\d{1,15}$/.test(text) ? text : '';
+    const words = searchWords(digits ? '' : text);
+    const params = { limit };
+    const hits = [];
+    if (digits) {
+      params.numberPrefix = `${digits}%`;
+      hits.push('CAST(r.number AS TEXT) LIKE @numberPrefix');
+    }
+    words.forEach((word, index) => {
+      const escaped = word.replace(/[\\%_]/g, '\\$&');
+      params[`start${index}`] = `${escaped}%`;
+      params[`inside${index}`] = `% ${escaped}%`;
+      hits.push(`(r.title LIKE @start${index} ESCAPE '\\' OR r.title LIKE @inside${index} ESCAPE '\\')`);
+    });
+    if (!hits.length) return [];
+    const where = [`(${hits.join(' AND ')})`];
+    if (types.length) {
+      where.push(`r.type IN (${types.map((_, index) => `@type${index}`).join(', ')})`);
+      types.forEach((value, index) => { params[`type${index}`] = value; });
+    }
+    params.exact = digits ? Number(digits) : -1;
+    return db.prepare(`
+      SELECT r.number, r.title, r.type, r.status
+      FROM feedback r
+      WHERE ${where.join(' AND ')}
+      ORDER BY (r.number = @exact) DESC, r.created_at DESC, r.rowid DESC
+      LIMIT @limit
+    `).all(params);
+  },
+
 
   /**
    * Rewrite a report.

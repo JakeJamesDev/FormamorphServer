@@ -14,7 +14,9 @@ const {
   setAnswer,
   deleteThread,
   getUnreadCount,
-  getMeta
+  getMeta,
+  searchUsers,
+  searchThreads
 } = require('../controllers/feedbackController');
 const { protect, protectWhenSent, staff } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
@@ -39,7 +41,21 @@ const fileLimiter = rateLimit({
   message: { success: false, error: 'Too much filed at once. Try again later.' }
 });
 
+// The editor asks on every keystroke it debounces, so these get their own budget, per account.
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
+  message: { success: false, error: 'Too many searches. Try again shortly.' }
+});
+
 // Literal paths first, so neither is read as a thread ID.
+
+// Autocomplete: usernames by prefix (a thread's participants first), threads by number or title
+router.get('/search/users', protect, searchLimiter, searchUsers);
+router.get('/search/threads', protect, searchLimiter, searchThreads);
 
 // The types, categories, statuses and caps this server will accept; open to guests
 router.get('/meta', protectWhenSent, getMeta);
