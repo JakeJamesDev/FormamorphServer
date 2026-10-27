@@ -8,12 +8,34 @@ const USERNAME_CHARS = 'A-Za-z0-9_-';
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 20;
 
-const USERNAME_PATTERN = new RegExp(`^[${USERNAME_CHARS}]{${USERNAME_MIN},${USERNAME_MAX}}$`);
+/** The rule before spaces: the `usernameRename` step and the re-flag pass read "passed the old rule" from it. */
+const OLD_USERNAME_PATTERN = new RegExp(`^[${USERNAME_CHARS}]{${USERNAME_MIN},${USERNAME_MAX}}$`);
 
-/** Every character outside the set, for the rename suggestion to drop. */
-const OUTSIDE_USERNAME_CHARS = new RegExp(`[^${USERNAME_CHARS}]`, 'g');
+/** Words of the set joined by single spaces. Length is checked apart, on the collapsed name. */
+const USERNAME_SHAPE = new RegExp(`^[${USERNAME_CHARS}]+(?: [${USERNAME_CHARS}]+)*$`);
 
-const USERNAME_RULE = `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -`;
+/** Every character outside the set and the space, for the rename suggestion to drop. */
+const OUTSIDE_USERNAME_CHARS = new RegExp(`[^ ${USERNAME_CHARS}]`, 'g');
+
+const USERNAME_RULE = `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, spaces, _ or -`;
+
+/**
+ * Trims the ends and collapses each run of U+0020 into one. Other whitespace inside stays, so it fails the shape.
+ *
+ * @param {string} name - The typed name
+ * @returns {string} The collapsed name
+ */
+const collapseUsername = (name) => name.trim().replace(/ {2,}/g, ' ');
+
+/**
+ * Whether a collapsed name passes the rule.
+ *
+ * @param {string} collapsed - A `collapseUsername` result
+ * @returns {boolean}
+ */
+const isValidUsername = (collapsed) => collapsed.length >= USERNAME_MIN
+  && collapsed.length <= USERNAME_MAX
+  && USERNAME_SHAPE.test(collapsed);
 
 /**
  * The SQL fold every name lookup compares: ASCII lowercase (SQLite's `lower` without ICU), a space as `_`.
@@ -46,7 +68,9 @@ const RENAME_REFUSAL = Object.freeze({
 const validateUsernameRenameGate = (value) => (typeof value === 'boolean' ? null : 'Must be true or false');
 
 module.exports = {
-  USERNAME_PATTERN,
+  OLD_USERNAME_PATTERN,
+  collapseUsername,
+  isValidUsername,
   OUTSIDE_USERNAME_CHARS,
   USERNAME_MAX,
   USERNAME_RULE,

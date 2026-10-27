@@ -1,6 +1,6 @@
 const { addColumns } = require('../columns');
 const { PLACEHOLDER_ID } = require('../../config/accountDeletion');
-const { USERNAME_PATTERN } = require('../../config/username');
+const { OLD_USERNAME_PATTERN } = require('../../config/username');
 
 /**
  * The column that says an account must choose a new name, and the one pass that sets it.
@@ -25,7 +25,7 @@ const apply = (database) => {
     seen.add(folded);
 
     if (id === PLACEHOLDER_ID) continue;
-    if (twin || !USERNAME_PATTERN.test(username)) flag.run(id);
+    if (twin || !OLD_USERNAME_PATTERN.test(username)) flag.run(id);
   }
 
   return true;

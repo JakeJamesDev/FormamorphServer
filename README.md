@@ -144,7 +144,7 @@ server/
 ## API Endpoints
 
 ### Authentication
-- `POST /api/auth/register` - Register a new user. `email` is optional; a taken one is refused with `EMAIL_TAKEN`. `username` is trimmed, then must be 3–20 letters, numbers, `_` or `-` and unused ignoring case; refusals carry `USERNAME_INVALID` or `USERNAME_TAKEN` (see "Refusals a client acts on")
+- `POST /api/auth/register` - Register a new user. `email` is optional; a taken one is refused with `EMAIL_TAKEN`. `username` is trimmed and its space runs collapsed, then must be 3–20 letters, numbers, spaces, `_` or `-` and unused under the folded key (see "Username rule"); refusals carry `USERNAME_INVALID` or `USERNAME_TAKEN` (see "Refusals a client acts on")
 - `POST /api/auth/login` - Login and get JWT token
 - `POST /api/auth/change-password` - Change password
 - `POST /api/auth/delete-account` - Ask for this account to be erased after a seven-day Grace Period. Body: `password` and `deleteContent` (no default). Answers `deletionScheduledFor`
@@ -439,13 +439,14 @@ client has a screen to open rather than a message to print. An older build that 
 | `TERMS_REQUIRED` | 403 | Publishing or updating a listing while the upload gate is enabled and unaccepted | Opens the contributor terms, then retries |
 | `PRIVACY_REQUIRED` | 403 | **Any** authenticated route while the Privacy Policy is enabled and unaccepted | Opens the policy prompt: Accept, Delete my account, or Sign out |
 | `EMAIL_TAKEN` | 409 | Registering with, or setting, an address another account already holds | Points at sign-in and password reset, rather than at the email box |
-| `USERNAME_INVALID` | 400 | Registering or renaming with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, _ or -" |
+| `USERNAME_INVALID` | 400 | Registering or renaming with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, spaces, _ or -" |
 | `USERNAME_RENAME_REQUIRED` | 403 | A write from an account flagged for rename, while the `username_rename_gate` setting is on | Opens the rename dialog, or sends the player to the rename page |
 | `USERNAME_TAKEN` | 400 | Registering or renaming with a name another account holds, ignoring case | Asks for another name |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
-**Username rule.** Registration trims the typed name, then accepts only `[A-Za-z0-9_-]{3,20}` that no
-other account holds ignoring case.
+**Username rule.** Registration and rename trim the typed name and collapse each run of spaces into one.
+They then accept only 3–20 letters, digits, `_`, `-` or single inner spaces that no other account holds
+once lowercased with a space read as `_`. The stored name is the collapsed form.
 
 **Rename flag.** A one-time schema step flags every account whose name breaks the rule, and every account
 in a case-twin group except the oldest. The `[deleted user]` placeholder is never flagged. A flagged

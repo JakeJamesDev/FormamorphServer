@@ -1,13 +1,15 @@
 const User = require('../models/User');
-const { USERNAME_PATTERN, OUTSIDE_USERNAME_CHARS, USERNAME_MAX, USERNAME_RULE } = require('../config/username');
+const {
+  collapseUsername, isValidUsername, OUTSIDE_USERNAME_CHARS, USERNAME_MAX, USERNAME_RULE
+} = require('../config/username');
 
 const USERNAME_TAKEN = { code: 'USERNAME_TAKEN', error: 'Username already exists' };
 
 /**
  * The one username rule, for registration and for the rename route.
  *
- * Trims first, then checks the pattern, then checks every account (flagged ones too) for the same folded
- * key. The unique constraint still backstops a race, but it compares byte for byte.
+ * Trims and collapses space runs first, then checks the shape and length, then checks every account
+ * (flagged ones too) for the same folded key. The unique constraint still backstops a race, but it compares byte for byte.
  *
  * @param {*} name - The typed name
  * @param {Object} [options]
@@ -15,18 +17,18 @@ const USERNAME_TAKEN = { code: 'USERNAME_TAKEN', error: 'Username already exists
  * @returns {{ok: true, name: string} | {ok: false, code: string, error: string}}
  */
 const checkUsername = (name, { exceptUserId } = {}) => {
-  const trimmed = typeof name === 'string' ? name.trim() : '';
+  const collapsed = typeof name === 'string' ? collapseUsername(name) : '';
 
-  if (!USERNAME_PATTERN.test(trimmed)) {
+  if (!isValidUsername(collapsed)) {
     return { ok: false, code: 'USERNAME_INVALID', error: USERNAME_RULE };
   }
 
-  const holders = User.findAllByUsernameFolded(trimmed).filter((row) => row.id !== exceptUserId);
+  const holders = User.findAllByUsernameFolded(collapsed).filter((row) => row.id !== exceptUserId);
   if (holders.length) {
     return { ok: false, ...USERNAME_TAKEN };
   }
 
-  return { ok: true, name: trimmed };
+  return { ok: true, name: collapsed };
 };
 
 /**
@@ -36,11 +38,9 @@ const checkUsername = (name, { exceptUserId } = {}) => {
  * @returns {string|null}
  */
 const renameSuggestion = (user) => {
-  const cleaned = user.username
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(OUTSIDE_USERNAME_CHARS, '')
-    .slice(0, USERNAME_MAX);
+  const cleaned = collapseUsername(user.username.replace(OUTSIDE_USERNAME_CHARS, ''))
+    .slice(0, USERNAME_MAX)
+    .trim();
   const verdict = checkUsername(cleaned, { exceptUserId: user.id });
 
   return verdict.ok ? verdict.name : null;

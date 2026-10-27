@@ -28,7 +28,9 @@ describe('registering a username', () => {
   it.each([
     ['too short', 'ab'],
     ['too long', 'a'.repeat(21)],
-    ['an inner space', 'ann lee'],
+    ['an inner tab', 'ann\tlee'],
+    ['too long once spaces count', 'abcdefghij klmnopqrstu'],
+    ['too short once collapsed', 'a  '],
     ['a dot', 'ann.lee'],
     ['an at sign', 'ann@example.test'],
     ['a non-ASCII letter', 'zoë-lee'],
@@ -41,7 +43,35 @@ describe('registering a username', () => {
   });
 
   it('words the rule as the client shows it', () => {
-    expect(USERNAME_RULE).toBe('3–20 letters, numbers, _ or -');
+    expect(USERNAME_RULE).toBe('3–20 letters, numbers, spaces, _ or -');
+  });
+
+  it.each([
+    ['a single inner space', 'Jake James', 'Jake James'],
+    ['a doubled space, stored collapsed', 'Jake  James', 'Jake James'],
+    ['a space at either end, trimmed', '  Jake James ', 'Jake James'],
+    ['a space next to an underscore', 'a _b', 'a _b'],
+    ['a space next to a hyphen', 'a- b', 'a- b'],
+    ['the shortest name with a space', 'a b', 'a b'],
+    ['20 characters with spaces', 'abcdefghi klmnopqrst', 'abcdefghi klmnopqrst']
+  ])('accepts %s', async (_label, typed, stored) => {
+    const res = await register(typed);
+    expect(res.status).toBe(201);
+    expect(res.body.user.username).toBe(stored);
+    expect(db.prepare('SELECT username FROM users WHERE id = ?').get(res.body.user.id).username).toBe(stored);
+  });
+
+  it('accepts a 20-character name once a doubled space collapses', async () => {
+    const res = await register('abcdefghi   klmnopqrst');
+    expect(res.status).toBe(201);
+    expect(res.body.user.username).toBe('abcdefghi klmnopqrst');
+  });
+
+  it('refuses the underscore form of a name that holds a space', async () => {
+    createUser({ username: 'Jake James' });
+    const res = await register('Jake_James');
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ success: false, code: 'USERNAME_TAKEN' });
   });
 
   it('trims a leading and trailing space and stores the trimmed name', async () => {

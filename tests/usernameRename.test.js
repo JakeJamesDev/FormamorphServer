@@ -99,9 +99,11 @@ describe('the account payload', () => {
   });
 
   it.each([
-    ['whitespace runs become one underscore', 'ann \t lee', 'ann_lee'],
+    ['an inner space stays and an outside character drops', 'ann  lee!', 'ann lee'],
+    ['an inner tab drops', 'ann\tlee', 'annlee'],
     ['other characters drop', 'zoë.lee!', 'zolee'],
-    ['the cleaned name is cut to 20', 'a long name with many words', 'a_long_name_with_man'],
+    ['the cleaned name is cut to 20', 'a long name with many words', 'a long name with man'],
+    ['a cut that leaves a trailing space is trimmed', 'abcdefghijklmnopqrs tu', 'abcdefghijklmnopqrs'],
     ['a name under 3 once cleaned has none', 'é!a', null],
     ['an empty name once cleaned has none', '...', null]
   ])('suggestion: %s', async (_label, username, suggestion) => {
@@ -150,8 +152,27 @@ describe('the rename route', () => {
     const res = await rename(user, 'val.lee');
 
     expect(res.status).toBe(400);
-    expect(res.body).toMatchObject({ code: 'USERNAME_INVALID', error: '3–20 letters, numbers, _ or -' });
+    expect(res.body).toMatchObject({ code: 'USERNAME_INVALID', error: '3–20 letters, numbers, spaces, _ or -' });
     expect(stored(user.id).username_rename_required).toBe(1);
+  });
+
+  it('accepts a spaced name, stored collapsed', async () => {
+    const user = flagged('val.lee');
+
+    const res = await rename(user, ' Val   Lee ');
+
+    expect(res.status).toBe(200);
+    expect(stored(user.id)).toEqual({ username: 'Val Lee', username_rename_required: 0 });
+  });
+
+  it('refuses the underscore form of a name that holds a space with USERNAME_TAKEN', async () => {
+    createUser({ username: 'Jake James' });
+    const user = flagged('jake.james');
+
+    const res = await rename(user, 'Jake_James');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'USERNAME_TAKEN' });
   });
 
   it('refuses a name another account holds ignoring case with USERNAME_TAKEN', async () => {
