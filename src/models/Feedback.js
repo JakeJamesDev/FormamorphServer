@@ -208,6 +208,14 @@ const Feedback = {
   findByNumber: (number) => db.prepare(`${FEEDBACK_SELECT} WHERE r.number = ?`).get(number),
 
   /**
+   * The threads among these numbers, in one query however many numbers.
+   * @param {Array<number>} numbers - Thread numbers
+   * @returns {Array<Object>} `{ number, title, type, status }` rows
+   */
+  findByNumbers: (numbers) => db.prepare('SELECT number, title, type, status FROM feedback WHERE number IN (SELECT value FROM json_each(?))')
+    .all(JSON.stringify(numbers)),
+
+  /**
    * Read one thread by whichever name the caller has: a UUID, or digits for a number.
    * @param {string} ref - A feedback ID or a thread number
    * @returns {Object|undefined} The row, or undefined when there is no such thread

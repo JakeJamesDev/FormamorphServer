@@ -3,20 +3,23 @@ const { authorPayload } = require('../utils/authorPayload');
 const { isStaff, roleOf } = require('../config/roles');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
+const { resolverFor } = require('../utils/feedbackTargets');
 
 /**
- * A thread as any reader of it sees it. `unread` and `voted` are per-reader, so the caller supplies them.
+ * A thread as any reader of it sees it. `unread`, `voted` and `targetsOf` are per-reader, so the caller
+ * supplies them; `targetsOf` comes from `resolverFor` over every text the response holds.
  *
  * Diagnostics are only ever on a bug: a suggestion is about the game, not about the machine it was
  * written on, so nothing is collected in the first place (see `createThread`).
  */
-const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
+const toThreadDto = (row, { unread = false, voted = false, targetsOf }) => ({
   id: row.id,
   number: row.number,
   type: row.type,
   title: row.title,
   category: row.category,
   body: row.body,
+  targets: targetsOf(row.body),
   status: row.status,
   reporter: authorPayload({
     id: row.reporter_id,
@@ -48,12 +51,13 @@ const toThreadDto = (row, { unread = false, voted = false } = {}) => ({
     author_username: row.answer_author_username,
     author_account_type: row.answer_author_account_type,
     author_avatar_file: row.answer_author_avatar_file
-  }) : null
+  }, targetsOf) : null
 });
 
-const toCommentDto = (row) => ({
+const toCommentDto = (row, targetsOf) => ({
   id: row.id,
   body: row.body,
+  targets: targetsOf(row.body),
   createdAt: row.created_at,
   editedAt: row.edited_at || null,
   author: authorPayload({
@@ -65,6 +69,13 @@ const toCommentDto = (row) => ({
     role: row.author_role || row.author_account_type
   })
 });
+
+/** One thread's DTO, its links resolved for this reader. */
+const threadOut = (row, reader, options = {}) =>
+  toThreadDto(row, { ...options, targetsOf: resolverFor([row.body, row.answer_body], reader) });
+
+/** One comment's DTO, its links resolved for this reader. */
+const commentOut = (row, reader) => toCommentDto(row, resolverFor([row.body], reader));
 
 function safeParse(text) {
   try {
@@ -132,7 +143,7 @@ exports.createThread = async (req, res, next) => {
 
     // A board post is auto-voted by whoever filed it, so the response says so rather than showing a
     // vote button they would press to no effect.
-    res.status(201).json({ success: true, data: toThreadDto(thread, { voted: Feedback.isVotableBoard(type) }) });
+    res.status(201).json({ success: true, data: threadOut(thread, req.user, { voted: Feedback.isVotableBoard(type) }) });
   } catch (error) {
     next(error);
   }
@@ -171,6 +182,7 @@ exports.getThreads = async (req, res, next) => {
     const ids = result.threads.map((row) => row.id);
     const unread = req.user ? Feedback.unreadAmong(ids, req.user) : new Set();
     const voted = req.user ? Feedback.votedAmong(ids, req.user.id) : new Set();
+    const targetsOf = resolverFor(result.threads.flatMap((row) => [row.body, row.answer_body]), req.user);
 
     res.status(200).json({
       success: true,
@@ -178,7 +190,8 @@ exports.getThreads = async (req, res, next) => {
       total: result.total,
       data: result.threads.map((row) => toThreadDto(row, {
         unread: unread.has(row.id),
-        voted: voted.has(row.id)
+        voted: voted.has(row.id),
+        targetsOf
       }))
     });
   } catch (error) {
@@ -210,10 +223,13 @@ exports.getThread = async (req, res, next) => {
       : Feedback.hasParticipated(thread, req.user.id));
     if (badged) Feedback.markSeen(thread.id, req.user.id);
 
+    // One resolver for the whole read, so its links cost one query per kind however many posts hold them.
+    const targetsOf = resolverFor([thread.body, thread.answer_body, ...comments.map((comment) => comment.body)], req.user);
+
     res.status(200).json({
       success: true,
-      data: toThreadDto(thread, { voted: Boolean(req.user) && Feedback.hasVoted(thread.id, req.user.id) }),
-      comments: comments.map(toCommentDto)
+      data: toThreadDto(thread, { voted: Boolean(req.user) && Feedback.hasVoted(thread.id, req.user.id), targetsOf }),
+      comments: comments.map((comment) => toCommentDto(comment, targetsOf))
     });
   } catch (error) {
     next(error);
@@ -254,7 +270,7 @@ exports.addComment = async (req, res, next) => {
     // It is also what makes them a party to a suggestion from here on.
     Feedback.markSeen(thread.id, req.user.id);
 
-    res.status(201).json({ success: true, data: toCommentDto(comment) });
+    res.status(201).json({ success: true, data: commentOut(comment, req.user) });
   } catch (error) {
     next(error);
   }
@@ -316,7 +332,7 @@ exports.updateComment = async (req, res, next) => {
       return res.status(400).json({ success: false, error: `A comment is limited to ${Feedback.COMMENT_MAX} characters` });
     }
 
-    res.status(200).json({ success: true, data: toCommentDto(Feedback.updateComment(comment.id, body)) });
+    res.status(200).json({ success: true, data: commentOut(Feedback.updateComment(comment.id, body), req.user) });
   } catch (error) {
     next(error);
   }
@@ -466,7 +482,7 @@ exports.updateThread = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: toThreadDto(updated, { voted: Feedback.hasVoted(updated.id, req.user.id) })
+      data: threadOut(updated, req.user, { voted: Feedback.hasVoted(updated.id, req.user.id) })
     });
   } catch (error) {
     next(error);
@@ -493,7 +509,7 @@ exports.setStatus = async (req, res, next) => {
     }
 
     if (thread.type !== 'question') {
-      return res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, status)) });
+      return res.status(200).json({ success: true, data: threadOut(Feedback.setStatus(thread.id, status), req.user) });
     }
 
     // `answered` comes only from accepting a reply. Closing locks; reopening a closed question unlocks,
@@ -506,7 +522,7 @@ exports.setStatus = async (req, res, next) => {
     else if (thread.status === 'closed') locked = false;
     const stored = Feedback.questionStatus(status, Boolean(thread.accepted_comment_id));
 
-    res.status(200).json({ success: true, data: toThreadDto(Feedback.setStatus(thread.id, stored, { locked })) });
+    res.status(200).json({ success: true, data: threadOut(Feedback.setStatus(thread.id, stored, { locked }), req.user) });
   } catch (error) {
     next(error);
   }
@@ -526,7 +542,7 @@ exports.setLocked = async (req, res, next) => {
 
     const locked = req.body.locked !== false;
 
-    res.status(200).json({ success: true, data: toThreadDto(Feedback.setLocked(thread.id, locked)) });
+    res.status(200).json({ success: true, data: threadOut(Feedback.setLocked(thread.id, locked), req.user) });
   } catch (error) {
     next(error);
   }
@@ -551,7 +567,7 @@ exports.setVote = async (req, res, next) => {
     const voted = req.body.voted !== false;
     Feedback.setVote(thread, req.user.id, voted);
 
-    res.status(200).json({ success: true, data: toThreadDto(Feedback.findById(thread.id), { voted }) });
+    res.status(200).json({ success: true, data: threadOut(Feedback.findById(thread.id), req.user, { voted }) });
   } catch (error) {
     next(error);
   }
@@ -603,7 +619,7 @@ exports.setAnswer = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: toThreadDto(updated, { voted: Feedback.hasVoted(thread.id, req.user.id) })
+      data: threadOut(updated, req.user, { voted: Feedback.hasVoted(thread.id, req.user.id) })
     });
   } catch (error) {
     next(error);

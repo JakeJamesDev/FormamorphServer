@@ -103,6 +103,16 @@ const World = {
   LIKE_LIST_LIMIT,
 
   /**
+   * The listings among these IDs that anyone may see, of any kind. One query however many IDs.
+   * @param {Array<string>} ids - Listing IDs
+   * @returns {Array<Object>} `{ id, kind, name, thumbnail_file }` rows
+   */
+  findPublicByIds: (ids) => db.prepare(`
+    SELECT id, kind, name, thumbnail_file FROM worlds w
+    WHERE w.id IN (SELECT value FROM json_each(?)) AND ${inCirculationClause('w')}
+  `).all(JSON.stringify(ids)),
+
+  /**
    * Find a world by ID
    * @param {string} id - World ID
    * @returns {Object|null} World object or null if not found
