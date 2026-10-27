@@ -56,4 +56,12 @@ const usernameRename = (user) => (user.username_rename_required
   ? { required: true, suggestion: renameSuggestion(user) }
   : null);
 
-module.exports = { checkUsername, usernameRename, USERNAME_RULE, USERNAME_TAKEN };
+/**
+ * The 400 body for a refused name.
+ *
+ * @param {{ok: false, code: string, error: string}} verdict - A failed `checkUsername` result
+ * @returns {{success: false, code: string, error: string}}
+ */
+const usernameRefusal = ({ code, error }) => ({ success: false, code, error });
+
+module.exports = { checkUsername, usernameRename, usernameRefusal, USERNAME_TAKEN };

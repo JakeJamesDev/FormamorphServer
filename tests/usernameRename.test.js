@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db } from './context.js';
 import { createUser, authHeader, fromItsOwnAddress, worldPayload } from './helpers.js';
@@ -8,6 +8,7 @@ const Database = require('better-sqlite3');
 const { apply: flagUsernames } = require('../src/schema/steps/usernameRename');
 const { PLACEHOLDER_ID, PLACEHOLDER_USERNAME } = require('../src/config/accountDeletion');
 const AuditLog = require('../src/models/AuditLog');
+const User = require('../src/models/User');
 
 /**
  * The username rule for accounts made before it: the flag step, the account payload's rename state, and
@@ -197,6 +198,24 @@ describe('the rename route', () => {
     expect((await rename(user, 'twice_over')).status).toBe(200);
 
     expect((await rename(user, 'twice_again')).status).toBe(403);
+  });
+
+  it('refuses and logs nothing when the flag is cleared between the read and the write', async () => {
+    const user = flagged('raced one');
+    const original = User.renameFlagged;
+    // Another request clears the flag just before this one's guarded write runs.
+    const spy = vi.spyOn(User, 'renameFlagged').mockImplementation((id, name) => {
+      db.prepare('UPDATE users SET username_rename_required = 0 WHERE id = ?').run(id);
+      return original(id, name);
+    });
+
+    const res = await rename(user, 'raced_one');
+    spy.mockRestore();
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, error: 'This account does not need a new username' });
+    expect(stored(user.id)).toEqual({ username: 'raced one', username_rename_required: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'username_changed'").get().n).toBe(0);
   });
 
   it('refuses a suspended account like any other write', async () => {

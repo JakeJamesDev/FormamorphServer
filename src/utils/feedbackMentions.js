@@ -35,7 +35,7 @@ const accountsFor = (texts) => {
 
   const candidates = new Map();
   if (refs.size) {
-    for (const row of User.findAllByUsernamesFolded([...refs])) {
+    for (const row of User.findAllUnflaggedByUsernamesFolded([...refs])) {
       const key = row.username.toLowerCase();
       if (!candidates.has(key)) candidates.set(key, []);
       candidates.get(key).push(liftExpiredSuspension(row));

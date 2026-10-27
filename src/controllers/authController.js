@@ -10,7 +10,7 @@ const { addressGiven, foldedAddress } = require('../utils/emailAddress');
 const { erasureDue, SYSTEM_STATUS } = require('../config/accountDeletion');
 const { VERIFY, RESET } = require('../config/accountTokens');
 const { PASSWORD_MIN_LENGTH, PASSWORD_RULE } = require('../config/password');
-const { checkUsername, usernameRename, USERNAME_TAKEN } = require('../utils/usernameRule');
+const { checkUsername, usernameRename, usernameRefusal, USERNAME_TAKEN } = require('../utils/usernameRule');
 const { validationResult } = require('express-validator');
 
 /**
@@ -97,9 +97,7 @@ exports.register = async (req, res, next) => {
     const address = addressGiven(email);
 
     const verdict = checkUsername(req.body.username);
-    if (!verdict.ok) {
-      return res.status(400).json({ success: false, code: verdict.code, error: verdict.error });
-    }
+    if (!verdict.ok) return res.status(400).json(usernameRefusal(verdict));
     const username = verdict.name;
 
     // Create user. Both a taken name and a taken address are refused by the unique constraint rather than
@@ -327,12 +325,11 @@ exports.renameUsername = async (req, res, next) => {
     if (!current.username_rename_required) return res.status(403).json(NO_RENAME_NEEDED);
 
     const verdict = checkUsername(req.body.username, { exceptUserId: current.id });
-    if (!verdict.ok) {
-      return res.status(400).json({ success: false, code: verdict.code, error: verdict.error });
-    }
+    if (!verdict.ok) return res.status(400).json(usernameRefusal(verdict));
 
     // Nothing awaits between the check and the write, so no other request can take the name in between.
-    User.renameFlagged(current.id, verdict.name);
+    // The guarded write changes no row when the flag was cleared since the read above.
+    if (!User.renameFlagged(current.id, verdict.name)) return res.status(403).json(NO_RENAME_NEEDED);
 
     AuditLog.tryRecord({
       action: 'username_changed',

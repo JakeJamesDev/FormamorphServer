@@ -4,7 +4,8 @@ import { app, request, db } from './context.js';
 import { createUser, fromItsOwnAddress } from './helpers.js';
 
 const require = createRequire(import.meta.url);
-const { checkUsername, USERNAME_RULE } = require('../src/utils/usernameRule');
+const { checkUsername } = require('../src/utils/usernameRule');
+const { USERNAME_RULE } = require('../src/config/username');
 
 /**
  * The username rule at registration: 3–20 of `[A-Za-z0-9_-]`, trimmed first, unique ignoring case.

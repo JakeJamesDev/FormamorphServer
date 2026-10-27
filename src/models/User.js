@@ -117,11 +117,12 @@ const User = {
   },
 
   /**
-   * `findAllByUsernameFolded` for many names in one query, skipping accounts flagged for rename.
+   * `findAllByUsernameFolded` for many names in one query, skipping accounts flagged for rename
+   * (unlike the singular, which returns them).
    * @param {Array<string>} usernames - Names, in any capitals
    * @returns {Array<Object>} Every matching unflagged user row, oldest first
    */
-  findAllByUsernamesFolded: (usernames) => db
+  findAllUnflaggedByUsernamesFolded: (usernames) => db
     .prepare('SELECT * FROM users WHERE username COLLATE NOCASE IN (SELECT value FROM json_each(?)) AND username_rename_required = 0 ORDER BY created_at, id')
     .all(JSON.stringify(usernames)),
 

@@ -13,7 +13,7 @@ const USERNAME_PATTERN = new RegExp(`^[${USERNAME_CHARS}]{${USERNAME_MIN},${USER
 /** Every character outside the set, for the rename suggestion to drop. */
 const OUTSIDE_USERNAME_CHARS = new RegExp(`[^${USERNAME_CHARS}]`, 'g');
 
-const USERNAME_RULE = '3–20 letters, numbers, _ or -';
+const USERNAME_RULE = `${USERNAME_MIN}–${USERNAME_MAX} letters, numbers, _ or -`;
 
 /**
  * The setting that turns the rename gate on. Ships off: the operator enables it after the client release
