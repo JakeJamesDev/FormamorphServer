@@ -8,7 +8,7 @@ const USERNAME_CHARS = 'A-Za-z0-9_-';
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 20;
 
-/** The rule before spaces: the `usernameRename` step and the re-flag pass read "passed the old rule" from it. */
+/** The rule before spaces, frozen for the `usernameRename` step. */
 const OLD_USERNAME_PATTERN = new RegExp(`^[${USERNAME_CHARS}]{${USERNAME_MIN},${USERNAME_MAX}}$`);
 
 /** Words of the set joined by single spaces. Length is checked apart, on the collapsed name. */

@@ -449,7 +449,9 @@ They then accept only 3–20 letters, digits, `_`, `-` or single inner spaces th
 once lowercased with a space read as `_`. The stored name is the collapsed form.
 
 **Rename flag.** A one-time schema step flags every account whose name breaks the rule, and every account
-in a case-twin group except the oldest. The `[deleted user]` placeholder is never flagged. A flagged
+in a case-twin group except the oldest. The `[deleted user]` placeholder is never flagged. The run that
+adds the folded key clears the flag on accounts that pass the spaced rule, one per folded name: an
+unflagged holder keeps it, else the oldest valid flagged member. It never flags an account. A flagged
 account signs in with its old name. Every account payload (register, login, `/me`, set-email, rename)
 carries `usernameRename`:
 
