@@ -2,7 +2,7 @@
 
 Status: ready-for-agent
 
-Client side: the formamorph repo, `docs-internal/specs/feedback-links/spec.md`. That spec holds the rulings (Q1–Q24) and the user stories. This spec holds the thread number, mention and link-target contract.
+Client side: the formamorph repo, `docs-internal/specs/feedback-links/spec.md`. That spec holds the rulings (Q1–Q38) and the user stories. This spec holds the thread number, mention and link-target contract.
 
 ## Problem Statement
 
@@ -26,20 +26,20 @@ The client spec holds the full list. The server owns these:
 
 ## Implementation Decisions
 
-- **Thread number.** A schema step adds a unique, non-null `number` to feedback, one sequence across all types. It backfills existing rows in creation order (ties broken by id). New threads take the next number from a never-reused counter, seeded from the backfill and advanced in the insert's transaction, so a deleted thread's number stays dead (client Q30). Every thread DTO returns `number`. Thread reads accept a number as well as the UUID.
+- **Thread number.** A schema step adds a unique, non-null `number` to feedback, one sequence across all types. It backfills existing rows in creation order (ties broken by id). New threads take the next number from a never-reused counter, seeded from the backfill and advanced in the insert's transaction, so a deleted thread's number stays dead (client Q30). Every thread DTO returns `number`. The thread read (`GET /api/feedback/:id`) accepts a number as well as the UUID; other routes take the UUID.
 - **Mentions table.** A `feedback_mentions` record holds (thread, source post, mentioned user). The source is the thread body or one comment. It cascades on thread, comment and user delete. Writes to a body or a comment replace that source's rows in the same transaction.
-- **Parse on write.** The grammar matches the client spec: skip fenced code and inline code, word boundary before `@` and `#`, case-insensitive usernames. Only usernames that resolve to an account are recorded. Self-mentions are dropped. Repeats count once.
-- **Cap.** Distinct mentioned users per post, after self and unknowns are dropped: admin no cap, moderator 10, everyone else 5. Over the cap, the write is refused with a 400 that names the cap. The role is the writer's role at write time.
+- **Parse on write.** The grammar matches the client spec: skip fenced code and inline code, word boundary before `@` and `#`, case-insensitive usernames. Only names that resolve to an account whose profile is shown are recorded (client Q34). Self-mentions are dropped. Repeats count once.
+- **Cap.** Distinct mentioned users per post, after self and unknowns are dropped: admin no cap, moderator and dev 10, everyone else 5. Over the cap, the write is refused with a 400 that names the cap. The role is the writer's role at write time.
 - **Participation.** `participationClause` and `hasParticipated` gain one branch: on a suggestion or question, a mention row for the user makes them a party. Bugs gain nothing. The two must still agree, and `unreadCount` and `unreadAmong` follow from them.
 - **Per-reader targets.** Each thread and comment DTO carries the resolved targets for its own text: users (id, username, avatar), threads (number, title, type, status) and listings (kind, id, title, thumbnail). A target the reader cannot read, or that does not exist, comes back as unavailable with no name, title or type. A thread is readable by the existing `canRead` rule. On the guest read path from the website effort, bugs are never readable. A listing is readable only when it is publicly visible.
-- **Autocomplete reads.** A username prefix search, limited and rate-limited, that ranks the given thread's participants first. A thread search by number prefix or title words, over threads the caller can read. Both work for any signed-in user.
+- **Autocomplete reads.** `GET /api/feedback/search/users` and `GET /api/feedback/search/threads`, 8 results each, rate-limited per account. The username search matches mentionable, shown accounts by prefix and ranks the given thread's participants first; an empty query with a thread returns those participants. The thread search matches number prefix or title words over threads the caller can read, with an optional `types` filter (client Q31, Q34).
 - **Thread URL form.** The website and app address threads as `/feedback/<number>`.
 
 ## Testing Decisions
 
 - Tests go through the HTTP API with supertest, as the existing feedback tests do. Prior art: the feedback, feedback editing and feedback questions tests.
 - Cover: numbering and backfill order; read by number; mention recording on create, edit and delete; cap per role and the refusal; self and repeat handling; unknown users; the badge count with mentions on each type; per-reader target resolution for readable, unreadable and missing targets; both searches and their read rules.
-- **Grammar case table.** A copy of the client's case table runs against the server parser. The two copies must match.
+- **Grammar case table.** This repo holds the canonical table; the client copies it and runs its own parser against it. The two copies must match.
 - Prove each guard bites: remove the bug branch exclusion and the bug-mention test must fail.
 
 ## Out of Scope
