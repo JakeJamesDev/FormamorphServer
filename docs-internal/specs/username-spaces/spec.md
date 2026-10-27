@@ -29,7 +29,7 @@ Registration and rename accept single inner spaces. A folded key (ASCII lowercas
 ## Implementation Decisions
 
 - **Rule.** `src/config/username.js` holds the new pattern: 3–20 characters of `[A-Za-z0-9_-]` and single inner spaces, with no space at either end. `USERNAME_RULE` takes the client spec's Q11 text. `checkUsername` trims, collapses space runs, then checks.
-- **Folded key.** A `username_key` column holds the folded name. A schema step adds it and fills it for every row. Registration and rename write it with the name. An index on it serves every lookup. It is not unique: dormant flagged twins keep their names (username-charset Q15).
+- **Folded key.** A `username_key` VIRTUAL generated column holds the folded name, `replace(lower(username), ' ', '_')` (client Q14). A schema step adds it, so every writer carries it without setting it. An index on it serves every lookup. It is not unique: dormant flagged twins keep their names (username-charset Q15).
 - **Lookups.** `findAllByUsernameFolded` and `findAllUnflaggedByUsernamesFolded` compare the folded key of the argument with `username_key`. Profile lookup, mention resolution, the uniqueness check and the username search (`User.js` list filter and the feedback mention suggestions) all go through the key.
 - **Re-flag pass.** A new schema step, run once, recomputes `username_rename_required` (client Q6):
   - Clear the flag on every account whose name passes the new rule and that has no twin under the key.
@@ -48,7 +48,7 @@ Registration and rename accept single inner spaces. A folded key (ASCII lowercas
 ## Out of Scope
 
 - A unique index on the key. It cannot exist while dormant flagged twins remain.
-- Any change to sign-in lookup, which matches the stored name byte for byte.
+- Any change to sign-in or forgot-password lookup, which match the stored name byte for byte (client Q15). World search by author does fold.
 
 ## Further Notes
 
