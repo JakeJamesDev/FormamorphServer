@@ -518,11 +518,11 @@ describe('reading a report', () => {
     expect(res.body.data.title).toBe('Save button does nothing');
   });
 
-  it('refuses a signed-out reader', async () => {
-    // Public among accounts, not on the open web.
+  it('hides a bug from a signed-out reader', async () => {
+    // Public among accounts, not on the open web: a guest gets the missing-thread answer.
     const { id } = await seedReport();
 
-    expect((await request(app).get(`/api/feedback/${id}`)).status).toBe(401);
+    expect((await request(app).get(`/api/feedback/${id}`)).status).toBe(404);
   });
 
   it('records no read-marker for a passing reader', async () => {

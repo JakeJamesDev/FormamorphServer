@@ -140,7 +140,7 @@ exports.createThread = async (req, res, next) => {
 /**
  * @desc    List threads — the caller's own, or everyone's
  * @route   GET /api/feedback
- * @access  Private
+ * @access  Public (a guest lists a Votable board with `scope=all` only)
  */
 exports.getThreads = async (req, res, next) => {
   try {
@@ -161,12 +161,15 @@ exports.getThreads = async (req, res, next) => {
 
     // The queue is public, so `scope=all` is open to anyone: checking whether something is already filed
     // beats filing it twice. Without it the list is the caller's own, which is what the profile opens on.
+    if (!Feedback.canList({ type, scope: req.query.scope }, req.user)) {
+      return res.status(401).json({ success: false, error: 'Not authorized to access this route' });
+    }
     const reporterId = req.query.scope === 'all' ? null : req.user.id;
 
     const result = Feedback.getAll({ page, limit, type, reporterId, statuses, category, search, sort });
     const ids = result.threads.map((row) => row.id);
-    const unread = Feedback.unreadAmong(ids, req.user);
-    const voted = Feedback.votedAmong(ids, req.user.id);
+    const unread = req.user ? Feedback.unreadAmong(ids, req.user) : new Set();
+    const voted = req.user ? Feedback.votedAmong(ids, req.user.id) : new Set();
 
     res.status(200).json({
       success: true,
@@ -185,7 +188,7 @@ exports.getThreads = async (req, res, next) => {
 /**
  * @desc    Read one thread and its comments. Reading marks it seen for anyone it badges.
  * @route   GET /api/feedback/:id
- * @access  Private (any signed-in account)
+ * @access  Public (any signed-in account; a guest reads a suggestion or a question)
  */
 exports.getThread = async (req, res, next) => {
   try {
@@ -200,15 +203,15 @@ exports.getThread = async (req, res, next) => {
     const comments = Feedback.comments(thread.id);
     // Only for someone the thread badges. A passing reader has no unread state to clear, and writing a
     // marker anyway would leave a row per thread per curious account. Admins are a party to every bug;
-    // see `hasParticipated` for the board posts.
-    const badged = isStaff(req.user)
+    // see `hasParticipated` for the board posts. A guest is badged by nothing.
+    const badged = req.user && (isStaff(req.user)
       ? thread.type === 'bug' || Feedback.hasParticipated(thread, req.user.id)
-      : Feedback.hasParticipated(thread, req.user.id);
+      : Feedback.hasParticipated(thread, req.user.id));
     if (badged) Feedback.markSeen(thread.id, req.user.id);
 
     res.status(200).json({
       success: true,
-      data: toThreadDto(thread, { voted: Feedback.hasVoted(thread.id, req.user.id) }),
+      data: toThreadDto(thread, { voted: Boolean(req.user) && Feedback.hasVoted(thread.id, req.user.id) }),
       comments: comments.map(toCommentDto)
     });
   } catch (error) {

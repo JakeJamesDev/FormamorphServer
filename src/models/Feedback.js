@@ -376,12 +376,23 @@ const Feedback = {
   /**
    * Whether this user may read a thread. Any signed-in account: the queue is public so somebody can
    * check whether what they hit is already known — or already suggested — before filing it again.
+   * A guest may read a Votable board only; a bug's diagnostics never reach the web.
    *
    * @param {Object} thread - The thread row
-   * @param {Object} user - `{ id, account_type }`
+   * @param {Object} [user] - `{ id, account_type }`, or none for a guest
    * @returns {boolean} True when the user may read it
    */
-  canRead: (thread, user) => Boolean(thread && user),
+  canRead: (thread, user) => Boolean(thread && (user || isVotableBoard(thread.type))),
+
+  /**
+   * Whether this user may list a branch. A guest has no list of their own, and the bug queue stays off
+   * the web, so a guest lists a Votable board with `scope=all` only.
+   *
+   * @param {Object} query - `{ type, scope }`, the type already resolved
+   * @param {Object} [user] - `{ id, account_type }`, or none for a guest
+   * @returns {boolean} True when the user may list it
+   */
+  canList: ({ type, scope }, user) => Boolean(user || (scope === 'all' && isVotableBoard(type))),
 
   /**
    * Whether this user may write in a thread.

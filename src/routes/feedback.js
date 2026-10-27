@@ -16,7 +16,7 @@ const {
   getUnreadCount,
   getMeta
 } = require('../controllers/feedbackController');
-const { protect, staff } = require('../middleware/auth');
+const { protect, protectWhenSent, staff } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
@@ -41,20 +41,22 @@ const fileLimiter = rateLimit({
 
 // Literal paths first, so neither is read as a thread ID.
 
-// The types, categories, statuses and caps this server will accept
-router.get('/meta', protect, getMeta);
+// The types, categories, statuses and caps this server will accept; open to guests
+router.get('/meta', protectWhenSent, getMeta);
 
 // How many of the caller's threads have something new in them (badge), both branches together
 router.get('/unread-count', protect, getUnreadCount);
 
-// List threads — the caller's own, or everyone's with `?scope=all`; `?type=` picks the branch
-router.get('/', protect, getThreads);
+// List threads — the caller's own, or everyone's with `?scope=all`; `?type=` picks the branch.
+// A guest may list a Votable board with `scope=all` only.
+router.get('/', protectWhenSent, getThreads);
 
 // File a bug report, a suggestion or a question
 router.post('/', protect, fileLimiter, createThread);
 
-// Read one thread and its comments; reading marks it seen for anyone it badges
-router.get('/:id', protect, getThread);
+// Read one thread and its comments; reading marks it seen for anyone it badges.
+// A guest may read a suggestion or a question; a bug answers 404.
+router.get('/:id', protectWhenSent, getThread);
 
 // Add a comment (a bug's reporter or an admin; anyone on an unlocked suggestion or question)
 router.post('/:id/comments', protect, addComment);

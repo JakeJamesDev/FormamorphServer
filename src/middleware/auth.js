@@ -141,6 +141,18 @@ exports.protectBeforePolicy = authenticate({ allowUnacceptedPolicy: true });
 exports.protectDeletionRequest = authenticate({ allowSuspended: true, allowUnacceptedPolicy: true });
 
 /**
+ * Authentication for a read that serves guests but must not change for a signed-in caller.
+ *
+ * With no Authorization header the request goes on as a guest. With one, it is `protect` exactly: a bad
+ * token answers 401 and an unaccepted policy 403, where `optionalAuth` would quietly serve a guest view.
+ *
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next function
+ */
+exports.protectWhenSent = (req, res, next) => (req.headers.authorization ? exports.protect(req, res, next) : next());
+
+/**
  * Authentication for a route that is open to everyone but behaves differently for a signed-in caller.
  *
  * Sets `req.user` when a valid token is present and leaves it undefined otherwise — never refusing the
