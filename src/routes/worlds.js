@@ -1,7 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, removeAnonymousLikeGroup, removeAnonymousLikes, quarantineWorld, releaseWorld, pinWorld, unpinWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, getSupporterContent, setSupporterOnly, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, removeAnonymousLikeGroup, removeAnonymousLikes, quarantineWorld, releaseWorld, pinWorld, unpinWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
@@ -36,6 +36,13 @@ router.get('/:id', optionalAuth, getWorld);
 
 // Get world content
 router.get('/:id/content', optionalAuth, getWorldContent);
+
+// Supporter-only content, per account. The public route above refuses it; this one serves Supporters, the
+// author and staff.
+router.get('/:id/supporter-content', protect, getSupporterContent);
+
+// Mark a listing Supporter-only, or clear it (staff only).
+router.put('/:id/supporter-only', smallJson, protect, staff, setSupporterOnly);
 
 // Linked content. What a world requires, resolved for whoever can read the world — the one path by which
 // an unlisted component reaches the room — and each required source's content through the same door.

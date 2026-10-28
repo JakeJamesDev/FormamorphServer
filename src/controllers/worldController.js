@@ -43,6 +43,8 @@ const { judgingContest, contestLockedBody } = require('../utils/judgingContest')
 const { submissionFor, reviewEnabled, holdsEdit, pendingFields } = require('../utils/listingReview');
 const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
+const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
+const { processForAccount } = require('../utils/supporterProcessing');
 const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
@@ -449,6 +451,10 @@ exports.getWorldContent = async (req, res, next) => {
       });
     }
 
+    if (row && row.supporter_only) {
+      return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
+    }
+
     // Increment download count
     World.incrementDownloads(req.params.id);
 
@@ -467,6 +473,73 @@ exports.getWorldContent = async (req, res, next) => {
       success: true,
       data: world
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * A Supporter-only listing's content, run through the per-account processing step. Served to a qualifying
+ * Supporter, and to the listing's author and staff, whatever their tier.
+ *
+ * @desc    Get Supporter-only content
+ * @route   GET /api/worlds/:id/supporter-content
+ * @access  Private (Supporter, Supporter+, the author, staff)
+ */
+exports.getSupporterContent = async (req, res, next) => {
+  try {
+    const row = World.findById(req.params.id);
+    if (!row || !row.supporter_only || !World.isVisibleTo(row, req.user)) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    if (!mayReceiveSupporterContent(req.user, row)) {
+      return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
+    }
+
+    World.incrementDownloads(row.id);
+    const world = await World.getContent(row.id, req.user);
+    world.contentData = await processForAccount({ userId: req.user.id, listing: row, content: world.contentData });
+
+    perReader(res);
+    res.status(200).json({ success: true, data: world });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Mark a listing Supporter-only, or clear it. Staff only; the listing's content moves with the flag.
+ *
+ * @desc    Set a listing's Supporter-only flag
+ * @route   PUT /api/worlds/:id/supporter-only
+ * @access  Private/Staff
+ */
+exports.setSupporterOnly = async (req, res, next) => {
+  try {
+    const { supporterOnly } = req.body;
+    if (typeof supporterOnly !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'supporterOnly must be a boolean' });
+    }
+
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    if (Boolean(world.supporter_only) !== supporterOnly) {
+      World.setSupporterOnly(world.id, supporterOnly);
+      AuditLog.tryRecord({
+        action: supporterOnly ? 'listing_supporter_only' : 'listing_supporter_only_cleared',
+        actor: req.user,
+        targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
+        targetKind: world.kind || 'world',
+        targetName: world.name,
+        targetId: world.id
+      });
+    }
+
+    res.status(200).json({ success: true, data: { id: world.id, supporterOnly } });
   } catch (error) {
     next(error);
   }
@@ -796,7 +869,7 @@ exports.updateWorld = async (req, res, next) => {
         // If content data is provided, update it
         if (contentData) {
           // Save new content
-          await saveWorldContent(world.id, contentData);
+          await saveWorldContent(world.id, contentData, { supporterOnly: Boolean(world.supporter_only) });
         }
       }
 

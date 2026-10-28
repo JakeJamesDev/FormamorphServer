@@ -3,7 +3,8 @@ const {
   getUsers, getMe, getMyWorlds, getUserWorlds, updateUserStatus,
   setMyAvatar, removeMyAvatar, removeUserAvatar, getUserProfile, getUserProfileByUsername,
   followUser, unfollowUser, getFollowing, getNotifications, getNotificationCount,
-  getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes, trustUser, untrustUser
+  getUserLikes, clearUserLikes, getLinkedAccounts, claimAnonymousLikes, trustUser, untrustUser,
+  revokeSupporterAccess, restoreSupporterAccess
 } = require('../controllers/userController');
 const {
   startPatreonLink, confirmPatreonLink, getPatreonStatus, setPatreonFlair, unlinkPatreon
@@ -86,5 +87,10 @@ router.put('/:id/status', smallJson, protect, staff, updateUserStatus);
 // Make an account a trusted author, or stop (admin only).
 router.put('/:id/trust', protect, admin, trustUser);
 router.delete('/:id/trust', protect, admin, untrustUser);
+
+// Take one account's access to Supporter content away, or give it back (staff only). The account and its
+// Supporter Flair stay as they are.
+router.put('/:id/supporter-content-access', protect, staff, revokeSupporterAccess);
+router.delete('/:id/supporter-content-access', protect, staff, restoreSupporterAccess);
 
 module.exports = router;

@@ -53,6 +53,7 @@ const STEPS = [
   require('./steps/usernameRename'),
   require('./steps/usernameKey'),
   require('./steps/pinnedAt'),
+  require('./steps/supporterContent'),
   require('./indexes')
 ];
 

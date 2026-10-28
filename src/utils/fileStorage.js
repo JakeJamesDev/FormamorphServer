@@ -62,11 +62,35 @@ const initStorage = () => {
   fs.mkdirSync(supporterStorageDir, { recursive: true });
 };
 
-// Save world content to a file
-const saveWorldContent = async (worldId, content) => {
+// Where a listing's content is written: the private area for a Supporter-only listing.
+const contentDirFor = (supporterOnly) => (supporterOnly ? supporterStorageDir : worldsStorageDir);
+
+// A listing's content file: the Supporter area when it holds the file, else the public one.
+const liveContentPath = (fileName) => {
+  const inSupporter = storedPath(supporterStorageDir, fileName);
+  const inPublic = storedPath(worldsStorageDir, fileName);
+
+  return !fs.existsSync(inPublic) && fs.existsSync(inSupporter) ? inSupporter : inPublic;
+};
+
+/**
+ * Move a listing's content between the public area and the private Supporter area.
+ *
+ * @param {string} fileName - The stored content filename
+ * @param {boolean} toSupporter - True to make it private, false to publish it again
+ */
+const moveWorldContent = (fileName, toSupporter) => {
+  const from = storedPath(contentDirFor(!toSupporter), fileName);
+  const to = storedPath(contentDirFor(toSupporter), fileName);
+
+  if (fs.existsSync(from)) fs.renameSync(from, to);
+};
+
+// Save world content to a file. Supporter-only content is written to the private area.
+const saveWorldContent = async (worldId, content, { supporterOnly = false } = {}) => {
   try {
-    const filePath = path.join(worldsStorageDir, `${worldId}.json`);
-    
+    const filePath = path.join(contentDirFor(supporterOnly), `${worldId}.json`);
+
     // Convert content to JSON string
     const contentString = JSON.stringify(content);
     
@@ -87,8 +111,8 @@ const saveWorldContent = async (worldId, content) => {
 // Read world content from a file
 const readWorldContent = async (fileName) => {
   try {
-    const filePath = path.join(worldsStorageDir, fileName);
-    
+    const filePath = liveContentPath(fileName);
+
     // Use a stream-based approach for reading large files
     const content = await fs.promises.readFile(filePath, {
       encoding: 'utf8',
@@ -129,7 +153,7 @@ const getThumbnailBase64 = async (fileName) => {
 // Delete world content file
 const deleteWorldContent = async (fileName) => {
   try {
-    const filePath = path.join(worldsStorageDir, fileName);
+    const filePath = liveContentPath(fileName);
     if (fs.existsSync(filePath)) {
       await fs.promises.unlink(filePath);
     }
@@ -376,12 +400,13 @@ const pendingFilesExist = (update) => [update.content_file, update.thumbnail_fil
  * Move an approved update's files over the live ones. Synchronous, so no request reads the listing
  * between the row change and the file change.
  *
- * @param {Object} files - `{ content, contentTarget, thumbnail }`; `content` replaces the live file named
- *   `contentTarget`, and `thumbnail` moves into the thumbnails directory under its own name
+ * @param {Object} files - `{ content, contentTarget, thumbnail, supporterOnly }`; `content` replaces the
+ *   live file named `contentTarget` (in the private area for a Supporter-only listing), and `thumbnail`
+ *   moves into the thumbnails directory under its own name
  */
-const promotePendingFiles = ({ content, contentTarget, thumbnail }) => {
+const promotePendingFiles = ({ content, contentTarget, thumbnail, supporterOnly = false }) => {
   if (content) {
-    fs.renameSync(path.join(pendingStorageDir, path.basename(content)), path.join(worldsStorageDir, path.basename(contentTarget)));
+    fs.renameSync(path.join(pendingStorageDir, path.basename(content)), path.join(contentDirFor(supporterOnly), path.basename(contentTarget)));
   }
   if (thumbnail) {
     fs.renameSync(path.join(pendingStorageDir, path.basename(thumbnail)), path.join(thumbnailsStorageDir, path.basename(thumbnail)));
@@ -408,7 +433,7 @@ const openStored = (directory, fileName) => {
 };
 
 /** A listing's content file as raw bytes, or null when it is gone. */
-const readWorldContentBytes = (fileName) => readStored(worldsStorageDir, fileName);
+const readWorldContentBytes = (fileName) => readStored(path.dirname(liveContentPath(fileName)), fileName);
 
 /** A listing's thumbnail as raw bytes, or null when it is gone. */
 const readThumbnailBytes = (fileName) => readStored(thumbnailsStorageDir, fileName);
@@ -419,7 +444,7 @@ const readPendingBytes = (fileName) => readStored(pendingStorageDir, fileName);
 /** A listing's content parsed, or null when it is gone or unreadable. Synchronous, for migrations. */
 const readWorldContentSync = (fileName) => {
   try {
-    return JSON.parse(fs.readFileSync(storedPath(worldsStorageDir, fileName), 'utf8'));
+    return JSON.parse(fs.readFileSync(liveContentPath(fileName), 'utf8'));
   } catch {
     return null;
   }
@@ -495,6 +520,7 @@ module.exports = {
   promotePendingFiles,
   pendingStorageDir,
   saveWorldContent,
+  moveWorldContent,
   saveThumbnail,
   readWorldContent,
   getThumbnailBase64,

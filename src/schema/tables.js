@@ -56,6 +56,8 @@ const apply = (database) => {
       email_verified_at TEXT,
       -- When an admin made this account a trusted author, whose uploads skip review. Null when not.
       trusted_at TEXT,
+      -- When staff took this account's access to Supporter content away. Null when it has access.
+      supporter_content_revoked_at TEXT,
       -- Set when the name breaks the username rule or is a newer case twin; the rename route clears it.
       username_rename_required INTEGER NOT NULL DEFAULT 0,
       -- The name folded for every lookup; see \`foldedUsernameSql\`.
@@ -106,6 +108,8 @@ const apply = (database) => {
       -- Whether the thumbnail is the server's stand-in for an entity published without art. A client
       -- draws its own art for a flagged listing instead of the stored copy.
       placeholder INTEGER NOT NULL DEFAULT 0,
+      -- Staff-set. Its content lives in the private Supporter area and only the gated route serves it.
+      supporter_only INTEGER NOT NULL DEFAULT 0,
       -- Listing review: approved, pending or rejected. Anything but approved is seen only by its
       -- author and staff. The queued time orders the review queue; a re-edit leaves it alone.
       moderation_state TEXT NOT NULL DEFAULT 'approved',

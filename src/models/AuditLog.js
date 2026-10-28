@@ -67,7 +67,13 @@ const ACTIONS = [
   'listing_auto_approved',
   // An admin made an account a trusted author, whose uploads skip review, or took that away.
   'author_trusted',
-  'author_untrusted'
+  'author_untrusted',
+  // Staff marked a listing Supporter-only, or cleared it.
+  'listing_supporter_only',
+  'listing_supporter_only_cleared',
+  // Staff took one account's access to Supporter content away, or gave it back.
+  'supporter_access_revoked',
+  'supporter_access_restored'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

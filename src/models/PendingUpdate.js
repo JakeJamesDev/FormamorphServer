@@ -218,7 +218,8 @@ const PendingUpdate = {
       promotePendingFiles({
         content: applied.content_file,
         contentTarget: before.content_file || `${worldId}.json`,
-        thumbnail: applied.thumbnail_file
+        thumbnail: applied.thumbnail_file,
+        supporterOnly: Boolean(before.supporter_only)
       });
       moved = true;
     } catch (error) {

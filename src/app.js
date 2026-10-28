@@ -27,6 +27,7 @@ const eventRoutes = require('./routes/events');
 const eventPosterRoutes = require('./routes/eventPosters');
 const settingsRoutes = require('./routes/settings');
 const patreonRoutes = require('./routes/patreon');
+const supporterContentRoutes = require('./routes/supporterContent');
 
 const app = express();
 
@@ -97,6 +98,7 @@ app.use('/api/thumbnails', thumbnailRoutes);
 app.use('/api/avatars', avatarRoutes);
 app.use('/api/event-posters', eventPosterRoutes);
 app.use('/api/patreon', patreonRoutes);
+app.use('/api/supporter-content', supporterContentRoutes);
 
 // Base route
 app.get('/', (req, res) => {

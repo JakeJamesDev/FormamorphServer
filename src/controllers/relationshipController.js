@@ -8,6 +8,7 @@ const { judgingContest, contestLockedBody } = require('../utils/judgingContest')
 const { perReader } = require('../utils/perReader');
 const { holdsEdit, pendingFields } = require('../utils/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
+const { SUPPORTER_ONLY_ERROR } = require('../utils/supporterAccess');
 const {
   NOT_FOUND, idList, dependencyRefusal, compatibilityRefusal, reviewFields, seesDeclined, compatibleWorldsFor
 } = require('../utils/linkedContent');
@@ -85,6 +86,10 @@ exports.getDependencyContent = async (req, res, next) => {
     const source = Dependency.has(world.id, sourceId) ? World.findById(sourceId) : null;
     if (!World.isDependencyVisibleTo(source, req.user)) {
       return res.status(404).json(NOT_FOUND);
+    }
+
+    if (source.supporter_only) {
+      return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
     }
 
     // Counted on the source, as a standalone download is: the tally says how often a listing reached a

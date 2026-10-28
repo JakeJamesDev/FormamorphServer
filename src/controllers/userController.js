@@ -494,6 +494,63 @@ exports.trustUser = changeTrust(true);
 exports.untrustUser = changeTrust(false);
 
 /**
+ * Revoke or restore one account's access to Supporter content. The account and its Supporter Flair are
+ * untouched. Only a real change writes an audit entry.
+ *
+ * @param {boolean} revoked - True to revoke, false to restore
+ * @returns {Function} Express handler
+ */
+const changeSupporterAccess = (revoked) => async (req, res, next) => {
+  try {
+    const user = User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    if (user.id === PLACEHOLDER_ID) {
+      return res.status(403).json({ success: false, error: 'The reserved account cannot be changed' });
+    }
+
+    if (!canModerate(req.user, user)) {
+      return res.status(403).json({ success: false, error: STAFF_PROTECTED });
+    }
+
+    if (User.setSupporterContentRevoked(user.id, revoked)) {
+      AuditLog.tryRecord({
+        action: revoked ? 'supporter_access_revoked' : 'supporter_access_restored',
+        actor: req.user,
+        targetUser: user,
+        targetKind: 'account',
+        targetName: user.username,
+        targetId: user.id
+      });
+    }
+
+    const updated = User.findById(user.id);
+    res.status(200).json({
+      success: true,
+      user: { id: updated.id, username: updated.username, supporterContentRevokedAt: updated.supporter_content_revoked_at }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Take an account's access to Supporter content away
+ * @route   PUT /api/users/:id/supporter-content-access
+ * @access  Private/Staff
+ */
+exports.revokeSupporterAccess = changeSupporterAccess(true);
+
+/**
+ * @desc    Give an account its access to Supporter content back
+ * @route   DELETE /api/users/:id/supporter-content-access
+ * @access  Private/Staff
+ */
+exports.restoreSupporterAccess = changeSupporterAccess(false);
+
+/**
  * Replace the caller's own profile image with a new one, deleting whatever it replaced.
  *
  * @desc    Set the signed-in account's profile image

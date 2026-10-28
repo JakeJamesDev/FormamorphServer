@@ -8,6 +8,7 @@ const { authorPayload } = require('../utils/authorPayload');
 const PendingUpdate = require('../models/PendingUpdate');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { THUMBNAIL_CONTENT_TYPES, readPendingContent, readPendingBytes } = require('../utils/fileStorage');
+const { processForAccount } = require('../utils/supporterProcessing');
 const path = require('path');
 
 const NOT_FOUND = { success: false, error: 'World not found' };
@@ -137,6 +138,11 @@ exports.getQueueCount = async (req, res, next) => {
   }
 };
 
+// Supporter-only content leaves through the per-account step on this route as on the gated one.
+const forAccount = (req, listing, content) => listing.supporter_only
+  ? processForAccount({ userId: req.user.id, listing, content })
+  : content;
+
 /**
  * @desc    The content waiting for review. Counts no download: nobody in the room received it
  * @route   GET /api/reviews/:id/content
@@ -161,11 +167,13 @@ exports.getContent = async (req, res, next) => {
       }
 
       const listing = World.findByIdWithAuthor(target.world.id, req.user, { withLiked: false });
-      return res.status(200).json({ success: true, data: { ...listing, contentData } });
+      return res.status(200).json({ success: true, data: { ...listing, contentData: await forAccount(req, target.world, contentData) } });
     }
     if (!World.isPendingListing(target.world)) return res.status(404).json(NOT_FOUND);
 
-    res.status(200).json({ success: true, data: await World.getContent(target.world.id, req.user) });
+    const world = await World.getContent(target.world.id, req.user);
+    world.contentData = await forAccount(req, target.world, world.contentData);
+    res.status(200).json({ success: true, data: world });
   } catch (error) {
     next(error);
   }

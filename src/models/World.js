@@ -1,6 +1,6 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
-const { readWorldContent, getThumbnailBase64 } = require('../utils/fileStorage');
+const { readWorldContent, getThumbnailBase64, moveWorldContent } = require('../utils/fileStorage');
 const { DEFAULT_KIND, ALL_KINDS, rulesFor } = require('../config/kinds');
 const { DEFAULT_VISIBILITY, PUBLIC, UNLISTED } = require('../config/relationships');
 const Comment = require('./Comment');
@@ -168,6 +168,7 @@ const World = {
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
     world.placeholder = world.placeholder === 1;
+    world.supporter_only = world.supporter_only === 1;
 
     world.models = parseModels(world.models);
     stripModeration(world, viewer);
@@ -351,6 +352,7 @@ const World = {
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
         world.placeholder = world.placeholder === 1;
+        world.supporter_only = world.supporter_only === 1;
 
         world.models = parseModels(world.models);
         world.has_pending_update = world.has_pending_update === 1;
@@ -612,6 +614,35 @@ const World = {
 
     return World.findById(id);
   },
+
+  /**
+   * Mark a listing Supporter-only, or clear it, moving its content between the public and the private
+   * area. Leaves the revision alone: the content a Supporter receives has not changed.
+   *
+   * @param {string} id - World ID
+   * @param {boolean} supporterOnly - The new flag
+   * @returns {Object|undefined} The updated row
+   */
+  setSupporterOnly: (id, supporterOnly) => {
+    const world = World.findById(id);
+    if (!world) return undefined;
+
+    moveWorldContent(world.content_file, supporterOnly);
+    db.prepare('UPDATE worlds SET supporter_only = ? WHERE id = ?').run(supporterOnly ? 1 : 0, id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Every Supporter-only listing a reader could open: the id, kind and revision a client compares.
+   *
+   * @returns {Array<{ id: string, kind: string, revision: number }>}
+   */
+  supporterOnlyItems: () => db.prepare(`
+    SELECT w.id, w.kind, w.revision FROM worlds w
+    WHERE w.supporter_only = 1 AND ${inCirculationClause('w')}
+    ORDER BY w.created_at, w.id
+  `).all(),
 
   /**
    * Mark a listing changed without changing any of its columns. For a change kept in another table that

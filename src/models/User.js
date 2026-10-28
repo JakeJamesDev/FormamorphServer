@@ -47,7 +47,24 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, username_rename_required, email, email_verified_at, status, suspended_until, account_type, trusted_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, username_rename_required, email, email_verified_at, status, suspended_until, account_type, trusted_at, supporter_content_revoked_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+  },
+
+  /**
+   * Take one account's access to Supporter content away, or give it back. The account and its Supporter
+   * Flair are untouched. A revoke keeps the first `supporter_content_revoked_at`.
+   *
+   * @param {string} id - User ID
+   * @param {boolean} revoked - True to revoke, false to restore
+   * @returns {boolean} Whether this call changed the row
+   */
+  setSupporterContentRevoked: (id, revoked) => {
+    const now = new Date().toISOString();
+    const statement = revoked
+      ? 'UPDATE users SET supporter_content_revoked_at = @now WHERE id = @id AND supporter_content_revoked_at IS NULL'
+      : 'UPDATE users SET supporter_content_revoked_at = NULL WHERE id = @id AND supporter_content_revoked_at IS NOT NULL';
+
+    return db.prepare(statement).run({ id, now }).changes > 0;
   },
 
   /**
