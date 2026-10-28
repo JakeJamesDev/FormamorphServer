@@ -888,6 +888,15 @@ describe('triage', () => {
     expect(res.body.data.status).toBe('confirmed');
   });
 
+  it.each(['pending_release', 'duplicate'])('stores %s past the table check', async (status) => {
+    const { root, id } = await seedReport();
+
+    const res = await request(app).put(`/api/feedback/${id}/status`).set(authHeader(root)).send({ status });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe(status);
+  });
+
   it('reopens a closed one', async () => {
     const { root, id } = await seedReport();
     await request(app).put(`/api/feedback/${id}/status`).set(authHeader(root)).send({ status: 'resolved' });
@@ -973,8 +982,8 @@ describe('meta', () => {
     expect(res.body.categories.bug).toEqual(['crash', 'ai', 'editor', 'community', 'visuals', 'other']);
     expect(res.body.categories.suggestion).toEqual(['gameplay', 'writing', 'editor', 'community', 'interface', 'other']);
     expect(res.body.categories.question).toEqual(['gameplay', 'editor', 'setup', 'community', 'account', 'other']);
-    expect(res.body.statuses.bug).toEqual(['open', 'need_info', 'confirmed', 'resolved', 'wontfix']);
-    expect(res.body.statuses.suggestion).toEqual(['open', 'considering', 'planned', 'declined', 'done']);
+    expect(res.body.statuses.bug).toEqual(['open', 'need_info', 'confirmed', 'pending_release', 'resolved', 'wontfix', 'duplicate']);
+    expect(res.body.statuses.suggestion).toEqual(['open', 'considering', 'planned', 'pending_release', 'declined', 'done']);
     expect(res.body.statuses.question).toEqual(['open', 'answered', 'closed']);
     expect(res.body).toMatchObject({ titleMax: 120, bodyMax: 4000 });
   });
@@ -1417,10 +1426,19 @@ describe('triage on a suggestion', () => {
     expect(res.body.data.status).toBe('planned');
   });
 
-  it('refuses a status from the other branch', async () => {
+  it('stores pending_release past the table check', async () => {
     const { root, id } = await seedSuggestion();
 
-    expect((await setStatus(root, id, 'confirmed')).status).toBe(400);
+    const res = await setStatus(root, id, 'pending_release');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('pending_release');
+  });
+
+  it.each(['confirmed', 'duplicate'])('refuses %s from the bug branch', async (status) => {
+    const { root, id } = await seedSuggestion();
+
+    expect((await setStatus(root, id, status)).status).toBe(400);
   });
 
   it('refuses a suggestion status on a bug', async () => {

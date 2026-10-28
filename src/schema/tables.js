@@ -330,10 +330,10 @@ const apply = (database) => {
       -- index refuses a second 0.
       number INTEGER NOT NULL DEFAULT 0,
       CHECK (
-        (type = 'bug' AND status IN ('open', 'need_info', 'confirmed', 'resolved', 'wontfix')
+        (type = 'bug' AND status IN ('open', 'need_info', 'confirmed', 'pending_release', 'resolved', 'wontfix', 'duplicate')
                       AND category IN ('crash', 'ai', 'editor', 'community', 'visuals', 'other'))
         OR
-        (type = 'suggestion' AND status IN ('open', 'considering', 'planned', 'declined', 'done')
+        (type = 'suggestion' AND status IN ('open', 'considering', 'planned', 'pending_release', 'declined', 'done')
                              AND category IN ('gameplay', 'writing', 'editor', 'community', 'interface', 'other'))
         OR
         (type = 'question' AND status IN ('open', 'answered', 'closed')

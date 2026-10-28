@@ -19,12 +19,13 @@ const CATEGORIES = {
 
 /**
  * Where a thread sits, per type. A bug is triaged towards a fix; a suggestion is weighed and then
- * committed to or turned down, so 'confirmed' and 'planned' are different promises. A question is
- * `answered` only by accepting a reply, never through the status route.
+ * committed to or turned down, so 'confirmed' and 'planned' are different promises. Both reach
+ * 'pending_release' when the work is in but no release has it yet. A question is `answered` only by
+ * accepting a reply, never through the status route.
  */
 const STATUSES = {
-  bug: ['open', 'need_info', 'confirmed', 'resolved', 'wontfix'],
-  suggestion: ['open', 'considering', 'planned', 'declined', 'done'],
+  bug: ['open', 'need_info', 'confirmed', 'pending_release', 'resolved', 'wontfix', 'duplicate'],
+  suggestion: ['open', 'considering', 'planned', 'pending_release', 'declined', 'done'],
   question: ['open', 'answered', 'closed']
 };
 
