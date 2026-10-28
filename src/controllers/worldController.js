@@ -45,6 +45,7 @@ const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
 const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
 const { processForAccount, clearListingCache } = require('../utils/supporterProcessing');
+const { createSupporterListing } = require('../utils/supporterListing');
 const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
@@ -554,10 +555,20 @@ exports.createWorld = async (req, res, next) => {
     // Extract data from request body. `contestEventId` rides top level rather than inside `contentData`:
     // entering is what the publisher is doing, not part of the world they are publishing, and putting it
     // in the content would change the shape of every exported file for a flag the game never reads.
-    const { name, description, thumbnail, contentData, contestEventId } = req.body;
+    const { name, description, thumbnail, contentData, contestEventId, supporterOnly = false } = req.body;
 
     const kind = req.body.kind || DEFAULT_KIND;
     const rules = rulesFor(kind);
+
+    if (typeof supporterOnly !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'supporterOnly must be a boolean' });
+    }
+    if (supporterOnly && !isAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Only an admin can publish Supporter-only content' });
+    }
+    if (supporterOnly && contestEventId) {
+      return res.status(400).json({ success: false, error: 'A Supporter-only listing cannot be entered in a contest' });
+    }
 
     if (contestEventId && !rules.canEnterContest) {
       return res.status(400).json({
@@ -631,32 +642,30 @@ exports.createWorld = async (req, res, next) => {
       const thumbnailFile = await saveThumbnail(thumbnailSource);
 
       // Save content to file
-      const contentFile = await saveWorldContent(worldId, contentData);
+      const contentFile = await saveWorldContent(worldId, contentData, { supporterOnly });
 
       const submission = submissionFor(req.user);
 
-      // Create world in database
-      World.create(
-        {
-          id: worldId,
-          name,
-          // `description` is NOT NULL; an empty string satisfies it for the kinds that have none to give,
-          // which avoids a table rebuild on a live database just to relax the constraint.
-          description: description || '',
-          author_id: req.user.id,
-          tags,
-          kind,
-          model_license: modelLicense ? JSON.stringify(modelLicense) : null,
-          contest_event_id: contestEventId || null,
-          visibility: linked.visibility,
-          models,
-          app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null,
-          placeholder: !thumbnail && Boolean(rules.flagsPlaceholder),
-          ...submission.columns
-        },
-        contentFile,
-        thumbnailFile
-      );
+      const row = {
+        id: worldId,
+        name,
+        // `description` is NOT NULL; an empty string satisfies it for the kinds that have none to give,
+        // which avoids a table rebuild on a live database just to relax the constraint.
+        description: description || '',
+        author_id: req.user.id,
+        tags,
+        kind,
+        model_license: modelLicense ? JSON.stringify(modelLicense) : null,
+        contest_event_id: contestEventId || null,
+        visibility: linked.visibility,
+        models,
+        app_version: rules.stampsAppVersion ? appVersionOf(contentData) : null,
+        placeholder: !thumbnail && Boolean(rules.flagsPlaceholder),
+        ...submission.columns
+      };
+      // Supporter-only from the first committed row: the content above went straight to the private area.
+      if (supporterOnly) await createSupporterListing(row, contentFile, thumbnailFile, req.user);
+      else World.create(row, contentFile, thumbnailFile);
 
       if (submission.autoApproved) {
         AuditLog.tryRecord({
@@ -677,6 +686,7 @@ exports.createWorld = async (req, res, next) => {
 
       // Get full world data for response
       const fullWorld = attachRelationships(await World.getContent(worldId, req.user), req.user);
+      if (fullWorld.supporter_only) delete fullWorld.contentData;
 
       res.status(201).json({
         success: true,

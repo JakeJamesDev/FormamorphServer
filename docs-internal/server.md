@@ -174,16 +174,28 @@ rclone size r2:formamorph-files
 
 ## Publishing a Supporter Mascot
 
-A staff publish from the app is public until the Supporter-only toggle. This script skips that window. Export the Mascot from the app's Mascot tab, copy the `.webp` to the server, and run:
+**From the app (the normal path).** Sign in as an admin, open the Mascot tab, and select **Publish**. Turn on **Supporter-Only**, then select **Publish Supporter-Only**.
+
+- `POST /api/worlds` takes `supporterOnly: true` from an admin only. Anyone else gets 403, and nothing is written.
+- The content goes straight to `supporter-private`. One transaction creates the row Supporter-only, pinned and approved. A failed step rolls back the row and removes both files.
+- The create reply carries no `contentData`.
+- A contest entry can't be Supporter-only (400).
+
+**Revisions.** The admin's Mascot links to the listing after the publish. Publish again and pick the listing under **Or update existing**. The update keeps the listing Supporter-only, writes to `supporter-private`, and bumps the revision. Installed copies update at their next entitlement check. Staff edits never wait for Listing Review.
+
+- ⚠️ **Publish as new** with the switch off makes a second, public listing. Always pick the existing listing for a revision.
+
+**Fallback script.** If the app path fails, export the Mascot from the Mascot tab, copy the `.webp` to the server, and run:
 
 ```bash
 cd /srv/formamorph/app && npm run publish-supporter -- /tmp/mascot.webp --author <admin username> [--name <name>] [--thumbnail <image>] [--description <text>]
 ```
 
-- One transaction creates the row Supporter-only, pinned and approved. The content goes straight to `supporter-private`.
+- Same create step as the route: Supporter-only, pinned and approved in one transaction, content in `supporter-private`.
 - The thumbnail is the card's Initial look, or `--thumbnail`. Either is re-encoded, so the card in the export's metadata never reaches the public thumbnail.
 - It refuses an author who is not an admin, a file with no Mascot card, and a card over the 10 MB cap.
 - ⚠️ It does not check for Morphie layers, as the app's publish does. Use original art only.
+- A script listing takes revisions the same way: publish the edited Mascot from the app as the listing's author, and pick the listing under **Or update existing**.
 - Delete the copied `.webp` afterwards. It holds every layer unwatermarked.
 
 ## Reading a leaked image

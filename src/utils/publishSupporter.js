@@ -1,15 +1,14 @@
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
-const db = require('../config/db');
 const World = require('../models/World');
 const User = require('../models/User');
-const AuditLog = require('../models/AuditLog');
 const { isAdmin } = require('../config/roles');
 const { rulesFor } = require('../config/kinds');
 const { MODERATION_STATES } = require('../config/listingReview');
 const { appVersionOf } = require('./appVersion');
 const { contentSizeError } = require('./contentSize');
-const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail } = require('./fileStorage');
+const { saveWorldContent, saveThumbnail, deleteThumbnail } = require('./fileStorage');
+const { createSupporterListing } = require('./supporterListing');
 
 const KIND = 'mascot';
 
@@ -84,33 +83,23 @@ async function publishSupporter({ card: cardBytes, thumbnail, author, name, desc
 
   const id = uuidv4();
   const thumbnailFile = await saveThumbnail(await cleanThumbnail(thumbnail || cardBytes));
-  let contentFile = null;
+  let contentFile;
   try {
     contentFile = await saveWorldContent(id, card, { supporterOnly: true });
-    db.transaction(() => {
-      World.create({
-        id,
-        name: listingName,
-        description,
-        author_id: user.id,
-        tags: [],
-        kind: KIND,
-        app_version: rules.stampsAppVersion ? appVersionOf(card) : null,
-        moderation_state: MODERATION_STATES.APPROVED
-      }, contentFile, thumbnailFile);
-      // The content is already private, so the move inside is a no-op.
-      World.setSupporterOnly(id, true);
-      World.pin(id);
-    })();
   } catch (error) {
-    if (contentFile) await deleteWorldContent(contentFile).catch(() => {});
     await deleteThumbnail(thumbnailFile).catch(() => {});
     throw error;
   }
-
-  for (const action of ['listing_supporter_only', 'listing_pinned']) {
-    AuditLog.tryRecord({ action, actor: user, targetKind: KIND, targetName: listingName, targetId: id });
-  }
+  await createSupporterListing({
+    id,
+    name: listingName,
+    description,
+    author_id: user.id,
+    tags: [],
+    kind: KIND,
+    app_version: rules.stampsAppVersion ? appVersionOf(card) : null,
+    moderation_state: MODERATION_STATES.APPROVED
+  }, contentFile, thumbnailFile, user);
   return World.findById(id);
 }
 
