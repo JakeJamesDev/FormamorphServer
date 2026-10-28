@@ -172,6 +172,35 @@ rclone size r2:formamorph-files
 - **Lost host**: new box, install Node 24 + Caddy + rclone, recreate the unit and Caddyfile above, restore the env
   file from `.env.production`, restore the rclone config, then run the two rclone restores.
 
+## Reading a leaked image
+
+Each account's Supporter downloads carry an invisible watermark: a random 32-bit mark number, kept per
+account in `watermark_marks`. To find who a leaked image was made for, copy it to the server and run:
+
+```bash
+cd /srv/formamorph/app && npm run read-leak -- /tmp/leak.png
+```
+
+| Output | Meaning |
+|---|---|
+| `Mark 0x…: account <id> (<username>)` | The copy was made for that account |
+| `Mark 0x…: no account holds it` | A real mark, but its account has since been erased |
+| `No mark found` | No watermark in this image |
+
+- **Image library:** [`sharp`](https://github.com/lovell/sharp) 0.35 (libvips), which decodes the leaked
+  file. The mark itself, in `src/utils/watermark.js`, needs no library.
+- **What it survives:** each of WebP re-encoding at quality 50, a 50% downscale, and a 20% crop. The
+  composed Mascot (all layers over a background) survives the same, re-encoded, and as a lossless
+  screenshot inside a larger window or taken at twice its size.
+- **Floor:** one layer read on its own survives those attacks from about 340k opaque pixels, as Morphie's
+  base (474k) does. Smaller layers, such as a face part, read back only as the exact file. A leaked rig is
+  still traced through its base layer.
+- **Not survived:** ⚠️ a lossy save combined with a second change: a screenshot or crop off the 4 px grid
+  and then a lossy save, a resize and a lossy save in either order, or two lossy saves. Also rotation and
+  heavy edits.
+- **False reads:** CRC-32 and a pilot check put an unmarked image reading as marked near one in four
+  billion.
+
 ## Cost
 
 | Item | Per month |

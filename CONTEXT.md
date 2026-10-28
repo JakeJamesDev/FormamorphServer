@@ -87,6 +87,9 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Patreon reconcile** | The job that reads the full campaign member list at boot and every hour, and sets every link's tier from it. It repairs a missed webhook. A failed read changes no link. |
 | **Creator token** | The token pair that reads the member list. It starts from the environment. After its first refresh, the server's settings store holds it, and staff cannot read it. |
 | **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
+| **Mark number** | A random 32-bit number, one per account for good, made the first time the account gets a watermarked copy. Erasure deletes it. |
+| **Watermark** | The invisible mark that carries an account's mark number in each image of its Supporter download. |
+| **Leak read** | Staff reading the watermark out of a leaked image with `npm run read-leak`, which names the account. |
 
 ## Clients
 

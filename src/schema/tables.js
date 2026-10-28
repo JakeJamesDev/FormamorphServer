@@ -716,6 +716,17 @@ const apply = (database) => {
     )
   `);
 
+  // The watermark number each account's Supporter downloads carry, one per account for good. Random, so a
+  // number read out of a leak says nothing about the account until staff look it up here.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS watermark_marks (
+      user_id TEXT PRIMARY KEY,
+      mark INTEGER NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

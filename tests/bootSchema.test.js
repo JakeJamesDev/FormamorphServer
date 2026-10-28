@@ -37,6 +37,7 @@ const TABLES = [
   'account_tokens',
   'patreon_links',
   'patreon_pending_links',
+  'watermark_marks',
   'listing_dependencies',
   'listing_compatibility'
 ];
