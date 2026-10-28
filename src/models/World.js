@@ -76,6 +76,7 @@ const stripModeration = (world, viewer) => {
   delete world.moderation_queued_at;
   delete world.has_pending_update;
   delete world.pending_update;
+  delete world.pending_preview;
   return world;
 };
 
@@ -249,9 +250,13 @@ const World = {
         (SELECT COUNT(*) FROM world_likes l WHERE l.world_id = w.id)
           + (SELECT COUNT(*) FROM anonymous_likes a WHERE a.world_id = w.id) AS like_count,
         ce.results_announced_at AS contest_results_announced_at,
-        EXISTS (SELECT 1 FROM pending_updates pu WHERE pu.world_id = w.id) AS has_pending_update
+        pu.world_id IS NOT NULL AS has_pending_update,
+        COALESCE(json_extract(pu.fields, '$.name'), w.name) AS pending_name,
+        pu.queued_at AS pending_queued_at,
+        pu.thumbnail_file IS NOT NULL AS pending_has_thumbnail
         FROM worlds w JOIN users u ON w.author_id = u.id
-        LEFT JOIN events ce ON ce.id = w.contest_event_id`;
+        LEFT JOIN events ce ON ce.id = w.contest_event_id
+        LEFT JOIN pending_updates pu ON pu.world_id = w.id`;
       let countQuery = 'SELECT COUNT(*) as count FROM worlds w JOIN users u ON w.author_id = u.id';
       let whereClause = [];
       let params = [];
@@ -356,6 +361,16 @@ const World = {
 
         world.models = parseModels(world.models);
         world.has_pending_update = world.has_pending_update === 1;
+        if (world.has_pending_update) {
+          world.pending_preview = {
+            name: world.pending_name,
+            queued_at: world.pending_queued_at,
+            ...(world.pending_has_thumbnail === 1 ? { thumbnail_url: `/api/reviews/${world.id}/thumbnail` } : {})
+          };
+        }
+        delete world.pending_name;
+        delete world.pending_queued_at;
+        delete world.pending_has_thumbnail;
         stripModeration(world, viewer);
 
         // How many liked it, and whether this reader is one of them. `liked` is absent rather than false

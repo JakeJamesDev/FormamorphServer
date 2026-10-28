@@ -146,6 +146,52 @@ describe('holding an edit to an approved listing', () => {
     expect(await row(null)).not.toHaveProperty('has_pending_update');
   });
 
+  describe('the catalog pending preview', () => {
+    const rowOf = async (id, reader) => (await catalog(reader)).body.data.find((world) => world.id === id);
+    const queuedAt = (id) => db.prepare('SELECT queued_at FROM pending_updates WHERE world_id = ?').get(id).queued_at;
+
+    it('gives staff and the author the pending name, queue time and thumbnail', async () => {
+      const { id, author, staff } = await seedUpdate();
+
+      for (const reader of [author, staff]) {
+        expect((await rowOf(id, reader)).pending_preview).toEqual({
+          name: 'Sedge Landing Redux',
+          queued_at: queuedAt(id),
+          thumbnail_url: `/api/reviews/${id}/thumbnail`
+        });
+      }
+    });
+
+    it('never gives another signed-in user or an anonymous reader the preview', async () => {
+      const { id, player } = await seedUpdate();
+
+      expect(await rowOf(id, player)).not.toHaveProperty('pending_preview');
+      expect(await rowOf(id, null)).not.toHaveProperty('pending_preview');
+    });
+
+    it('names the approved name when the update leaves it alone, and omits an absent thumbnail', async () => {
+      const { id, author, staff } = await seedApproved();
+      await edit(id, author, { description: 'A loud marsh town' });
+
+      const preview = (await rowOf(id, staff)).pending_preview;
+      expect(preview).toEqual({ name: 'Sedge Landing', queued_at: queuedAt(id) });
+      expect(preview).not.toHaveProperty('thumbnail_url');
+    });
+
+    it('leaves a row with no pending update without a preview', async () => {
+      const { id, staff } = await seedApproved();
+
+      expect(await rowOf(id, staff)).not.toHaveProperty('pending_preview');
+    });
+
+    it('leaves no helper column on a row', async () => {
+      const { id, staff } = await seedUpdate();
+      const row = await rowOf(id, staff);
+
+      expect(Object.keys(row).filter((key) => key.startsWith('pending_'))).toEqual(['pending_preview']);
+    });
+  });
+
   it('applies at once with review off', async () => {
     await setReview(false);
     const author = person('author');

@@ -165,6 +165,57 @@ const changes = [
   },
 ];
 
+const setReview = (admin, value) =>
+  request(app).put('/api/settings/listing_review').set(authHeader(admin)).send({ value });
+
+/** An approved Listing with review back on, so the next edit is held. Returns the tag-taking staffer. */
+const seedHeldEdit = async (ctx) => {
+  await setReview(ctx.admin, false);
+  const id = (await publish(ctx.author, { name: 'Held Landing' })).body.data.id;
+  await setReview(ctx.admin, true);
+  return { id };
+};
+
+const holdEdit = (author, id) => rename(author, id, 'Held Landing Redux');
+const decide = (staffer, id, verb) => request(app).post(`/api/reviews/${id}/${verb}`).set(authHeader(staffer)).send({});
+
+/** The staff catalog is the one that carries the preview, so its tag is the one to watch. */
+describe('a staff catalog with a pending update', () => {
+  it.each([
+    ['submitted', async () => ({}), (c) => holdEdit(c.author, c.id)],
+    ['approved', async (c) => { await holdEdit(c.author, c.id); }, (c) => decide(c.admin, c.id, 'approve')],
+    ['rejected', async (c) => { await holdEdit(c.author, c.id); }, (c) => decide(c.admin, c.id, 'reject')],
+  ])('answers a new tag when an update is %s', async (_name, prepare, change) => {
+    const ctx = await seed();
+    Object.assign(ctx, await seedHeldEdit(ctx));
+    await prepare(ctx);
+
+    const before = await tagOf(ctx.admin);
+    const res = await change(ctx);
+    expect(res.status).toBeLessThan(300);
+
+    const after = await revalidate(before, ctx.admin);
+    expect(after.status).toBe(200);
+    expect(after.headers.etag).not.toBe(before);
+  });
+});
+
+// Only the preview moves here: the flag, the approved listing and the queue place all stay the same.
+describe('a staff catalog when only the pending name changes', () => {
+  it('answers a new tag', async () => {
+    const ctx = await seed();
+    Object.assign(ctx, await seedHeldEdit(ctx));
+    await holdEdit(ctx.author, ctx.id);
+
+    const before = await tagOf(ctx.admin);
+    expect((await rename(ctx.author, ctx.id, 'Held Landing Again')).status).toBe(200);
+
+    const after = await revalidate(before, ctx.admin);
+    expect(after.status).toBe(200);
+    expect(after.headers.etag).not.toBe(before);
+  });
+});
+
 describe('a catalog that has changed', () => {
   it.each(changes)('answers a new tag after $name', async ({ prepare, change }) => {
     const ctx = await seed();
