@@ -22,9 +22,10 @@ Catalog rows from `GET /worlds` carry a small `pending_preview` when the listing
 
 ## Implementation Decisions
 
-- **Contract.** `pending_preview: { name: string, thumbnail_url?: string }`.
+- **Contract.** `pending_preview: { name: string, queued_at: string, thumbnail_url?: string }`.
   - Present only when the row has a pending update.
   - `name` is the pending name, or the approved name when the update does not change it.
+  - `queued_at` is the pending update's queue time, the same value the Review queue sorts by. The client orders its pinned group with it.
   - `thumbnail_url` is the existing `/api/reviews/<worldId>/thumbnail` URL, present only when the update holds a thumbnail. That route's auth is unchanged.
 - **Query.** `World.getAll` reads the preview in the same SELECT as `has_pending_update`, from the `pending_updates` table. No per-row query.
 - **Stripping.** `stripModeration` removes `pending_preview` for anyone but staff and the author, with the other moderation fields.
