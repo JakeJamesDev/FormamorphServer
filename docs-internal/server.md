@@ -201,6 +201,19 @@ cd /srv/formamorph/app && npm run read-leak -- /tmp/leak.png
 - **False reads:** CRC-32 and a pilot check put an unmarked image reading as marked near one in four
   billion.
 
+## Scrambled layers
+
+Supporter layers leave the server as shuffled tiles. `src/utils/scramble.js` is the server half; the client
+copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
+
+- **Format version 1:** pad the layer with transparent pixels to a multiple of 8 on each axis, cut it into
+  a fixed 8x8 grid, and move the tiles by a permutation with no fixed point. Layers under 8 px pad up too.
+- **Permutation:** Sattolo's shuffle over `mulberry32(seed)`, seed a 32-bit unsigned integer. Destination
+  tile `i` holds source tile `permutation[i]`.
+- **Route contract:** the file must travel lossless, with `{ seed, version, sourceWidth, sourceHeight }`
+  beside it. The client crops to the source size after it unscrambles.
+- **Changing the format:** bump `VERSION`, keep the old vectors, and add new ones.
+
 ## Cost
 
 | Item | Per month |
