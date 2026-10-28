@@ -181,9 +181,9 @@ rclone size r2:formamorph-files
 - The create reply carries no `contentData`.
 - A contest entry can't be Supporter-only (400).
 
-**Revisions.** The admin's Mascot links to the listing after the publish. Publish again and pick the listing under **Or update existing**. The update keeps the listing Supporter-only, writes to `supporter-private`, and bumps the revision. Installed copies update at their next entitlement check. Staff edits never wait for Listing Review.
+**Revisions.** The admin's Mascot links to the listing after the publish. Publish again: the dialog preselects the linked listing under **Or update existing**. The update keeps the listing Supporter-only, writes to `supporter-private`, and bumps the revision. Installed copies update at their next entitlement check. Staff edits never wait for Listing Review.
 
-- ⚠️ **Publish as new** with the switch off makes a second, public listing. Always pick the existing listing for a revision.
+- ⚠️ **Publish as new** with the switch off makes a second, public listing. Keep the preselected listing for a revision.
 
 **Fallback script.** If the app path fails, export the Mascot from the Mascot tab, copy the `.webp` to the server, and run:
 
