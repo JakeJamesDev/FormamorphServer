@@ -2,8 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const sharp = require('sharp');
 const WatermarkMark = require('../models/WatermarkMark');
-const { embed } = require('./watermark');
-const { scramble } = require('./scramble');
+const { markLayer } = require('./markLayerPool');
 const {
   saveSupporterFile, readSupporterFile, deleteSupporterFilesWithPrefix
 } = require('./fileStorage');
@@ -35,8 +34,7 @@ const processLayer = async (base64, mark, seed) => {
   }
 
   const { width, height, channels } = decoded.info;
-  const marked = embed({ width, height, data: new Uint8ClampedArray(decoded.data) }, mark);
-  const { data, width: paddedWidth, height: paddedHeight, ...format } = scramble({ width, height, data: marked.data }, seed);
+  const { data, width: paddedWidth, height: paddedHeight, ...format } = await markLayer({ width, height, data: new Uint8ClampedArray(decoded.data) }, mark, seed);
   // Lossless: the client must restore the marked layer exactly.
   const png = await sharp(Buffer.from(data.buffer, data.byteOffset, data.length), {
     raw: { width: paddedWidth, height: paddedHeight, channels }
