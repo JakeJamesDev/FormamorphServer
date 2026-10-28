@@ -91,7 +91,8 @@ describe('publishing a Supporter Mascot from the server', () => {
 
   it.each([
     ['an unknown author', async () => ({ author: 'nobody-here' }), /No account/],
-    ['a player author', async () => ({ author: createUser().username }), /not a staff account/],
+    ['a player author', async () => ({ author: createUser().username }), /not an admin account/],
+    ['a moderator author', async () => ({ author: createUser({ accountType: 'mod' }).username }), /not an admin account/],
     ['a file with no card', async () => ({ card: await sharp({ create: { width: 8, height: 8, channels: 3, background: '#000' } }).webp().toBuffer() }), /not a Mascot card/],
     ['a card of another kind', async () => ({ card: await cardFile(await mascotCard({ formamorphKind: 'entity' })) }), /not a Mascot card/],
     ['a card over the size cap', async () => ({ card: await cardFile(await mascotCard({ images: [`data:image/webp;base64,${Buffer.alloc(11 * 1024 * 1024, 1).toString('base64')}`] })) }), /over the 10MB limit/]

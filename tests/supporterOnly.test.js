@@ -57,15 +57,26 @@ const restore = (actor, target) =>
 const detail = async (id) => (await request(app).get(`/api/worlds/${id}`)).body.data;
 
 describe('marking a listing Supporter-only', () => {
-  it.each(['mod', 'dev', 'admin'])('lets a %s set and clear the flag', async (accountType) => {
+  it('lets an admin set and clear the flag', async () => {
     const { id } = await listing({ flag: false });
-    const staff = createUser({ accountType });
+    const admin = createUser({ accountType: 'admin' });
 
-    expect((await setFlag(staff, id, true)).body.data).toEqual({ id, supporterOnly: true });
+    expect((await setFlag(admin, id, true)).body.data).toEqual({ id, supporterOnly: true });
     expect((await detail(id)).supporter_only).toBe(true);
 
-    expect((await setFlag(staff, id, false)).status).toBe(200);
+    expect((await setFlag(admin, id, false)).status).toBe(200);
     expect((await detail(id)).supporter_only).toBe(false);
+  });
+
+  it.each(['mod', 'dev'])('refuses a %s either way', async (accountType) => {
+    const open = await listing({ flag: false });
+    const locked = await listing();
+    const staff = createUser({ accountType });
+
+    expect((await setFlag(staff, open.id, true)).status).toBe(403);
+    expect((await setFlag(staff, locked.id, false)).status).toBe(403);
+    expect((await detail(open.id)).supporter_only).toBe(false);
+    expect((await detail(locked.id)).supporter_only).toBe(true);
   });
 
   it("refuses the listing's own author and any other account", async () => {

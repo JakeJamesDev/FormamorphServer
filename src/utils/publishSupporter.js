@@ -4,7 +4,7 @@ const db = require('../config/db');
 const World = require('../models/World');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');
-const { isStaff } = require('../config/roles');
+const { isAdmin } = require('../config/roles');
 const { rulesFor } = require('../config/kinds');
 const { MODERATION_STATES } = require('../config/listingReview');
 const { appVersionOf } = require('./appVersion');
@@ -64,7 +64,7 @@ async function cleanThumbnail(bytes) {
  * @param {Object} options
  * @param {Buffer} options.card - The Mascot tab export
  * @param {Buffer} [options.thumbnail] - The listing image; the card's Initial look when absent
- * @param {string} options.author - The staff username the listing is published under
+ * @param {string} options.author - The admin username the listing is published under
  * @param {string} [options.name] - The listing name; the card's name when absent
  * @param {string} [options.description]
  * @returns {Promise<Object>} The created row
@@ -72,7 +72,7 @@ async function cleanThumbnail(bytes) {
 async function publishSupporter({ card: cardBytes, thumbnail, author, name, description = '' }) {
   const user = User.findByUsername(author);
   if (!user) throw new Error(`No account is named "${author}".`);
-  if (!isStaff(user)) throw new Error(`"${author}" is not a staff account.`);
+  if (!isAdmin(user)) throw new Error(`"${author}" is not an admin account.`);
 
   const card = readMascotCard(cardBytes);
   const listingName = (name || card.name || '').trim();

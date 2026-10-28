@@ -2,7 +2,7 @@
 
 /**
  * Usage:
- *   npm run publish-supporter -- <mascot.webp> --author <staff username> [--name <name>] [--thumbnail <image>] [--description <text>]
+ *   npm run publish-supporter -- <mascot.webp> --author <admin username> [--name <name>] [--thumbnail <image>] [--description <text>]
  *     Publish a Mascot tab export as a Supporter-only, pinned listing
  */
 
@@ -10,7 +10,7 @@ require('dotenv').config();
 const fs = require('fs');
 const { publishSupporter } = require('./publishSupporter');
 
-const USAGE = 'Usage: npm run publish-supporter -- <mascot.webp> --author <staff username> [--name <name>] [--thumbnail <image>] [--description <text>]';
+const USAGE = 'Usage: npm run publish-supporter -- <mascot.webp> --author <admin username> [--name <name>] [--thumbnail <image>] [--description <text>]';
 const FLAGS = new Set(['--author', '--name', '--thumbnail', '--description']);
 
 function parseArgs(args) {

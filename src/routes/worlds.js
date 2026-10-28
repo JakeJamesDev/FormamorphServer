@@ -5,7 +5,7 @@ const { getWorlds, getWorld, getWorldContent, getSupporterContent, setSupporterO
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
-const { protect, staff, optionalAuth } = require('../middleware/auth');
+const { protect, staff, admin, optionalAuth } = require('../middleware/auth');
 const { requireUploadTerms } = require('../middleware/policy');
 const { KINDS, DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { LIKE_WINDOW_MS, LIKE_LIMIT } = require('../config/likeLimit');
@@ -41,8 +41,8 @@ router.get('/:id/content', optionalAuth, getWorldContent);
 // author and staff.
 router.get('/:id/supporter-content', protect, getSupporterContent);
 
-// Mark a listing Supporter-only, or clear it (staff only).
-router.put('/:id/supporter-only', smallJson, protect, staff, setSupporterOnly);
+// Mark a listing Supporter-only, or clear it (admin only).
+router.put('/:id/supporter-only', smallJson, protect, admin, setSupporterOnly);
 
 // Linked content. What a world requires, resolved for whoever can read the world — the one path by which
 // an unlisted component reaches the room — and each required source's content through the same door.
