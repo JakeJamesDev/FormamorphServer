@@ -280,6 +280,12 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 ## Deploy log
 
+- **2026-10-28** — deployed `d3c4670`: the mascot listing kind, staff pins, and Supporter-only listings with
+  the gated route, per-account watermark, tile scramble, revocation and the publish script. All 2,858 tests
+  passed in 51.8 s wall time. Backup `backups/pre-deploy-a0c0689-2026-10-28T13-22-15.290Z.db`, integrity
+  `ok`. Boot applied `tables`, `pinnedAt` and `supporterContent`, all additive. `npm ci` warned that the
+  `better-sqlite3` install script did not run; the bundled `linux-x64` prebuild loads, so no build is
+  needed. Service active with zero restarts, boot logged `Server running on port`, public route 200.
 - **2026-10-27** — deployed `a0c0689`: usernames accept single inner spaces, with a folded `username_key`
   for every name lookup and rename flags cleared under the spaced rule. All 2,562 tests passed in 27.0 s
   wall time. Backup `backups/pre-deploy-25c7d7b-2026-10-27T14-16-46.072Z.db`, integrity `ok`. Boot applied
