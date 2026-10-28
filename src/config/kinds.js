@@ -29,6 +29,13 @@ const ALL_KINDS = 'all';
 const isValidKindQuery = (kind) => kind === ALL_KINDS || KINDS.includes(kind);
 
 /**
+ * The kinds `all` returns: the ones every client that asks for `all` can show. A kind added later is never
+ * in it, because an older client files a kind it doesn't know as a world; a newer client names the kinds
+ * it shows as a comma list instead.
+ */
+const ALL_KINDS_COVERS = ['world', 'entity', 'dictionary', 'model', 'prompt'];
+
+/**
  * What each kind must supply, and how big it may be.
  *
  * Worlds keep the original rules exactly. The other two are looser because their client-side shapes simply
@@ -113,6 +120,7 @@ module.exports = {
   KINDS,
   DEFAULT_KIND,
   ALL_KINDS,
+  ALL_KINDS_COVERS,
   isValidKindQuery,
   KIND_RULES,
   rulesFor,

@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
 const { readWorldContent, getThumbnailBase64, moveWorldContent } = require('../utils/fileStorage');
-const { DEFAULT_KIND, ALL_KINDS, rulesFor } = require('../config/kinds');
+const { DEFAULT_KIND, ALL_KINDS, ALL_KINDS_COVERS, rulesFor } = require('../config/kinds');
 const { DEFAULT_VISIBILITY, PUBLIC, UNLISTED } = require('../config/relationships');
 const Comment = require('./Comment');
 const { authorPayload } = require('../utils/authorPayload');
@@ -261,13 +261,12 @@ const World = {
       let whereClause = [];
       let params = [];
 
-      // Scope to one kind unless every kind was asked for by name. Defaulted rather than optional on
-      // purpose: a caller that forgets it gets worlds, never a mixed list — which is what keeps clients
-      // written before `kind` existed correct.
-      if (kind !== ALL_KINDS) {
-        whereClause.push('w.kind = ?');
-        params.push(kind);
-      }
+      // Scope to the kinds asked for; `all` covers only the kinds older clients can show. Defaulted rather
+      // than optional on purpose: a caller that forgets it gets worlds, never a mixed list — which is what
+      // keeps clients written before `kind` existed correct.
+      const kinds = kind === ALL_KINDS ? ALL_KINDS_COVERS : [].concat(kind);
+      whereClause.push(`w.kind IN (${kinds.map(() => '?').join(', ')})`);
+      params.push(...kinds);
 
       // Quarantine, review and unlisted visibility. Each hides a listing from the room while leaving it
       // visible to the person who published it and to the staff — so what the catalog contains depends on
@@ -312,7 +311,7 @@ const World = {
 
       // Any one model name containing the text, case-insensitively. Read per element, so a match never
       // spans two names or the JSON around them, and through `instr` so `%` and `_` are plain text.
-      if (model && kind !== ALL_KINDS && rulesFor(kind).requiresModels) {
+      if (model && typeof kind === 'string' && kind !== ALL_KINDS && rulesFor(kind).requiresModels) {
         whereClause.push('EXISTS (SELECT 1 FROM json_each(w.models) m WHERE instr(lower(m.value), lower(?)) > 0)');
         params.push(model);
       }

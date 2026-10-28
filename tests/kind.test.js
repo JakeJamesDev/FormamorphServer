@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db } from './context.js';
-import { createUser, authHeader, worldPayload } from './helpers.js';
+import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -165,6 +165,40 @@ describe('kind filtering — the contract with already-deployed clients', () => 
     const res = await request(app).get('/api/worlds?kind=banana');
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('banana');
+  });
+});
+
+describe('a kind list, and the kinds `all` leaves out', () => {
+  const mascot = (user) => create(user, {
+    name: 'A Mascot', kind: 'mascot', thumbnail: TINY_PNG,
+    contentData: { rig: {}, layers: { base: `data:image/webp;base64,${Buffer.alloc(16, 1).toString('base64')}` } }
+  });
+
+  it('keeps Mascots out of kind=all, which clients that predate them ask for', async () => {
+    const user = createUser();
+    await create(user, { name: 'A World' });
+    expect((await mascot(user)).status).toBe(201);
+
+    const catalog = await request(app).get('/api/worlds?kind=all');
+    expect(catalog.body.data.map((w) => w.kind)).toEqual(['world']);
+    const own = await request(app).get('/api/users/me/worlds?kind=all').set(authHeader(user));
+    expect(own.body.data.map((w) => w.kind)).toEqual(['world']);
+  });
+
+  it('returns exactly the kinds a comma list names', async () => {
+    const user = createUser();
+    await create(user, { name: 'A World' });
+    await create(user, { name: 'A Character', kind: 'entity' });
+    await mascot(user);
+
+    const res = await request(app).get('/api/worlds?kind=world,mascot');
+    expect(res.body.data.map((w) => w.kind).sort()).toEqual(['mascot', 'world']);
+  });
+
+  it('refuses a list that names an unknown kind', async () => {
+    const res = await request(app).get('/api/worlds?kind=world,spaceship');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('spaceship');
   });
 });
 

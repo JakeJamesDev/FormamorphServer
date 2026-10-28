@@ -7,10 +7,18 @@ const { KINDS, DEFAULT_KIND, ALL_KINDS, isValidKindQuery } = require('../config/
  * rests on all of them defaulting to worlds when no kind is named, and one that forgot would quietly hand
  * characters to a client that has never heard of them.
  *
- * Returns `{ kind }`, or `{ error }` when the value isn't one the API accepts.
+ * Returns `{ kind }`, where a comma list of kinds reads as an array, or `{ error }` when the value isn't one
+ * the API accepts.
  */
 function kindFromQuery(req) {
-  const kind = req.query.kind || DEFAULT_KIND;
+  const kind = typeof req.query.kind === 'string' && req.query.kind ? req.query.kind : DEFAULT_KIND;
+
+  if (kind.includes(',')) {
+    const kinds = [...new Set(kind.split(','))];
+    const unknown = kinds.find((each) => !KINDS.includes(each));
+    if (unknown !== undefined) return { error: `Invalid kind '${unknown}' (allowed: ${KINDS.join(', ')})` };
+    return { kind: kinds };
+  }
 
   if (!isValidKindQuery(kind)) {
     return { error: `Invalid kind '${kind}' (allowed: ${[...KINDS, ALL_KINDS].join(', ')})` };
