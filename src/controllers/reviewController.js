@@ -138,9 +138,10 @@ exports.getQueueCount = async (req, res, next) => {
   }
 };
 
-// Supporter-only content leaves through the per-account step on this route as on the gated one.
+// Supporter-only content leaves through the per-account step on this route as on the gated one; held
+// content is not a live revision, so nothing is cached.
 const forAccount = (req, listing, content) => listing.supporter_only
-  ? processForAccount({ userId: req.user.id, listing, content })
+  ? processForAccount({ userId: req.user.id, listing, content, cached: false })
   : content;
 
 /**

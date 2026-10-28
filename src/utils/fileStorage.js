@@ -493,6 +493,12 @@ const deleteSupporterFile = (fileName) => deleteImageAsset(fileName, {
   noun: 'supporter file'
 });
 
+/** Delete the private Supporter files whose names start with `prefix`, except those `keep` accepts. */
+const deleteSupporterFilesWithPrefix = async (prefix, { keep = () => false } = {}) => {
+  const names = await fs.promises.readdir(supporterStorageDir);
+  await Promise.all(names.filter((name) => name.startsWith(prefix) && !keep(name)).map(deleteSupporterFile));
+};
+
 /** Whether a private Supporter file exists. */
 const supporterFileExists = (fileName) =>
   fs.existsSync(storedPath(supporterStorageDir, fileName));
@@ -510,6 +516,7 @@ module.exports = {
   saveSupporterFile,
   readSupporterFile,
   deleteSupporterFile,
+  deleteSupporterFilesWithPrefix,
   supporterFileExists,
   supporterStorageDir,
   savePendingContent,

@@ -214,6 +214,19 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
   beside it. The client crops to the source size after it unscrambles.
 - **Changing the format:** bump `VERSION`, keep the old vectors, and add new ones.
 
+## Per-account processing
+
+`src/utils/supporterProcessing.js` runs on the gated route and the staff review route.
+
+- **What it touches:** every `data:image/...;base64,` string in the content, at any depth. Each becomes
+  `{ dataUrl, seed, version, sourceWidth, sourceHeight }` in the same place: marked with the account's mark,
+  scrambled, encoded as lossless PNG. Other content, and an image that will not decode, passes through.
+- **Seed:** HMAC-SHA256 of `supporter-scramble-v1|userId|listingId|revision`, keyed by `JWT_SECRET`. One
+  seed per account and revision, shared by all layers.
+- **Cache:** one file per account and revision in the private area, `processed-<listing>-r<revision>-<user>.json`.
+  The first miss after a revision change deletes that listing's older files. The review route never caches.
+- **Cost:** a cold Morphie-sized request (26 layers plus the Initial render) takes about 1.5 s.
+
 ## Cost
 
 | Item | Per month |
