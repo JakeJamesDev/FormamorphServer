@@ -28,8 +28,8 @@ const RIG = ['base', 'blush', 'eyes-wide', 'eyebrows-raised', 'mouth-grin', 'arm
  * floor read back after each attack; nothing unmarked reads as marked.
  */
 
-// Measured: a window of base with 341k opaque pixels read 12 of 12 attacked copies, one with 270k read 11.
-const OPAQUE_FLOOR = 340000;
+// Measured: windows of base with 308k to 415k opaque pixels read 12 of 12 attacked copies each.
+const OPAQUE_FLOOR = 310000;
 const opaqueArea = (image) => {
   let count = 0;
   for (let i = 3; i < image.data.length; i += 4) if (image.data[i] > 0) count++;
@@ -44,6 +44,19 @@ const psnr = (a, b) => {
     if (a[i + 3] === 0) continue;
     for (let ch = 0; ch < 3; ch++) squared += (a[i + ch] - b[i + ch]) ** 2;
     count += 3;
+  }
+  return 10 * Math.log10((255 * 255 * count) / squared);
+};
+
+/** Over the luma of every pixel that is not fully transparent, where the eye sees a pattern most. */
+const lumaPsnr = (a, b) => {
+  const luma = (d, i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  let squared = 0;
+  let count = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    if (a[i + 3] === 0) continue;
+    squared += (luma(a, i) - luma(b, i)) ** 2;
+    count++;
   }
   return 10 * Math.log10((255 * 255 * count) / squared);
 };
@@ -64,6 +77,18 @@ const ATTACKS = {
     left: Math.round(image.width * 0.2), top: Math.round(image.height * 0.2), width: Math.round(image.width * 0.8), height: Math.round(image.height * 0.8)
   }).png().toBuffer())
 };
+
+const webp50 = async (image) => decode(await rawInput(image).webp({ quality: 50 }).toBuffer());
+// JPEG has no alpha, so a layer lands on a background first, as any JPEG screenshot of it would.
+const jpeg75 = async (image) => decode(await rawInput(image).flatten({ background: '#28405a' }).jpeg({ quality: 75 }).toBuffer());
+const shifted = async (image, dx, dy) => decode(await rawInput(image).extract({
+  left: dx, top: dy, width: image.width - dx, height: image.height - dy
+}).png().toBuffer());
+const halved = async (image) => ATTACKS['a 50% downscale'](image);
+
+// Each offset off WebP's 4 px transform blocks, on each axis, then a lossy save.
+const SHIFTS = [[1, 0], [2, 0], [3, 0], [0, 1], [0, 2], [0, 3]];
+const LOSSY = { 'WebP at quality 50': webp50, 'JPEG at quality 75': jpeg75 };
 
 /** The layers drawn over an opaque background, the way a screenshot of the Mascot sees them. */
 const composite = async (layers, background = { r: 40, g: 60, b: 90 }) => {
@@ -92,8 +117,21 @@ describe('embed and read', () => {
     expect(read(marked[name])).toBe(MARK);
   });
 
-  it.each(LAYERS)('keeps %s within 40 dB of its source and leaves alpha alone', (name) => {
-    expect(psnr(source[name].data, marked[name].data)).toBeGreaterThanOrEqual(40);
+  // The smallest layers are mostly line art, where the fine band has the least room; 100 marks over every
+  // layer read back with no miss when measured.
+  it('reads the exact copy of the smallest layers for any mark', () => {
+    expect(read(embed(source['arms-no-thinking.webp'], 2145859145))).toBe(2145859145);
+    let seed = 0x2026;
+    for (let n = 0; n < 50; n++) {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      for (const name of ['arms-no-thinking.webp', 'eyes-blank.webp']) expect(read(embed(source[name], seed)), `mark ${seed}`).toBe(seed);
+    }
+  }, 30000);
+
+  // The coarse band moves only blue-yellow, which costs RGB PSNR without showing; luma barely moves.
+  it.each(LAYERS)('keeps %s within 36 dB of its source, 45 dB in luma, and leaves alpha alone', (name) => {
+    expect(psnr(source[name].data, marked[name].data)).toBeGreaterThanOrEqual(36);
+    expect(lumaPsnr(source[name].data, marked[name].data)).toBeGreaterThanOrEqual(45);
     const before = source[name].data;
     const after = marked[name].data;
     for (let i = 3; i < before.length; i += 4) {
@@ -113,6 +151,18 @@ describe('embed and read', () => {
   it.each(Object.keys(ATTACKS))('reads the composite after %s', async (attack) => {
     const rig = await composite(RIG.map((name) => marked[name]));
     expect(read(await ATTACKS[attack](rig))).toBe(MARK);
+  });
+
+  describe.each([['base', () => marked['base.webp']], ['the composite', () => composite(RIG.map((name) => marked[name]))]])('%s', (_, subject) => {
+    it.each(Object.keys(LOSSY))('reads after every 1-3 px offset and then %s', async (codec) => {
+      const image = await subject();
+      for (const [dx, dy] of SHIFTS) expect(read(await LOSSY[codec](await shifted(image, dx, dy))), `offset ${dx},${dy}`).toBe(MARK);
+    });
+
+    // Halved first, WebP's half-size chroma leaves the mark no room: that order is a known, accepted loss.
+    it('reads after WebP at quality 50 and then a 50% downscale', async () => {
+      expect(read(await halved(await webp50(await subject())))).toBe(MARK);
+    });
   });
 
   const BACKGROUNDS = [['blue', { r: 40, g: 60, b: 90 }], ['light', { r: 240, g: 240, b: 235 }], ['dark', { r: 20, g: 20, b: 20 }]];
@@ -150,10 +200,18 @@ describe('embed and read', () => {
     expect(read(source[name])).toBeNull();
   });
 
-  it('reads an unmarked composite, and its attacked copies, as no mark', async () => {
+  // Each copy runs the full scale search, about a second, so each gets its own case.
+  const UNMARKED_COPIES = {
+    'as it is': async (image) => image,
+    ...ATTACKS,
+    'shifted and saved WebP at quality 50': async (image) => webp50(await shifted(image, 3, 1)),
+    'shifted and saved JPEG at quality 75': async (image) => jpeg75(await shifted(image, 1, 2)),
+    'halved and saved WebP at quality 50': async (image) => webp50(await halved(image))
+  };
+
+  it.each(Object.keys(UNMARKED_COPIES))('reads an unmarked composite %s as no mark', async (copy) => {
     const rig = await composite(RIG.map((name) => source[name]));
-    expect(read(rig)).toBeNull();
-    for (const attack of Object.values(ATTACKS)) expect(read(await attack(rig))).toBeNull();
+    expect(read(await UNMARKED_COPIES[copy](rig))).toBeNull();
   });
 
   it('refuses a mark that is not a 32-bit unsigned integer', () => {

@@ -189,15 +189,31 @@ cd /srv/formamorph/app && npm run read-leak -- /tmp/leak.png
 
 - **Image library:** [`sharp`](https://github.com/lovell/sharp) 0.35 (libvips), which decodes the leaked
   file. The mark itself, in `src/utils/watermark.js`, needs no library.
-- **What it survives:** each of WebP re-encoding at quality 50, a 50% downscale, and a 20% crop. The
-  composed Mascot (all layers over a background) survives the same, re-encoded, and as a lossless
-  screenshot inside a larger window or taken at twice its size.
-- **Floor:** one layer read on its own survives those attacks from about 340k opaque pixels, as Morphie's
+- **Where it lives:** the robust part moves only the blue-yellow axis, which the eye barely resolves at a
+  16 px pattern. Luma stays within 47 dB of the source; RGB within 36 dB. A luma mark strong enough for
+  the same robustness showed as a checker on flat fills.
+- **What it survives:** measured on Morphie's base and on the composed Mascot (all layers over a
+  background), with 6 marks over 3 rigs and 3 backgrounds:
+
+  | Attack | Reads |
+  |---|---|
+  | Shift of 1–3 px on either axis, then WebP q50 or JPEG q75 | 72 of 72 each |
+  | WebP q50, then a 50% downscale | 12 of 12 |
+  | WebP q50, a 50% downscale, or a 20% crop, alone | always |
+  | A screenshot inside a larger window, or at twice the size | always |
+
+- **Exact copies:** every layer's untouched download reads back, down to a 1.5k-pixel face part. Measured
+  over 100 random marks on all 26 of Morphie's layers (2,600 copies) with no miss.
+- **Floor:** one layer read on its own survives those attacks from about 310k opaque pixels, as Morphie's
   base (474k) does. Smaller layers, such as a face part, read back only as the exact file. A leaked rig is
   still traced through its base layer.
-- **Not survived:** ⚠️ a lossy save combined with a second change: a screenshot or crop off the 4 px grid
-  and then a lossy save, a resize and a lossy save in either order, or two lossy saves. Also rotation and
-  heavy edits.
+- **Not survived:** ⚠️
+  - A 50% downscale *then* WebP q50 (0 of 12): WebP stores chroma at half size, which leaves a halved
+    copy's mark no room.
+  - Two WebP q50 saves read only 4 of 12.
+  - Rotation and heavy edits.
+- **Cost:** embedding all 26 layers of a rig takes about 0.5 s. A read takes about 0.2 s when it finds the
+  mark at full size, and up to 1–2 s when it must search for the scale, as every unmarked image does.
 - **False reads:** CRC-32 and a pilot check put an unmarked image reading as marked near one in four
   billion.
 
