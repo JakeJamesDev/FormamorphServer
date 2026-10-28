@@ -139,6 +139,51 @@ describe('marking a listing Supporter-only', () => {
   });
 });
 
+describe('the update reply', () => {
+  const MARK = 'update-reply-marker';
+  const withMark = () => ({ ...worldPayload().contentData, stats: [MARK] });
+
+  it('carries no content for the author or a moderator on a Supporter-only listing', async () => {
+    const { id, author } = await listing();
+    const mod = createUser({ accountType: 'mod' });
+
+    const asAuthor = await request(app).put(`/api/worlds/${id}`).set(authHeader(author)).send({ contentData: withMark() });
+    const emptyAsMod = await request(app).put(`/api/worlds/${id}`).set(authHeader(mod)).send({});
+
+    for (const res of [asAuthor, emptyAsMod]) {
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(id);
+      expect(res.body.data).not.toHaveProperty('contentData');
+      expect(res.text).not.toContain(MARK);
+    }
+  });
+
+  it('carries no content when the update is held for review', async () => {
+    const { id, author } = await listing();
+    const admin = staffUser();
+    const setReview = (value) => request(app).put('/api/settings/listing_review').set(authHeader(admin)).send({ value });
+    expect((await setReview(true)).status).toBe(200);
+
+    try {
+      const res = await request(app).put(`/api/worlds/${id}`).set(authHeader(author)).send({ contentData: withMark() });
+      expect(res.status).toBe(200);
+      expect(res.body.data).not.toHaveProperty('contentData');
+      expect(res.text).not.toContain(MARK);
+    } finally {
+      await setReview(false);
+    }
+  });
+
+  it('still carries the content on a listing that is not Supporter-only (control)', async () => {
+    const { id, author } = await listing({ flag: false });
+
+    const res = await request(app).put(`/api/worlds/${id}`).set(authHeader(author)).send({ contentData: withMark() });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.contentData.stats).toEqual([MARK]);
+  });
+});
+
 describe('an update held for review on a Supporter-only listing', () => {
   it('is readable by staff, and an approved update lands in the private area', async () => {
     const { id, author } = await listing();

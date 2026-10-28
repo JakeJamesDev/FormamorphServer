@@ -929,6 +929,9 @@ exports.updateWorld = async (req, res, next) => {
       // Get full world data for response
       const fullWorld = attachRelationships(await World.getContent(req.params.id, req.user), req.user);
 
+      // Supporter-only content leaves only through the gated route, watermarked and scrambled.
+      if (fullWorld.supporter_only) delete fullWorld.contentData;
+
       res.status(200).json({
         success: true,
         data: fullWorld
