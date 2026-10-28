@@ -44,7 +44,7 @@ const { submissionFor, reviewEnabled, holdsEdit, pendingFields } = require('../u
 const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
 const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
-const { processForAccount } = require('../utils/supporterProcessing');
+const { processForAccount, clearListingCache } = require('../utils/supporterProcessing');
 const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
@@ -529,6 +529,7 @@ exports.setSupporterOnly = async (req, res, next) => {
 
     if (Boolean(world.supporter_only) !== supporterOnly) {
       World.setSupporterOnly(world.id, supporterOnly);
+      if (!supporterOnly) await clearListingCache(world.id);
       AuditLog.tryRecord({
         action: supporterOnly ? 'listing_supporter_only' : 'listing_supporter_only_cleared',
         actor: req.user,
@@ -1709,6 +1710,7 @@ exports.deleteWorld = async (req, res, next) => {
     // Delete world from database
     World.delete(req.params.id);
     await PendingUpdate.deleteFiles(pendingFiles);
+    if (world.supporter_only) await clearListingCache(world.id);
 
     // An author taking their own listing down neither punishes nor absolves them: any open report on it
     // stays open, flagged, leaning on the snapshot to say what was there. A staff takedown is a

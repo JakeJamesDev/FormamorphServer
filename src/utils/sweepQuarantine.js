@@ -3,6 +3,7 @@ const World = require('../models/World');
 const AuditLog = require('../models/AuditLog');
 const PendingUpdate = require('../models/PendingUpdate');
 const { deleteWorldContent, deleteThumbnail } = require('./fileStorage');
+const { clearListingCache } = require('./supporterProcessing');
 
 /**
  * Delete every quarantined listing whose deadline has passed.
@@ -32,6 +33,7 @@ const sweepQuarantine = async (now = undefined) => {
         const pendingFiles = PendingUpdate.filesFor([world.id]);
         World.delete(world.id);
         await PendingUpdate.deleteFiles(pendingFiles);
+        if (world.supporter_only) await clearListingCache(world.id);
 
         // The actor is the server itself, so the entry carries no username — the log's own wording says
         // "expired" rather than naming somebody who did not do it.

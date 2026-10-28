@@ -3,6 +3,7 @@ const AuditLog = require('../models/AuditLog');
 const { PLACEHOLDER_ID, PLACEHOLDER_USERNAME } = require('../config/accountDeletion');
 const { deleteWorldContent, deleteThumbnail, deleteAvatar, deletePendingFile } = require('./fileStorage');
 const PendingUpdate = require('../models/PendingUpdate');
+const { clearListingCache, clearAccountCache } = require('./supporterProcessing');
 const { MODERATION_STATES } = require('../config/listingReview');
 
 /**
@@ -12,7 +13,7 @@ const { MODERATION_STATES } = require('../config/listingReview');
  */
 const eraseRows = db.transaction((user, removeContent) => {
   const worlds = db
-    .prepare('SELECT id, content_file, thumbnail_file, moderation_state FROM worlds WHERE author_id = ?')
+    .prepare('SELECT id, content_file, thumbnail_file, moderation_state, supporter_only FROM worlds WHERE author_id = ?')
     .all(user.id);
   const comments = db
     .prepare('SELECT COUNT(*) AS count FROM comments WHERE author_id = ?')
@@ -21,6 +22,7 @@ const eraseRows = db.transaction((user, removeContent) => {
   const contentFiles = [];
   const thumbnailFiles = [];
   const pendingFiles = [];
+  const supporterListingIds = [];
 
   // Kept work is only what a mod approved: a listing still waiting or rejected goes, and so does every
   // pending update, so nothing unreviewed goes live after the account is gone.
@@ -28,6 +30,7 @@ const eraseRows = db.transaction((user, removeContent) => {
   for (const world of removed) {
     if (world.content_file) contentFiles.push(world.content_file);
     if (world.thumbnail_file) thumbnailFiles.push(world.thumbnail_file);
+    if (world.supporter_only) supporterListingIds.push(world.id);
   }
   for (const update of PendingUpdate.filesFor(worlds.map((world) => world.id))) {
     if (update.content_file) pendingFiles.push(update.content_file);
@@ -74,6 +77,7 @@ const eraseRows = db.transaction((user, removeContent) => {
     contentFiles,
     thumbnailFiles,
     pendingFiles,
+    supporterListingIds,
     avatarFile: user.avatar_file || null
   };
 });
@@ -139,6 +143,9 @@ const eraseUser = async (user, { removeContent = false } = {}) => {
   await removeQuietly(deleteThumbnail, erased.thumbnailFiles, user.username);
   await removeQuietly(deletePendingFile, erased.pendingFiles, user.username);
   await removeQuietly(deleteAvatar, erased.avatarFile ? [erased.avatarFile] : [], user.username);
+  // The account's own cached copies, and every copy of a listing that went with it.
+  await removeQuietly(clearListingCache, erased.supporterListingIds, user.username);
+  await removeQuietly(clearAccountCache, [user.id], user.username);
 
   return {
     username: user.username,

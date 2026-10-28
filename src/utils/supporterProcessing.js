@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const sharp = require('sharp');
 const WatermarkMark = require('../models/WatermarkMark');
 const { embed } = require('./watermark');
@@ -62,8 +63,25 @@ const processValue = async (value, mark, seed) => {
   return value;
 };
 
-const cachePrefix = (listingId) => `processed-${listingId}-`;
-const cacheName = (listing, userId) => `${cachePrefix(listing.id)}r${listing.revision}-${userId}.json`;
+// Hash of what shapes the output, so a change to the mark or the scramble retires every older copy.
+const PROCESSING_VERSION = crypto.createHash('sha256')
+  .update(SEED_PURPOSE)
+  .update(fs.readFileSync(require.resolve('./watermark')))
+  .update(fs.readFileSync(require.resolve('./scramble')))
+  .digest('hex')
+  .slice(0, 12);
+
+const CACHE_PREFIX = 'processed-';
+const cachePrefix = (listingId) => `${CACHE_PREFIX}${listingId}-`;
+const currentPrefix = (listing) => `${cachePrefix(listing.id)}v${PROCESSING_VERSION}-r${listing.revision}-`;
+const cacheName = (listing, userId) => `${currentPrefix(listing)}${userId}.json`;
+
+/** Remove every cached copy of one listing. */
+const clearListingCache = (listingId) => deleteSupporterFilesWithPrefix(cachePrefix(listingId));
+
+/** Remove every cached copy made for one account, across all listings. */
+const clearAccountCache = (userId) =>
+  deleteSupporterFilesWithPrefix(CACHE_PREFIX, { keep: (file) => !file.endsWith(`-${userId}.json`) });
 
 /**
  * @param {Object} request
@@ -88,10 +106,10 @@ const processForAccount = async ({ userId, listing, content, cached = true }) =>
   }
 
   const processed = await run();
-  // A miss means the revision moved or this account is new; every older revision's cache goes.
-  await deleteSupporterFilesWithPrefix(cachePrefix(listing.id), { keep: (file) => file.startsWith(`${cachePrefix(listing.id)}r${listing.revision}-`) });
+  // A miss means the revision or processing version moved, or this account is new; older copies go.
+  await deleteSupporterFilesWithPrefix(cachePrefix(listing.id), { keep: (file) => file.startsWith(currentPrefix(listing)) });
   await saveSupporterFile(name, JSON.stringify(processed));
   return processed;
 };
 
-module.exports = { processForAccount };
+module.exports = { processForAccount, clearListingCache, clearAccountCache, PROCESSING_VERSION };
