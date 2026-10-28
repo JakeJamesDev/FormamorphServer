@@ -1489,6 +1489,50 @@ exports.releaseWorld = async (req, res, next) => {
 };
 
 /**
+ * Record a Pin or Unpin by staff. Pinning harms no author, so there is no staff-protection check.
+ */
+const setPin = (pinned) => async (req, res, next) => {
+  try {
+    const world = World.findById(req.params.id);
+    if (!world) {
+      return res.status(404).json({ success: false, error: 'World not found' });
+    }
+
+    // Unpinning an unpinned listing is a no-op, so it leaves no audit entry.
+    const changed = pinned || Boolean(world.pinned_at);
+    const updated = pinned ? World.pin(world.id) : World.unpin(world.id);
+
+    if (changed) {
+      AuditLog.tryRecord({
+        action: pinned ? 'listing_pinned' : 'listing_unpinned',
+        actor: req.user,
+        targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
+        targetKind: world.kind || 'world',
+        targetName: world.name
+      });
+    }
+
+    res.status(200).json({ success: true, data: { id: updated.id, pinnedAt: updated.pinned_at } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Pin a listing so it shows first, or move its pin to the top
+ * @route   PUT /api/worlds/:id/pin
+ * @access  Private/Staff
+ */
+exports.pinWorld = setPin(true);
+
+/**
+ * @desc    Remove a listing's pin
+ * @route   DELETE /api/worlds/:id/pin
+ * @access  Private/Staff
+ */
+exports.unpinWorld = setPin(false);
+
+/**
  * Take a listing out of the contest it was entered in.
  *
  * Owner-or-moderator, which is where entry moderation comes from: staff pulling an entry that should not

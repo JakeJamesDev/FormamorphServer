@@ -1,7 +1,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { check } = require('express-validator');
-const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, removeAnonymousLikeGroup, removeAnonymousLikes, quarantineWorld, releaseWorld, withdrawEntry } = require('../controllers/worldController');
+const { getWorlds, getWorld, getWorldContent, createWorld, updateWorld, deleteWorld, setSpoilerStatus, setLikeStatus, setAnonymousLikeStatus, getLikers, getLikersAudit, removeLike, removeAnonymousLikeGroup, removeAnonymousLikes, quarantineWorld, releaseWorld, pinWorld, unpinWorld, withdrawEntry } = require('../controllers/worldController');
 const { getComments, createComment } = require('../controllers/commentController');
 const { createEntry, updateEntry, deleteEntry } = require('../controllers/changelogController');
 const { getDependencies, getDependencyContent, setDependencies, setCompatibility, getAddons, setReviewState } = require('../controllers/relationshipController');
@@ -131,6 +131,8 @@ router.delete('/:id/anonymous-likes', protect, staff, removeAnonymousLikes);
 // deleted when the deadline passes unless somebody releases it first.
 router.put('/:id/quarantine', smallJson, protect, staff, quarantineWorld);
 router.delete('/:id/quarantine', protect, staff, releaseWorld);
+router.put('/:id/pin', smallJson, protect, staff, pinWorld);
+router.delete('/:id/pin', protect, staff, unpinWorld);
 
 // Take a listing out of the contest it was entered in. Withdraw-only, and DELETE rather than a flag:
 // there is no "enter this existing listing" to be the other half of, since entering happens at publish.

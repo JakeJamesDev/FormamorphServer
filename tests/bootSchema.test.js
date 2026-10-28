@@ -515,6 +515,20 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('leaves every existing listing unpinned', () => {
+    const legacy = oldestDatabase();
+    legacy.prepare("INSERT INTO users (id, username, password) VALUES ('u1', 'author', 'x')").run();
+    legacy.prepare(
+      "INSERT INTO worlds (id, name, description, author_id, thumbnail_file, preview_data, content_file) VALUES ('w1', 'World', 'd', 'u1', 't', '', 'c')"
+    ).run();
+
+    expect(migrate(legacy)).toContain('pinnedAt');
+    expect(legacy.prepare("SELECT pinned_at FROM worlds WHERE id = 'w1'").get()).toEqual({ pinned_at: null });
+    expect(migrate(legacy)).toEqual([]);
+
+    legacy.close();
+  });
+
   it('numbers the threads already there in creation order, ties broken by id, once', () => {
     const legacy = oldestDatabase();
     legacy.exec(`

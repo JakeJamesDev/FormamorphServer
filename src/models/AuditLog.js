@@ -20,6 +20,8 @@ const ACTIONS = [
   'quarantine_updated',
   'quarantine_released',
   'quarantine_expired',
+  'listing_pinned',
+  'listing_unpinned',
   'avatar_removed',
   'role_changed',
   'feedback_edited',

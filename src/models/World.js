@@ -331,7 +331,8 @@ const World = {
       const orderDirection = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
       // Add order by and limit to main query
-      query += ` ORDER BY ${sortExpression} ${orderDirection} LIMIT ? OFFSET ?`;
+      // Pinned listings lead whatever the sort and direction, newest pin first.
+      query += ` ORDER BY (w.pinned_at IS NULL), w.pinned_at DESC, ${sortExpression} ${orderDirection} LIMIT ? OFFSET ?`;
 
       // Execute queries
       const worlds = db.prepare(query).all(...params, ...orderParams, limit, offset);
@@ -646,6 +647,26 @@ const World = {
       WHERE id = ?
     `).run(now.toISOString(), expires.toISOString(), id);
 
+    return World.findById(id);
+  },
+
+  /**
+   * Pin a listing, or move an existing pin to the top. Leaves `updated_at` alone.
+   * @param {string} id - World ID
+   * @returns {Object|undefined} The updated row
+   */
+  pin: (id) => {
+    db.prepare('UPDATE worlds SET pinned_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+    return World.findById(id);
+  },
+
+  /**
+   * Remove a listing's pin, returning it to its sort position.
+   * @param {string} id - World ID
+   * @returns {Object|undefined} The updated row
+   */
+  unpin: (id) => {
+    db.prepare('UPDATE worlds SET pinned_at = NULL WHERE id = ?').run(id);
     return World.findById(id);
   },
 

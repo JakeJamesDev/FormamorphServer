@@ -112,6 +112,8 @@ const apply = (database) => {
       moderation_queued_at TEXT,
       -- When the listing first went live, which the catalog's newest sort reads. Null while it waits.
       listed_at TEXT,
+      -- When staff pinned the listing; pinned listings sort first. Null when not pinned.
+      pinned_at TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users (id),
