@@ -6,7 +6,7 @@ const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, ge
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
 const { kindFromQuery } = require('../utils/kindQuery');
 const { placeholderFor } = require('../config/placeholderThumbnails');
-const { decodedImageBytes } = require('../utils/decodedImageBytes');
+const { contentSizeError } = require('../utils/contentSize');
 const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense } = require('../utils/vrmLicenseGate');
 const {
   isBundledWorld,
@@ -163,25 +163,6 @@ const anonymousResult = (worldId, removed) => ({
 
 /** How much the author's first update buys them. Deliberately the same as the default quarantine. */
 const EXTENSION_DAYS = DEFAULT_QUARANTINE_DAYS;
-
-/**
- * The kind's content ceiling as an error string, or null when it fits.
- *
- * Shared by create and update so the cap is a property of the row rather than of whichever path wrote it:
- * enforcing it on create alone means a 1KB dictionary can be PUT up to the global 100MB a moment later.
- */
-function contentSizeError(contentData, rules) {
-  if (!contentData) return null;
-  const limitMb = Math.round(rules.maxContentBytes / 1024 / 1024);
-  if (rules.measuresDecodedImages) {
-    const decoded = decodedImageBytes(contentData);
-    if (decoded <= rules.maxContentBytes) return null;
-    return `${rules.label} content is ${(decoded / 1024 / 1024).toFixed(1)}MB, over the ${limitMb}MB limit`;
-  }
-  const bytes = Buffer.byteLength(JSON.stringify(contentData));
-  if (bytes <= rules.maxContentBytes) return null;
-  return `${rules.label} content exceeds the ${limitMb}MB limit`;
-}
 
 /**
  * Read a prompt's models off a publish body, as an error string or the cleaned list.

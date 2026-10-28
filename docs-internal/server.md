@@ -172,6 +172,20 @@ rclone size r2:formamorph-files
 - **Lost host**: new box, install Node 24 + Caddy + rclone, recreate the unit and Caddyfile above, restore the env
   file from `.env.production`, restore the rclone config, then run the two rclone restores.
 
+## Publishing a Supporter Mascot
+
+A staff publish from the app is public until the Supporter-only toggle. This script skips that window. Export the Mascot from the app's Mascot tab, copy the `.webp` to the server, and run:
+
+```bash
+cd /srv/formamorph/app && npm run publish-supporter -- /tmp/mascot.webp --author <staff username> [--name <name>] [--thumbnail <image>] [--description <text>]
+```
+
+- One transaction creates the row Supporter-only, pinned and approved. The content goes straight to `supporter-private`.
+- The thumbnail is the card's Initial look, or `--thumbnail`. Either is re-encoded, so the card in the export's metadata never reaches the public thumbnail.
+- It refuses a non-staff author, a file with no Mascot card, and a card over the 10 MB cap.
+- ⚠️ It does not check for Morphie layers, as the app's publish does. Use original art only.
+- Delete the copied `.webp` afterwards. It holds every layer unwatermarked.
+
 ## Reading a leaked image
 
 Each account's Supporter downloads carry an invisible watermark: a random 32-bit mark number, kept per

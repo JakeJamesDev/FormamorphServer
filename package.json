@@ -18,6 +18,7 @@
     "list-snapshots": "node src/utils/listSnapshots.js",
     "cleanup-snapshots": "node src/utils/cleanupSnapshots.js",
     "read-leak": "node src/utils/runReadLeak.js",
+    "publish-supporter": "node src/utils/runPublishSupporter.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
