@@ -190,7 +190,7 @@ cd /srv/formamorph/app && npm run read-leak -- /tmp/leak.png
 - **Image library:** [`sharp`](https://github.com/lovell/sharp) 0.35 (libvips), which decodes the leaked
   file. The mark itself, in `src/utils/watermark.js`, needs no library.
 - **Where it lives:** the robust part moves only the blue-yellow axis, which the eye barely resolves at a
-  16 px pattern. Luma stays within 47 dB of the source; RGB within 36 dB. A luma mark strong enough for
+  16 px pattern. Luma PSNR is at least 46 dB; RGB PSNR is 36.6–38.6 dB. A luma mark strong enough for
   the same robustness showed as a checker on flat fills.
 - **What it survives:** measured on Morphie's base and on the composed Mascot (all layers over a
   background), with 6 marks over 3 rigs and 3 backgrounds:
