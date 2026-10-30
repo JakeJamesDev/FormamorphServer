@@ -1,6 +1,6 @@
 const World = require('../models/World');
 const User = require('../models/User');
-const { STAFF_PROTECTED, canModerate, isAdmin } = require('../config/roles');
+const { STAFF_PROTECTED, canModerate, isAdmin, isStaff } = require('../config/roles');
 const { validationResult } = require('express-validator');
 const { saveWorldContent, saveThumbnail, deleteWorldContent, deleteThumbnail, getThumbnailBase64 } = require('../utils/fileStorage');
 const { DEFAULT_KIND, rulesFor } = require('../config/kinds');
@@ -141,6 +141,23 @@ const markGuestLikes = (req, worlds) => {
   const byAccount = claimedBy ? World.likedAmong(ids, claimedBy.id) : new Set();
 
   for (const world of worlds) world.liked = byInstall.has(world.id) || byAccount.has(world.id);
+};
+
+/**
+ * Put each listing's Likes Marker reasons on it for a staff reader, as `likes_marker`.
+ *
+ * Every staff row carries the field, empty when nothing fires, so a client tells "not marked" from a
+ * server without markers. A player or guest gets no field at all. Contest entries included: the reasons
+ * name no count, and the staff reading them already see the count.
+ *
+ * @param {Object} req - The Express request
+ * @param {Array<Object>} worlds - The rows about to be sent, edited in place
+ */
+const markLikesMarkers = (req, worlds) => {
+  if (!isStaff(req.user) || worlds.length === 0) return;
+
+  const markers = likesMarkers(worlds.map((world) => world.id));
+  for (const world of worlds) world.likes_marker = markers.get(world.id).reasons;
 };
 
 /** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
@@ -349,11 +366,12 @@ exports.getWorlds = async (req, res, next) => {
     });
 
     markGuestLikes(req, result.worlds);
+    markLikesMarkers(req, result.worlds);
 
-    // The catalog reads differently for every reader — liked marks, and an author's own quarantined
-    // listings — so it is one reader's to hold, and it is only ever held against a revalidation. A guest's
-    // marks come from the Install header, so a cache keyed on the token alone would hand one guest's
-    // hearts to another.
+    // The catalog reads differently for every reader — liked marks, an author's own quarantined
+    // listings, and staff markers — so it is one reader's to hold, and it is only ever held against a
+    // revalidation. A guest's marks come from the Install header, so a cache keyed on the token alone
+    // would hand one guest's hearts to another.
     perReader(res, { byInstall: true });
 
     res.status(200).json({
@@ -417,8 +435,9 @@ exports.getWorld = async (req, res, next) => {
     }
 
     markGuestLikes(req, [world]);
+    markLikesMarkers(req, [world]);
 
-    // A contest entry's count differs per reader, as the catalog's hearts do.
+    // A contest entry's count and a staff marker differ per reader, as the catalog's hearts do.
     perReader(res, { byInstall: true });
 
     res.status(200).json({
