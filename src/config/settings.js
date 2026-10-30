@@ -2,6 +2,7 @@ const { validateClientMinimums } = require('./clientVersion');
 const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
 const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username');
+const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
 
 /**
  * The settings staff can change without a deploy.
@@ -37,6 +38,8 @@ const SETTINGS = {
   [LISTING_REVIEW]: { default: false, validate: validateListingReview, adminOnly: true },
   // Off until the client that answers the rename refusal ships. `config/username` says what it gates.
   [USERNAME_RENAME_GATE]: { default: false, validate: validateUsernameRenameGate, adminOnly: true },
+  // Off until the privacy text that states the collection is live. `config/networkKind` says what it gates.
+  [NETWORK_KIND]: { default: false, validate: validateNetworkKind },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true }
 };

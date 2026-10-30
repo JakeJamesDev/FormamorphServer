@@ -16,6 +16,7 @@ const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuaran
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
+const { startNetworkLists } = require('./utils/networkLists');
 const { sweepSuspensions, startSuspensionSweeper } = require('./utils/sweepSuspensions');
 const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
 const { mailEnabled } = require('./utils/mail');
@@ -59,6 +60,10 @@ startEventSweeper();
 // reader.
 sweepRetention();
 startRetentionSweeper();
+
+// Load the network lists the like routes classify against, then refresh them daily. A server with no
+// lists yet stores no kind rather than failing a like.
+startNetworkLists();
 
 // And for the accounts that asked to go: erase whatever came due while the server was down, then keep
 // erasing. A user was told a date, so the wait must not depend on the process having stayed up.

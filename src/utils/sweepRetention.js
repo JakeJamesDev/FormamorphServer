@@ -1,6 +1,7 @@
 const { hourly } = require('./hourly');
 const Signal = require('../models/Signal');
 const AnonymousLike = require('../models/AnonymousLike');
+const World = require('../models/World');
 
 /**
  * Let go of everything the retention promise says is let go of.
@@ -10,23 +11,25 @@ const AnonymousLike = require('../models/AnonymousLike');
  * hourly. Unlike the quarantine sweeper there is no lazy read path, because nothing reads these tables on
  * a request an ordinary user makes — the staff views ask for matches inside retention themselves.
  *
- * Two steps, because the two rows expire differently. A Signal is nothing but where an account acted
+ * Three steps, because the rows expire differently. A Signal is nothing but where an account acted
  * from, so the whole row goes. An Anonymous Like is a like as well as an address, and the like is not
- * the operator's to take away with it, so only the hash goes and the number a listing shows does not
- * move. One deadline over both, which is the Signal's: an address is an address whichever table it sits
- * in, and two windows would be two promises.
+ * the operator's to take away with it, so only where it came from goes — hash, browser family and
+ * Network Kind — and the number a listing shows does not move. An account Like loses only its Network
+ * Kind. One deadline over all three, which is the Signal's: an address is an address whichever table it
+ * sits in, and two windows would be two promises.
  *
  * Each step is caught on its own, the way the event sweeper catches each transition. They share the
- * deadline and nothing else, and a table that will not write must not keep the other one from expiring.
+ * deadline and nothing else, and a table that will not write must not keep another from expiring.
  *
  * Never throws, down to reading the deadline. This runs on a timer nobody is watching; a failure to
  * purge must not take the process down.
  *
  * @param {string} [now] - The instant to measure retention back from, for tests
- * @returns {{signals: number, hashes: number}} Rows deleted, and marks that lost their hash
+ * @returns {{signals: number, marks: number, kinds: number}} Signals deleted, marks emptied, and account
+ *   Likes that lost their kind
  */
 const sweepRetention = (now = undefined) => {
-  const swept = { signals: 0, hashes: 0 };
+  const swept = { signals: 0, marks: 0, kinds: 0 };
 
   let cutoff;
   try {
@@ -43,9 +46,15 @@ const sweepRetention = (now = undefined) => {
   }
 
   try {
-    swept.hashes = AnonymousLike.blankHashesBefore(cutoff);
+    swept.marks = AnonymousLike.blankOriginsBefore(cutoff);
   } catch (error) {
-    console.error('Anonymous Like hash sweep failed:', error);
+    console.error('Anonymous Like origin sweep failed:', error);
+  }
+
+  try {
+    swept.kinds = World.blankNetworkKindsBefore(cutoff);
+  } catch (error) {
+    console.error('Like network kind sweep failed:', error);
   }
 
   return swept;

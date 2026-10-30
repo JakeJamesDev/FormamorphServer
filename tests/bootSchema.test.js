@@ -301,7 +301,7 @@ describe('the schema step', () => {
     const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'privacy_policy'").get();
     expect(seeded.enabled).toBe(0);
     expect(seeded.acceptance_version).toBe(2);
-    expect(seeded.body).toContain('**Last updated: 20 September 2026**');
+    expect(seeded.body).toContain('**Last updated: 30 October 2026**');
     expect(seeded.body).toContain('**Your email address is optional.**');
     expect(seeded.body).toContain('Once verified, it can also receive password-reset links.');
     expect(seeded.body).toContain('**Resend** delivers verification and password-reset email.');
@@ -309,9 +309,18 @@ describe('the schema step', () => {
     // The collection an Anonymous Like makes, which the route may not start before this text is live.
     expect(seeded.body).toContain('\n## Liking while signed out\n');
     expect(seeded.body).toContain('a salted hash of your network address, and a coarse browser family');
-    expect(seeded.body).toContain('**We blank the hash after 90 days.**');
+    expect(seeded.body).toContain('**We blank the hash and the browser family after 90 days.**');
     expect(seeded.body).toContain('press the heart again on the same copy of the app');
     expect(seeded.body).toContain('**Signing in moves these likes to your account.**');
+
+    // The Network Kind, which collection may not store before this text is live.
+    expect(seeded.body).toContain('\n## The kind of network behind a like\n');
+    expect(seeded.body).toContain('**the kind of network the like came from**: a VPN, a hosting network, or Tor.');
+    expect(seeded.body).toContain('**lists kept on our own server**. Your address is never sent to anyone');
+    expect(seeded.body).toContain('**We blank the kind after 90 days.**');
+    expect(seeded.body).toContain('[IPLocate.io](https://www.iplocate.io) under [CC BY-SA 4.0]');
+    expect(seeded.body).toContain('- **The address hash and browser family beside a like you gave while signed out:** 90 days.');
+    expect(seeded.body).toContain('- **The kind of network beside a like:** 90 days. The like itself stays.');
 
     fresh.prepare("UPDATE policies SET enabled = 1, body = 'The owner rewrote this.' WHERE id = 'privacy_policy'").run();
     expect(migrate(fresh)).toEqual([]);

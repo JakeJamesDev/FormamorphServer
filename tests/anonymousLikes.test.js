@@ -733,7 +733,7 @@ describe('letting go of an address after ninety days', () => {
     const swept = sweepRetention(NOW);
     const res = await fromAddress(HOUSE, anonLike(id, install(), true));
 
-    expect(swept.hashes).toBe(3);
+    expect(swept.marks).toBe(3);
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ liked: true, likes: 4 });
   });
@@ -747,7 +747,7 @@ describe('letting go of an address after ninety days', () => {
     const swept = sweepRetention(NOW);
     const res = await fromAddress(HOUSE, anonLike(id, install(), true));
 
-    expect(swept.hashes).toBe(0);
+    expect(swept.marks).toBe(0);
     expect(res.status).toBe(403);
   });
 
@@ -758,7 +758,7 @@ describe('letting go of an address after ninety days', () => {
     ageMarks(id, 91, NOW);
     sweepRetention(NOW);
 
-    expect(sweepRetention(NOW).hashes).toBe(0);
+    expect(sweepRetention(NOW).marks).toBe(0);
   });
 
   it('empties the hashes even when the Signal purge throws', async () => {
@@ -773,7 +773,7 @@ describe('letting go of an address after ninety days', () => {
 
     const swept = sweepRetention(NOW);
 
-    expect(swept).toEqual({ signals: 0, hashes: 3 });
+    expect(swept).toEqual({ signals: 0, marks: 3, kinds: 0 });
   });
 
   it('purges the Signals even when emptying the hashes throws', async () => {
@@ -785,13 +785,13 @@ describe('letting go of an address after ninety days', () => {
       VALUES (?, 'login', 'a-hash', 'Other/Other', ?)
     `).run(user.id, new Date(new Date(NOW).getTime() - 91 * DAY_MS).toISOString());
     quiet();
-    vi.spyOn(AnonymousLike, 'blankHashesBefore').mockImplementation(() => {
+    vi.spyOn(AnonymousLike, 'blankOriginsBefore').mockImplementation(() => {
       throw new Error('the table is locked');
     });
 
     const swept = sweepRetention(NOW);
 
-    expect(swept).toEqual({ signals: 1, hashes: 0 });
+    expect(swept).toEqual({ signals: 1, marks: 0, kinds: 0 });
   });
 
   it('answers with nothing swept rather than throwing when the deadline cannot be read', async () => {
@@ -800,7 +800,7 @@ describe('letting go of an address after ninety days', () => {
     quiet();
     vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
 
-    expect(sweepRetention(NOW)).toEqual({ signals: 0, hashes: 0 });
+    expect(sweepRetention(NOW)).toEqual({ signals: 0, marks: 0, kinds: 0 });
   });
 });
 

@@ -34,6 +34,8 @@ const { addressKeyFor } = require('../utils/addressKey');
 const { perReader } = require('../utils/perReader');
 const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
+const { NETWORK_KIND } = require('../config/networkKind');
+const { networkClassifier } = require('../utils/networkClassifier');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { modelList } = require('../utils/modelList');
 const { appVersionOf } = require('../utils/appVersion');
@@ -95,6 +97,18 @@ const holdUpdate = async (worldId, { thumbnail, contentData, updateData, depende
  * @returns {boolean} Whether the setting is on
  */
 const anonymousLikesEnabled = () => Setting.get(ANONYMOUS_LIKES) === true;
+
+/**
+ * The Network Kind to store beside a like given on this request.
+ *
+ * The address is the one the hash is taken from, so the kind and the hash always describe one network.
+ *
+ * @param {Object} req - The Express request
+ * @param {boolean} liked - Whether the press puts a like on; taking one off stores nothing
+ * @returns {string|null} The kind, or null while collection is off or nothing matched
+ */
+const networkKindOf = (req, liked) =>
+  (liked && Setting.get(NETWORK_KIND) === true ? networkClassifier.classify(clientAddress(req)) : null);
 
 /**
  * Fill in `liked` for a guest who named their Install.
@@ -983,7 +997,7 @@ exports.setLikeStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Liked must be a boolean value' });
     }
 
-    World.setLike(world.id, req.user.id, liked);
+    World.setLike(world.id, req.user.id, liked, networkKindOf(req, liked));
 
     // Recorded whichever way the heart went. The Signal is about the account acting from an address, and a
     // ring that could clear its trail by unliking would be a ring this table could not see.
@@ -1163,7 +1177,8 @@ exports.setAnonymousLikeStatus = async (req, res, next) => {
 
     AnonymousLike.set(world.id, installId, liked, {
       addressHash: hash,
-      browserFamily: browserFamily(req.headers['user-agent'])
+      browserFamily: browserFamily(req.headers['user-agent']),
+      networkKind: networkKindOf(req, liked)
     });
 
     res.status(200).json({

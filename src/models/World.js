@@ -986,21 +986,34 @@ const World = {
   /**
    * Add or remove this user's like. Idempotent in both directions.
    *
+   * A repeat press keeps the Network Kind the first press stored.
+   *
    * @param {string} worldId - World ID
    * @param {string} userId - User ID
    * @param {boolean} liked - Whether they want their like on it
+   * @param {string|null} [networkKind] - The kind to store beside a new like, or null for none
    */
-  setLike: (worldId, userId, liked) => {
+  setLike: (worldId, userId, liked, networkKind = null) => {
     if (liked) {
       db.prepare(`
-        INSERT INTO world_likes (world_id, user_id, created_at) VALUES (?, ?, ?)
+        INSERT INTO world_likes (world_id, user_id, created_at, network_kind) VALUES (?, ?, ?, ?)
         ON CONFLICT(world_id, user_id) DO NOTHING
-      `).run(worldId, userId, new Date().toISOString());
+      `).run(worldId, userId, new Date().toISOString(), networkKind);
       return;
     }
 
     World.removeLike(worldId, userId);
   },
+
+  /**
+   * Empty the Network Kind on every account Like older than the cutoff. The like stays.
+   *
+   * @param {string} cutoff - The oldest instant still inside retention, as an ISO string
+   * @returns {number} How many Likes lost their kind
+   */
+  blankNetworkKindsBefore: (cutoff) => db.prepare(`
+    UPDATE world_likes SET network_kind = NULL WHERE created_at < ? AND network_kind IS NOT NULL
+  `).run(cutoff).changes,
 
   /**
    * The number the room sees: account Likes and Anonymous Likes added together.

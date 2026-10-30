@@ -431,6 +431,8 @@ const apply = (database) => {
       -- the order the person actually liked things. That leaves staff a fresh account holding likes older
       -- than itself, which reads like a ring until this column says where they came from.
       claimed_at TEXT,
+      -- Tor, VPN or hosting, when collection was on and the address matched; blanked at ninety days.
+      network_kind TEXT,
       PRIMARY KEY (world_id, user_id),
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
@@ -454,6 +456,8 @@ const apply = (database) => {
       address_hash TEXT NOT NULL,
       browser_family TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      -- Tor, VPN or hosting, when collection was on and the address matched; blanked with the hash.
+      network_kind TEXT,
       PRIMARY KEY (world_id, install_id),
       FOREIGN KEY (world_id) REFERENCES worlds (id) ON DELETE CASCADE
     )

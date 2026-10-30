@@ -19,6 +19,9 @@ const DATA_DIR = process.env.DATA_DIR || path.join(PROJECT_ROOT, 'data');
 /** The SQLite database itself. `:memory:` is honored as-is (tests), never joined to a directory. */
 const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'exotic-dangerous.db');
 
+/** The last good copy of each network list the classifier matches against. */
+const NETWORK_LISTS_DIR = process.env.NETWORK_LISTS_DIR || path.join(DATA_DIR, 'network-lists');
+
 /** Root for user uploads; the worlds/thumbnails directories hang off it. */
 const STORAGE_ROOT = process.env.STORAGE_ROOT || path.join(PROJECT_ROOT, 'src', 'storage');
 
@@ -46,6 +49,7 @@ module.exports = {
   PROJECT_ROOT,
   DATA_DIR,
   DB_PATH,
+  NETWORK_LISTS_DIR,
   STORAGE_ROOT,
   WORLDS_DIR,
   THUMBNAILS_DIR,

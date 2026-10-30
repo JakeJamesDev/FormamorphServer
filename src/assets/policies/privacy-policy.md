@@ -1,4 +1,4 @@
-**Last updated: 20 September 2026**
+**Last updated: 30 October 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It does not cover your play. The game runs on your device, and nothing about a playthrough reaches us.
 
@@ -50,11 +50,23 @@ Beside the like we store **a salted hash of your network address, and a coarse b
 
 The hash has one purpose: **to limit and detect abuse**. It caps how many of these likes one connection may give one listing, and it lets staff see a number that was inflated from one place. Nothing else uses it.
 
-**We blank the hash after 90 days.** The like stays and still counts. Only where it came from goes.
+**We blank the hash and the browser family after 90 days.** The like stays and still counts. Only where it came from goes.
 
 **To take one of these likes back, press the heart again on the same copy of the app.**
 
 **Signing in moves these likes to your account.** They become ordinary Likes. We record which account took the Install, so signing out again does not let the same copy of the app like a listing twice. Deleting your account deletes that record too.
+
+## The kind of network behind a like
+
+When you like a listing, signed in or not, we store **the kind of network the like came from**: a VPN, a hosting network, or Tor. A like from any other network stores nothing.
+
+We find the kind by checking your network address against **lists kept on our own server**. Your address is never sent to anyone to check it. We do not store the address.
+
+The kind has one purpose: **to detect abuse**. It lets staff see when a listing's likes were inflated from VPNs, cloud servers, or Tor. It never causes anything to happen by itself. A like from a VPN is accepted and counted like any other.
+
+**We blank the kind after 90 days.** The like stays and still counts.
+
+The VPN and hosting lists come from [X4BNet lists_vpn](https://github.com/X4BNet/lists_vpn), built from IP address data by [IPLocate.io](https://www.iplocate.io) under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The Tor list comes from the Tor Project.
 
 ## Who else handles your data
 
@@ -76,7 +88,8 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 
 - **Your account and what you published:** until you delete it.
 - **Signals:** 90 days.
-- **The address hash beside a like you gave while signed out:** 90 days. The like itself stays.
+- **The address hash and browser family beside a like you gave while signed out:** 90 days. The like itself stays.
+- **The kind of network beside a like:** 90 days. The like itself stays.
 - **Nightly copies of the database:** up to 30 days.
 - **Published files:** mirrored to Cloudflare storage for as long as the listing exists.
 

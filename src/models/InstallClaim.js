@@ -44,6 +44,8 @@ const InstallClaim = {
    *
    * The Like carries the mark's own `created_at` across and is stamped `claimed_at`, so a liked list
    * reads in the order the person pressed and staff can still see why a new account holds an old like.
+   * The mark's Network Kind comes across too: the hash stays behind, so the kind is all that still says
+   * what network the like came from.
    *
    * @param {string} installId - The Install being claimed
    * @param {string} userId - The account claiming it
@@ -53,8 +55,8 @@ const InstallClaim = {
     const now = new Date().toISOString();
 
     const claimed = db.prepare(`
-      INSERT INTO world_likes (world_id, user_id, created_at, claimed_at)
-      SELECT a.world_id, @userId, a.created_at, @now
+      INSERT INTO world_likes (world_id, user_id, created_at, claimed_at, network_kind)
+      SELECT a.world_id, @userId, a.created_at, @now, a.network_kind
       FROM anonymous_likes a
       JOIN worlds w ON w.id = a.world_id
       WHERE a.install_id = @installId AND w.author_id <> @userId

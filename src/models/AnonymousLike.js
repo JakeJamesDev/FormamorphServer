@@ -18,29 +18,30 @@ const AnonymousLike = {
   /**
    * Add or remove this Install's mark. Idempotent in both directions.
    *
-   * The hash and the browser family are written on the way in and left alone by a repeat press, so a
-   * second press from a new address does not rewrite where the first one came from.
+   * The hash, the browser family and the Network Kind are written on the way in and left alone by a repeat
+   * press, so a second press from a new address does not rewrite where the first one came from.
    *
    * @param {string} worldId - The listing
    * @param {string} installId - The Install
    * @param {boolean} liked - Whether the mark should be on it
-   * @param {Object} where - `{ addressHash, browserFamily }`, as `recordSignal` derives them
+   * @param {Object} where - `{ addressHash, browserFamily, networkKind }`; the kind is null when none is stored
    */
-  set: (worldId, installId, liked, { addressHash, browserFamily } = {}) => {
+  set: (worldId, installId, liked, { addressHash, browserFamily, networkKind = null } = {}) => {
     if (!liked) {
       AnonymousLike.clear(worldId, installId);
       return;
     }
 
     db.prepare(`
-      INSERT INTO anonymous_likes (world_id, install_id, address_hash, browser_family, created_at)
-      VALUES (@worldId, @installId, @addressHash, @browserFamily, @createdAt)
+      INSERT INTO anonymous_likes (world_id, install_id, address_hash, browser_family, network_kind, created_at)
+      VALUES (@worldId, @installId, @addressHash, @browserFamily, @networkKind, @createdAt)
       ON CONFLICT(world_id, install_id) DO NOTHING
     `).run({
       worldId,
       installId,
       addressHash,
       browserFamily,
+      networkKind,
       createdAt: new Date().toISOString()
     });
   },
@@ -80,20 +81,22 @@ const AnonymousLike = {
   `).get(worldId, addressHash, installId).n < ADDRESS_CAP,
 
   /**
-   * Empty the address hash on every mark older than the cutoff, and say how many were emptied.
+   * Empty where every mark older than the cutoff came from, and say how many were emptied.
    *
-   * The like survives; only where it came from goes. The privacy text promises the address is kept for
-   * the retention period and no longer, and the number a listing shows is not the operator's to quietly
-   * reduce at ninety days, so the two are separated here rather than by deleting the row.
+   * The hash, the browser family and the Network Kind all go; the like survives. The privacy text promises
+   * each is kept for the retention period and no longer, and the number a listing shows is not the
+   * operator's to quietly reduce at ninety days, so the two are separated here rather than by deleting
+   * the row.
    *
-   * Rows already emptied are skipped, so the count is what this run changed and a second run over the
-   * same rows reports nothing.
+   * A mark that still holds any of the three is emptied. Rows already empty are skipped, so the count is what this run changed and a
+   * second run over the same rows reports nothing.
    *
    * @param {string} cutoff - The oldest instant still inside retention, as an ISO string
-   * @returns {number} How many marks lost their hash
+   * @returns {number} How many marks lost where they came from
    */
-  blankHashesBefore: (cutoff) => db.prepare(`
-    UPDATE anonymous_likes SET address_hash = '' WHERE created_at < ? AND address_hash <> ''
+  blankOriginsBefore: (cutoff) => db.prepare(`
+    UPDATE anonymous_likes SET address_hash = '', browser_family = '', network_kind = NULL
+    WHERE created_at < ? AND (address_hash <> '' OR browser_family <> '' OR network_kind IS NOT NULL)
   `).run(cutoff).changes,
 
   /**
