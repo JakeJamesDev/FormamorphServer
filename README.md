@@ -79,6 +79,10 @@ npm install
    HOSTED_AI_USER_SECRET=<a long random string>
    ```
 
+   > 🤖 **Formamorph AI also needs its admin setting.** The `hosted_ai` setting holds the models (with
+   > prices in dollars per million tokens), each tier's window and monthly budget, and the turn, estimate
+   > and retention limits. Until every value is set, the proxy answers `service_paused`.
+
    > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot
    > and refuses every message, so the site says the mail could not be sent. Nothing reaches a real inbox.
    > `MAIL_FROM` must be an address Resend is configured to sign for, and `SITE_URL` is where the

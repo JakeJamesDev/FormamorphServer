@@ -59,12 +59,25 @@ const stallAfterFirst = (_req, res) => {
 
 const MODELS = {
   models: [
-    { id: 'main', model: 'vendor/model-a', routing: { order: ['x'], allow_fallbacks: false }, reasoning: { effort: 'low' } },
-    { id: 'spare', model: 'vendor/model-b' }
+    {
+      id: 'main',
+      model: 'vendor/model-a',
+      routing: { order: ['x'], allow_fallbacks: false },
+      reasoning: { effort: 'low' },
+      prices: { prompt: 1, completion: 2 }
+    },
+    { id: 'spare', model: 'vendor/model-b', prices: { prompt: 1, completion: 2 } }
   ],
   activeModel: 'main',
   maxTokensCap: 1000,
-  idleLimitSeconds: 5
+  idleLimitSeconds: 5,
+  // Room for every call this file makes; metering has its own file.
+  tiers: Object.fromEntries(['supporter', 'supporter_plus', 'supporter_top'].map((tier) => [tier, { window: 100_000, budget: 1000 }])),
+  tokenRatio: 4,
+  tokenMargin: 0,
+  turnLimitSeconds: 600,
+  turnCallCap: 50,
+  retentionDays: 30
 };
 
 const rnd = () => Math.random().toString(36).slice(2, 8);

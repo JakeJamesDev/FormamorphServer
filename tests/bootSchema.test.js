@@ -38,6 +38,7 @@ const TABLES = [
   'patreon_links',
   'patreon_pending_links',
   'watermark_marks',
+  'hosted_usage',
   'listing_dependencies',
   'listing_compatibility'
 ];

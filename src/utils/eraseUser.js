@@ -3,6 +3,7 @@ const AuditLog = require('../models/AuditLog');
 const { PLACEHOLDER_ID, PLACEHOLDER_USERNAME } = require('../config/accountDeletion');
 const { deleteWorldContent, deleteThumbnail, deleteAvatar, deletePendingFile } = require('./fileStorage');
 const PendingUpdate = require('../models/PendingUpdate');
+const HostedUsage = require('../models/HostedUsage');
 const { clearListingCache, clearAccountCache } = require('./supporterProcessing');
 const { MODERATION_STATES } = require('../config/listingReview');
 
@@ -66,6 +67,9 @@ const eraseRows = db.transaction((user, removeContent) => {
   // account is that its name is gone from everywhere the room can read.
   db.prepare('UPDATE event_placements SET author_name = ? WHERE author_name = ?')
     .run(PLACEHOLDER_USERNAME, user.username);
+
+  // Formamorph AI usage stays with its spend subject, so the month and the day keep their sums.
+  HostedUsage.forgetUser(user.id);
 
   // Last, so every reference to it has already gone or moved. Likes, follows, policy answers, Signals,
   // message state and votes cascade from here; feedback and reports are set null and stay readable.

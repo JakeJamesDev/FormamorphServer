@@ -158,6 +158,12 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_reports_open ON reports (status, target_kind, target_id);
   `);
 
+  // A subject's month and its turns, then the day's sum, the sweep and retention.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_hosted_usage_subject ON hosted_usage(subject, started_at);
+    CREATE INDEX IF NOT EXISTS idx_hosted_usage_started ON hosted_usage(started_at);
+  `);
+
   return indexNames(database).length > before;
 };
 

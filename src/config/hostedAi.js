@@ -5,6 +5,8 @@
  * an admin tunes lives in one admin-only setting. No window, price or provider name lives in this repo.
  */
 
+const { SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP } = require('./patreon');
+
 /** Where the proxy is mounted. Clients append `/chat/completions`, as with any compatible endpoint. */
 const HOSTED_AI_PATH = '/api/hosted-ai';
 
@@ -53,6 +55,16 @@ const upstreamUrl = () => process.env.HOSTED_AI_UPSTREAM_URL || '';
 const upstreamKey = () => process.env.HOSTED_AI_API_KEY || '';
 const userSecret = () => process.env.HOSTED_AI_USER_SECRET || '';
 
+/** The request header that carries a turn id, both ways. */
+const TURN_HEADER = 'X-Formamorph-Turn';
+
+/** Model prices are dollars per million tokens, so tokens times a price is micro-dollars. */
+const MICROS_PER_DOLLAR = 1_000_000;
+
+/** The tiers Formamorph AI serves, each with its own window and budget. */
+const TIER_KEYS = Object.freeze([SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP]);
+const INTEGER_LIMITS = ['maxTokensCap', 'idleLimitSeconds', 'turnLimitSeconds', 'turnCallCap', 'retentionDays'];
+
 const MAX_MODELS = 20;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 
@@ -93,7 +105,7 @@ const validateModel = (entry) => {
  */
 const validateHostedAi = (value) => {
   if (!isPlainObject(value)) return 'Hosted AI settings must be an object';
-  const allowed = ['models', 'activeModel', 'maxTokensCap', 'idleLimitSeconds'];
+  const allowed = ['models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', ...INTEGER_LIMITS];
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) return `Hosted AI settings have no field "${unknown}"`;
 
@@ -111,15 +123,47 @@ const validateHostedAi = (value) => {
   }
   if (value.models.length === 0 && value.activeModel !== null) return 'With no models, the active model is null';
 
-  for (const key of ['maxTokensCap', 'idleLimitSeconds']) {
+  for (const key of INTEGER_LIMITS) {
     if (value[key] !== null && !isPositiveInteger(value[key])) return `${key} must be a whole number above zero`;
+  }
+  if (value.tokenRatio !== null && !(typeof value.tokenRatio === 'number' && value.tokenRatio > 0)) {
+    return 'tokenRatio must be a number above zero';
+  }
+  if (value.tokenMargin !== null && !(Number.isInteger(value.tokenMargin) && value.tokenMargin >= 0)) {
+    return 'tokenMargin must be a whole number of zero or more';
+  }
+
+  return validateTiers(value.tiers);
+};
+
+/** Why a `tiers` value cannot be stored, or null. Budgets are dollars a month. */
+const validateTiers = (tiers) => {
+  if (!isPlainObject(tiers)) return 'tiers must be an object';
+  for (const [key, tier] of Object.entries(tiers)) {
+    if (!TIER_KEYS.includes(key)) return `There is no tier "${key}"`;
+    if (!isPlainObject(tier) || Object.keys(tier).some((field) => !['window', 'budget'].includes(field))) {
+      return `Tier "${key}" holds only window and budget`;
+    }
+    if (!isPositiveInteger(tier.window)) return `Tier "${key}" window must be a whole number above zero`;
+    if (typeof tier.budget !== 'number' || !(tier.budget >= 0)) return `Tier "${key}" budget must be zero or more`;
   }
 
   return null;
 };
 
 /** No model and no limits until an admin writes them, so an unconfigured proxy refuses every call. */
-const HOSTED_AI_DEFAULT = Object.freeze({ models: [], activeModel: null, maxTokensCap: null, idleLimitSeconds: null });
+const HOSTED_AI_DEFAULT = Object.freeze({
+  models: [],
+  activeModel: null,
+  maxTokensCap: null,
+  idleLimitSeconds: null,
+  tiers: {},
+  tokenRatio: null,
+  tokenMargin: null,
+  turnLimitSeconds: null,
+  turnCallCap: null,
+  retentionDays: null
+});
 
 module.exports = {
   isPlainObject,
@@ -127,6 +171,9 @@ module.exports = {
   HOSTED_AI,
   HOSTED_AI_DEFAULT,
   HOSTED_BODY_LIMIT,
+  MICROS_PER_DOLLAR,
+  TIER_KEYS,
+  TURN_HEADER,
   REFUSALS,
   REFUSAL_CODES,
   refusalBody,

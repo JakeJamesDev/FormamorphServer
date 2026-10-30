@@ -731,6 +731,28 @@ const apply = (database) => {
     )
   `);
 
+  // One row per Formamorph AI call: what it reserved, then what it cost, in micro-dollars. No prompt or
+  // reply text, ever. `user_id` has no foreign key: erasure sets it null and the row stays with its
+  // subject, so the month and the day keep their sums.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS hosted_usage (
+      id INTEGER PRIMARY KEY,
+      subject TEXT NOT NULL,
+      user_id TEXT,
+      turn_id TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      estimated_prompt_tokens INTEGER NOT NULL,
+      prompt_tokens INTEGER,
+      cached_tokens INTEGER,
+      output_tokens INTEGER,
+      cost_micros INTEGER NOT NULL,
+      cost_source TEXT CHECK (cost_source IN ('upstream', 'computed', 'estimated')),
+      started_at TEXT NOT NULL,
+      duration_ms INTEGER,
+      status TEXT NOT NULL CHECK (status IN ('open', 'ok', 'aborted', 'error', 'swept'))
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

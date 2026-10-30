@@ -19,6 +19,7 @@ const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions
 const { startNetworkLists } = require('./utils/networkLists');
 const { sweepSuspensions, startSuspensionSweeper } = require('./utils/sweepSuspensions');
 const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
+const { sweepHostedUsage, startHostedUsageSweeper } = require('./utils/sweepHostedUsage');
 const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
 
@@ -79,6 +80,10 @@ startSuspensionSweeper();
 // is repaired within the hour.
 void reconcilePatreon();
 startPatreonReconciler();
+
+// And for Formamorph AI usage: settle the calls a restart left open, then hourly, and drop rows past retention.
+sweepHostedUsage();
+startHostedUsageSweeper();
 
 // Set port
 const PORT = process.env.PORT || 8797;
