@@ -70,6 +70,13 @@ npm install
    PATREON_SUPPORTER_TOP_TIER_ID=<tier ID>
    # The secret of the webhook that posts to https://api.formamorph.ai/api/patreon/webhook. Unset refuses every delivery
    PATREON_WEBHOOK_SECRET=<webhook secret>
+   # Formamorph AI — leave unset to keep the hosted proxy refusing with service_paused
+   # The upstream chat-completions URL, the full path ending in /chat/completions
+   HOSTED_AI_UPSTREAM_URL=<upstream URL>
+   # The upstream API key. Lives only here: never in settings, responses or logs
+   HOSTED_AI_API_KEY=<upstream key>
+   # Signs the anonymous per-subject `user` id sent upstream. Generate once and never rotate it
+   HOSTED_AI_USER_SECRET=<a long random string>
    ```
 
    > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot

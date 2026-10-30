@@ -8,6 +8,7 @@ const { readClient, requireClientVersion } = require('./middleware/clientVersion
 const { CLIENT_HEADER_NAME } = require('./config/clientVersion');
 const { INSTALL_HEADER_NAME } = require('./config/anonymousLikes');
 const { SETTINGS_PATH } = require('./config/settings');
+const { HOSTED_AI_PATH } = require('./config/hostedAi');
 const { clientIpKeyGenerator } = require('./utils/rateLimitKey');
 
 // Import routes
@@ -28,6 +29,7 @@ const eventPosterRoutes = require('./routes/eventPosters');
 const settingsRoutes = require('./routes/settings');
 const patreonRoutes = require('./routes/patreon');
 const supporterContentRoutes = require('./routes/supporterContent');
+const hostedAiRoutes = require('./routes/hostedAi');
 
 const app = express();
 
@@ -50,12 +52,14 @@ app.use(cors({
   exposedHeaders: ['ETag', 'Retry-After']
 }));
 // Loose global rate limit (auth routes add a tighter one). After CORS, so a browser can read the 429.
+// The hosted proxy is exempt: its limits are per account, and every turn sends several calls.
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: clientIpKeyGenerator
+  keyGenerator: clientIpKeyGenerator,
+  skip: (req) => req.path === HOSTED_AI_PATH || req.path.startsWith(`${HOSTED_AI_PATH}/`)
 }));
 
 // urlencoded only acts on form posts (world uploads are JSON), so a tight cap here is safe
@@ -99,6 +103,9 @@ app.use('/api/avatars', avatarRoutes);
 app.use('/api/event-posters', eventPosterRoutes);
 app.use('/api/patreon', patreonRoutes);
 app.use('/api/supporter-content', supporterContentRoutes);
+// Parses its own body with a limit sized for the largest window, and answers its own errors so no
+// request body reaches the log (see routes/hostedAi.js).
+app.use(HOSTED_AI_PATH, hostedAiRoutes);
 
 // Base route
 app.get('/', (req, res) => {

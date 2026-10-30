@@ -14,6 +14,9 @@ exports.getSetting = async (req, res, next) => {
   try {
     const { key } = req.params;
     if (!isStaffSetting(key)) return res.status(404).json({ success: false, error: NO_SUCH_SETTING });
+    if (SETTINGS[key].adminRead && !isAdmin(req.user)) {
+      return res.status(403).json({ success: false, error: 'Only an admin can read this setting' });
+    }
 
     res.status(200).json({
       success: true,
