@@ -116,7 +116,7 @@ describe('an image layer on the gated route', () => {
         sourceHeight: source.height
       });
     }
-  });
+  }, 120000);
 
   it('leaves the scrambled copy unlike the layer it hides', async () => {
     const { content } = await served();

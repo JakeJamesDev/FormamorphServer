@@ -14,12 +14,14 @@ const PATREON_CREATOR_ACCESS_TOKEN = process.env.PATREON_CREATOR_ACCESS_TOKEN ||
 const PATREON_CREATOR_REFRESH_TOKEN = process.env.PATREON_CREATOR_REFRESH_TOKEN || '';
 const PATREON_CAMPAIGN_ID = process.env.PATREON_CAMPAIGN_ID || '';
 
-/** The two tiers, as stored and as sent. */
+/** The tiers, as stored and as sent. */
 const SUPPORTER = 'supporter';
 const SUPPORTER_PLUS = 'supporter_plus';
+const SUPPORTER_TOP = 'supporter_top';
 
 /** Patreon tier ID to our tier, highest first. An unset ID maps nothing. */
 const TIER_MAP = [
+  [process.env.PATREON_SUPPORTER_TOP_TIER_ID, SUPPORTER_TOP],
   [process.env.PATREON_SUPPORTER_PLUS_TIER_ID, SUPPORTER_PLUS],
   [process.env.PATREON_SUPPORTER_TIER_ID, SUPPORTER]
 ].filter(([id]) => Boolean(id));
@@ -34,7 +36,7 @@ const patreonConfigured = () => Boolean(
  * The highest mapped tier among the tiers Patreon says a member is entitled to.
  *
  * @param {string[]} tierIds - Patreon tier IDs from `currently_entitled_tiers`
- * @returns {string|null} `SUPPORTER_PLUS`, `SUPPORTER`, or null when no ID is mapped
+ * @returns {string|null} `SUPPORTER_TOP`, `SUPPORTER_PLUS`, `SUPPORTER`, or null when no ID is mapped
  */
 const tierFor = (tierIds) => {
   const held = new Set(tierIds);
@@ -89,6 +91,7 @@ module.exports = {
   PATREON_CAMPAIGN_ID,
   SUPPORTER,
   SUPPORTER_PLUS,
+  SUPPORTER_TOP,
   patreonConfigured,
   tierFor,
   tierStateOf,

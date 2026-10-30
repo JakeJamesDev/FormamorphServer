@@ -28,6 +28,7 @@ export default defineConfig({
       PATREON_CAMPAIGN_ID: 'test-campaign',
       PATREON_SUPPORTER_TIER_ID: 'tier-5',
       PATREON_SUPPORTER_PLUS_TIER_ID: 'tier-10',
+      PATREON_SUPPORTER_TOP_TIER_ID: 'tier-top',
       PATREON_WEBHOOK_SECRET: 'test-webhook-secret',
     },
     coverage: {

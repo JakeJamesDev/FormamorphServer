@@ -698,7 +698,7 @@ const apply = (database) => {
     CREATE TABLE IF NOT EXISTS patreon_links (
       user_id TEXT PRIMARY KEY,
       patreon_user_id TEXT NOT NULL UNIQUE,
-      tier TEXT CHECK (tier IN ('supporter', 'supporter_plus')),
+      tier TEXT CHECK (tier IN ('supporter', 'supporter_plus', 'supporter_top')),
       pledge_start TEXT,
       show_flair INTEGER NOT NULL DEFAULT 1,
       checked_at TEXT,

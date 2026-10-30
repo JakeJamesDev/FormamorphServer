@@ -1,11 +1,11 @@
 const db = require('../config/db');
-const { SUPPORTER, SUPPORTER_PLUS } = require('../config/patreon');
+const { SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP } = require('../config/patreon');
 const { isStaff } = require('../config/roles');
 
-const QUALIFYING_TIERS = new Set([SUPPORTER, SUPPORTER_PLUS]);
+const QUALIFYING_TIERS = new Set([SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP]);
 
 /**
- * Whether an account's live tier is Supporter or Supporter+ and its Supporter content access is not
+ * Whether an account's live tier is any Supporter tier and its Supporter content access is not
  * revoked. Read from the database on every call, so a lapse or a revoke takes effect at the next request.
  *
  * @param {string} userId - The account

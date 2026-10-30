@@ -64,9 +64,10 @@ npm install
    PATREON_CREATOR_REFRESH_TOKEN=<creator refresh token>
    # The campaign whose members get Supporter Flair
    PATREON_CAMPAIGN_ID=<campaign ID>
-   # The Patreon tier IDs that map to Supporter ($5) and Supporter+ ($10)
+   # The Patreon tier IDs that map to Supporter ($5), Supporter+ ($10), and the top tier
    PATREON_SUPPORTER_TIER_ID=<tier ID>
    PATREON_SUPPORTER_PLUS_TIER_ID=<tier ID>
+   PATREON_SUPPORTER_TOP_TIER_ID=<tier ID>
    # The secret of the webhook that posts to https://api.formamorph.ai/api/patreon/webhook. Unset refuses every delivery
    PATREON_WEBHOOK_SECRET=<webhook secret>
    ```

@@ -55,6 +55,7 @@ const STEPS = [
   require('./steps/pinnedAt'),
   require('./steps/supporterContent'),
   require('./steps/networkKind'),
+  require('./steps/supporterTop'),
   require('./indexes')
 ];
 
