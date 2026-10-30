@@ -36,6 +36,7 @@ const { clientAddress } = require('../utils/clientAddress');
 const { browserFamily } = require('../utils/browserFamily');
 const { NETWORK_KIND } = require('../config/networkKind');
 const { networkClassifier } = require('../utils/networkClassifier');
+const { likesMarkers } = require('../utils/likesMarker');
 const { avatarUrlFor } = require('../utils/avatarUrl');
 const { modelList } = require('../utils/modelList');
 const { appVersionOf } = require('../utils/appVersion');
@@ -1242,6 +1243,9 @@ exports.getLikers = async (req, res, next) => {
  *
  * Staff see neither the hash nor the Install id. `utils/addressKey` says what they get instead and why.
  *
+ * The summary under the rows is the listing's Likes Marker, from `utils/likesMarker`: its flagged share
+ * and its Bursts over the last ninety days, and which reasons fire.
+ *
  * @desc    List the likes on a listing, account and anonymous, grouped by shared network address
  * @route   GET /api/worlds/:id/likes/audit
  * @access  Private/Staff
@@ -1267,6 +1271,7 @@ exports.getLikersAudit = async (req, res, next) => {
         total,
         rows: rows.map((row) => ({
           ...likerRow(row),
+          networkKind: row.network_kind,
           groupId: groupOf.get(row.id) ?? null,
           linkedToAuthor: linkedToTarget.has(row.id)
         })),
@@ -1274,10 +1279,12 @@ exports.getLikersAudit = async (req, res, next) => {
         anonymousRows: marks.map((mark) => ({
           likedAt: mark.created_at,
           browserFamily: mark.browser_family,
+          networkKind: mark.network_kind,
           groupId: groupOf.get(markNode(mark)) ?? null,
           linkedToAuthor: linkedToTarget.has(markNode(mark)),
           addressKey: addressKeyFor(world.id, mark.address_hash)
-        }))
+        })),
+        summary: { windowDays: Signal.RETENTION_DAYS, ...likesMarkers([world.id]).get(world.id) }
       }
     });
   } catch (error) {

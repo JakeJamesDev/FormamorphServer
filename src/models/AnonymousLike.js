@@ -120,10 +120,11 @@ const AnonymousLike = {
    *
    * @param {string} worldId - The listing
    * @param {number} limit - Row ceiling, the same one the account list uses
-   * @returns {Array<Object>} Each mark's `install_id`, `address_hash`, `browser_family`, `created_at`
+   * @returns {Array<Object>} Each mark's `install_id`, `address_hash`, `browser_family`, `network_kind`,
+   *   `created_at`
    */
   auditRows: (worldId, limit) => db.prepare(`
-    SELECT install_id, address_hash, browser_family, created_at
+    SELECT install_id, address_hash, browser_family, network_kind, created_at
     FROM anonymous_likes
     WHERE world_id = ?
     ORDER BY created_at DESC, install_id DESC

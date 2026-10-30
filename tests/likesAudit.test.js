@@ -211,7 +211,7 @@ describe('marking a liker who shares an address with the author', () => {
 });
 
 describe('what an audit row carries', () => {
-  it('carries every field the plain list has, and the two the audit adds', async () => {
+  it('carries every field the plain list has, and the three the audit adds', async () => {
     const { id } = await seed();
     // Four minutes between the signup and the like: the gap this screen exists to make visible.
     const fresh = user('fresh', {
@@ -232,6 +232,8 @@ describe('what an audit row carries', () => {
       // Given as an account rather than moved off an Install, so there is no claim to mark.
       claimedAt: null,
       accountAgeAtLikeSeconds: expect.any(Number),
+      // Collection is off here, so no kind was stored.
+      networkKind: null,
       groupId: null,
       linkedToAuthor: false
     });
@@ -257,7 +259,13 @@ describe('what an audit row carries', () => {
     const res = await audit(mod(), id);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ total: 0, rows: [], anonymous: 0, anonymousRows: [] });
+    expect(res.body.data).toEqual({
+      total: 0,
+      rows: [],
+      anonymous: 0,
+      anonymousRows: [],
+      summary: { windowDays: 90, flagged: 0, total: 0, share: null, bursts: [], reasons: [] }
+    });
   });
 });
 
@@ -462,7 +470,7 @@ describe('marking a mark that came from the author address', () => {
 });
 
 describe('what an anonymous audit row carries', () => {
-  it('carries the press, the browser family, the group and the key, and nothing that names the Install', async () => {
+  it('carries the press, the browser family, the kind, the group and the key, and nothing that names the Install', async () => {
     enable();
     const { id } = await seed();
 
@@ -473,6 +481,7 @@ describe('what an anonymous audit row carries', () => {
     expect(row).toEqual({
       likedAt: expect.any(String),
       browserFamily: expect.any(String),
+      networkKind: null,
       groupId: null,
       linkedToAuthor: false,
       addressKey: expect.any(String)

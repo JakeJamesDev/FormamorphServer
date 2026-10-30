@@ -40,6 +40,12 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_world_likes_user ON world_likes(user_id);
   `);
 
+  // The Likes Marker reads each listing's likes of the last ninety days, from both tables.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_world_likes_world_time ON world_likes(world_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_anonymous_likes_world_time ON anonymous_likes(world_id, created_at);
+  `);
+
   // The Install side of an Anonymous Like, which the primary key's leading `world_id` cannot answer. Both
   // readers ask it: a Claim takes every mark one Install holds, and a page of cards fills its hearts from
   // one Install at a time. The account link is read the same way, and its account column is indexed so an

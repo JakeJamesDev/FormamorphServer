@@ -1110,12 +1110,12 @@ const World = {
    * @param {string} worldId - World ID
    * @param {number} [limit] - Row ceiling
    * @returns {Object} `{ total, rows }` — `total` is the full count; each row is the account plus
-   *   `liked_at`, `claimed_at` and `account_age_seconds`
+   *   `liked_at`, `claimed_at`, `network_kind` and `account_age_seconds`
    */
   likers: (worldId, limit = LIKE_LIST_LIMIT) => {
     const rows = db.prepare(`
       SELECT u.id, u.username, u.avatar_file, u.status, u.created_at,
-        l.created_at AS liked_at, l.claimed_at,
+        l.created_at AS liked_at, l.claimed_at, l.network_kind,
         CAST(strftime('%s', l.created_at) AS INTEGER) - CAST(strftime('%s', u.created_at) AS INTEGER)
           AS account_age_seconds
       FROM world_likes l

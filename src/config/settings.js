@@ -3,6 +3,10 @@ const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
 const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username');
 const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
+const {
+  MIN_FLAGGED, FLAGGED_SHARE, BURST_SIZE, BURST_WINDOW_MINUTES,
+  validateMinFlagged, validateFlaggedShare, validateBurstSize, validateBurstWindow
+} = require('./likesMarker');
 
 /**
  * The settings staff can change without a deploy.
@@ -40,6 +44,11 @@ const SETTINGS = {
   [USERNAME_RENAME_GATE]: { default: false, validate: validateUsernameRenameGate, adminOnly: true },
   // Off until the privacy text that states the collection is live. `config/networkKind` says what it gates.
   [NETWORK_KIND]: { default: false, validate: validateNetworkKind },
+  // The Likes Marker thresholds, read on every audit read. `config/likesMarker` says what each means.
+  [MIN_FLAGGED]: { default: 5, validate: validateMinFlagged },
+  [FLAGGED_SHARE]: { default: 0.5, validate: validateFlaggedShare },
+  [BURST_SIZE]: { default: 8, validate: validateBurstSize },
+  [BURST_WINDOW_MINUTES]: { default: 15, validate: validateBurstWindow },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true }
 };
