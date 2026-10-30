@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const HostedUsage = require('../models/HostedUsage');
 const { MICROS_PER_DOLLAR, isPlainObject } = require('../config/hostedAi');
+const { checkPause } = require('./hostedPause');
 
 /**
  * Formamorph AI metering: admit a call against its turn, budget and window, then settle what it cost.
@@ -33,10 +34,10 @@ const worstCase = (estimatedPromptTokens, maxTokens, prices) => promptAndOutput(
  * Admit one call and reserve its worst case, or say why not.
  *
  * Turn, then budget, then window. The checks and the insert share one synchronous transaction, so
- * parallel first calls each see the reservations before them.
+ * parallel first calls each see the reservations before them. The reservation then checks the daily ceiling.
  *
  * @param {Object} call - `{ subject, userId, tier, model, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
- *   window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
+ *   ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
  * @returns {{ refusal: string, extra?: Object }|{ rowId: number, turnId: string }}
  */
 const admitCall = db.transaction((call) => {
@@ -67,6 +68,8 @@ const admitCall = db.transaction((call) => {
     costMicros: call.reserveMicros,
     startedAt: now.toISOString()
   });
+  // This reservation may be the one that reaches the ceiling.
+  checkPause(now, call.ceilingMicros);
 
   return { rowId, turnId: admittedTurn };
 });

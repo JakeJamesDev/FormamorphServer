@@ -77,11 +77,19 @@ npm install
    HOSTED_AI_API_KEY=<upstream key>
    # Signs the anonymous per-subject `user` id sent upstream. Generate once and never rotate it
    HOSTED_AI_USER_SECRET=<a long random string>
+   # The provider's balance and per-day usage endpoints, read hourly with the upstream key. Unset skips each read
+   HOSTED_AI_BALANCE_URL=<balance URL>
+   HOSTED_AI_USAGE_URL=<usage URL>
+   # Where the pause and low-balance alerts are mailed. Admins also get an in-app message
+   STAFF_ALERT_EMAIL=<staff address>
    ```
 
    > 🤖 **Formamorph AI also needs its admin setting.** The `hosted_ai` setting holds the models (with
    > prices in dollars per million tokens), each tier's window, monthly budget and fallback cost per turn,
-   > the warning thresholds, the turn sample, and the turn, estimate and retention limits. Until every value is set, the proxy answers `service_paused`.
+   > the warning thresholds, the turn sample, the turn, estimate and retention limits, the per-account
+   > parallel and per-minute limits, and the daily ceiling in dollars. Until every value is set, the proxy
+   > answers `service_paused`. `balanceThreshold` (dollars) is optional: without it, nobody is alerted
+   > about the provider balance.
 
    > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot
    > and refuses every message, so the site says the mail could not be sent. Nothing reaches a real inbox.
@@ -361,7 +369,7 @@ signed-in account. None returns a dollar amount to a player.
 | Field | Meaning |
 |---|---|
 | `tier` | The tier key the account is entitled to, or `null`. A live pledge and live grants all count; the highest tier wins, and a tie keeps the pledge. |
-| `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to), `locked` (no entitlement) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
+| `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to, or the day's spend reached the daily ceiling), `locked` (no entitlement) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
 | `window` | The tier's context window, in tokens. |
 | `maxTokens` | The cap on a call's `max_tokens`. |
 | `tokenMargin` | Tokens added to the window before `window_exceeded`. |
@@ -371,7 +379,8 @@ signed-in account. None returns a dollar amount to a player.
 | `resetAt` | 00:00 UTC on the 1st of next month. |
 | `acknowledged` | Warning thresholds this account acknowledged this month. |
 
-With `locked`, `age-gate` or `paused`, every field but `tier` and `state` is `null` and `acknowledged` is `[]`.
+With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` and
+`acknowledged` is `[]`. A `paused` day keeps every field filled.
 
 **`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC month, for this
 account on every device. `:threshold` must be in the `warnThresholds` setting, else `400`. Answers
@@ -395,6 +404,15 @@ was removed from the approved list they use the active one.
 | `DELETE /grants/:id` | staff | Revoke now. |
 | `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros }` for the UTC month. A Patreon user id or `grant:<id>`. |
 | `GET /spend-report?days=N` | admin | Per UTC day: `calls`, `costMicros` recorded, and `providerMicros` (`null` before the provider figure is stored). Default 31 days, at most 366. |
+
+**The daily pause.** When the UTC day's spend, open calls at their reservation included, reaches the
+`dailyCeiling`, new turns get `503 service_paused` until 00:00 UTC. Admins get one in-app message and one
+mail to `STAFF_ALERT_EMAIL`.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/hosted-ai/pause` | staff | `{ paused, pausedAt, liftedAt, until }` for today. No dollar figures. |
+| `POST /api/hosted-ai/pause/lift` | admin | Lift today's pause until 00:00 UTC. `409` when nothing is paused. |
 
 A moderator gets `403` on the admin-only routes. The approved model list and the active model are edited
 through `PUT /api/settings/hosted_ai`, which is admin-only. The setting's `tiers.<key>.turnCost` (dollars),

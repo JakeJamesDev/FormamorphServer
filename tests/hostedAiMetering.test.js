@@ -76,7 +76,12 @@ const SETTINGS = {
   tokenMargin: 50,
   turnLimitSeconds: 600,
   turnCallCap: 4,
-  retentionDays: 30
+  retentionDays: 30,
+  // Out of the way: limits and the ceiling have their own file.
+  parallelLimit: 50,
+  perMinuteLimit: 1000,
+  dailyCeiling: 1000,
+  balanceThreshold: null
 };
 
 const rnd = () => Math.random().toString(36).slice(2, 8);

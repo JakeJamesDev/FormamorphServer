@@ -13,6 +13,9 @@ const HOSTED_AI_PATH = '/api/hosted-ai';
 /** The admin-only setting that holds the approved models and the proxy's limits. */
 const HOSTED_AI = 'hosted_ai';
 
+/** Internal: whether the low provider balance alert has gone out since the balance was last above the threshold. */
+const HOSTED_BALANCE_ALERTED = 'hosted_ai_balance_alerted';
+
 /** Above the largest window with JSON escaping and tool schemas on top. Caddy's cap must allow it. */
 const HOSTED_BODY_LIMIT = '8mb';
 
@@ -54,6 +57,9 @@ const SAMPLER_FIELDS = Object.freeze([
 const upstreamUrl = () => process.env.HOSTED_AI_UPSTREAM_URL || '';
 const upstreamKey = () => process.env.HOSTED_AI_API_KEY || '';
 const userSecret = () => process.env.HOSTED_AI_USER_SECRET || '';
+const balanceUrl = () => process.env.HOSTED_AI_BALANCE_URL || '';
+const usageUrl = () => process.env.HOSTED_AI_USAGE_URL || '';
+const staffAlertEmail = () => process.env.STAFF_ALERT_EMAIL || '';
 
 /** The request header that carries a turn id, both ways. */
 const TURN_HEADER = 'X-Formamorph-Turn';
@@ -66,7 +72,11 @@ const MICROS_PER_DOLLAR = 1_000_000;
 
 /** The tiers Formamorph AI serves, each with its own window and budget. */
 const TIER_KEYS = Object.freeze([SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP]);
-const INTEGER_LIMITS = ['maxTokensCap', 'idleLimitSeconds', 'turnLimitSeconds', 'turnCallCap', 'retentionDays'];
+const INTEGER_LIMITS = [
+  'maxTokensCap', 'idleLimitSeconds', 'turnLimitSeconds', 'turnCallCap', 'retentionDays', 'parallelLimit', 'perMinuteLimit'
+];
+/** Dollar amounts: the daily ceiling over all spend, and the provider balance that raises an alert. */
+const DOLLAR_LIMITS = ['dailyCeiling', 'balanceThreshold'];
 
 const MAX_MODELS = 20;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
@@ -108,7 +118,9 @@ const validateModel = (entry) => {
  */
 const validateHostedAi = (value) => {
   if (!isPlainObject(value)) return 'Hosted AI settings must be an object';
-  const allowed = ['models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', 'warnThresholds', 'turnSample', ...INTEGER_LIMITS];
+  const allowed = [
+    'models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', 'warnThresholds', 'turnSample', ...INTEGER_LIMITS, ...DOLLAR_LIMITS
+  ];
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) return `Hosted AI settings have no field "${unknown}"`;
 
@@ -129,6 +141,10 @@ const validateHostedAi = (value) => {
   for (const key of INTEGER_LIMITS) {
     if (value[key] !== null && !isPositiveInteger(value[key])) return `${key} must be a whole number above zero`;
   }
+  for (const key of DOLLAR_LIMITS) {
+    if (value[key] !== null && !(typeof value[key] === 'number' && value[key] >= 0)) return `${key} must be zero or more`;
+  }
+  if (value.dailyCeiling === 0) return 'dailyCeiling must be above zero';
   if (value.tokenRatio !== null && !(typeof value.tokenRatio === 'number' && value.tokenRatio > 0)) {
     return 'tokenRatio must be a number above zero';
   }
@@ -188,7 +204,11 @@ const HOSTED_AI_DEFAULT = Object.freeze({
   turnCallCap: null,
   retentionDays: null,
   warnThresholds: null,
-  turnSample: null
+  turnSample: null,
+  parallelLimit: null,
+  perMinuteLimit: null,
+  dailyCeiling: null,
+  balanceThreshold: null
 });
 
 module.exports = {
@@ -196,6 +216,7 @@ module.exports = {
   HOSTED_AI_PATH,
   HOSTED_AI,
   HOSTED_AI_DEFAULT,
+  HOSTED_BALANCE_ALERTED,
   HOSTED_BODY_LIMIT,
   MICROS_PER_DOLLAR,
   TIER_KEYS,
@@ -208,5 +229,8 @@ module.exports = {
   upstreamUrl,
   upstreamKey,
   userSecret,
+  balanceUrl,
+  usageUrl,
+  staffAlertEmail,
   validateHostedAi
 };

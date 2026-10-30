@@ -3,7 +3,7 @@ const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
 const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username');
 const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
-const { HOSTED_AI, HOSTED_AI_DEFAULT, validateHostedAi } = require('./hostedAi');
+const { HOSTED_AI, HOSTED_AI_DEFAULT, HOSTED_BALANCE_ALERTED, validateHostedAi } = require('./hostedAi');
 const {
   MIN_FLAGGED, FLAGGED_SHARE, BURST_SIZE, BURST_WINDOW_MINUTES,
   validateMinFlagged, validateFlaggedShare, validateBurstSize, validateBurstWindow
@@ -53,7 +53,9 @@ const SETTINGS = {
   // Models, prices and proxy limits. `adminRead` hides it from moderators too: it holds cost data.
   [HOSTED_AI]: { default: HOSTED_AI_DEFAULT, validate: validateHostedAi, adminOnly: true, adminRead: true },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
-  [PATREON_CREATOR_TOKENS]: { default: null, internal: true }
+  [PATREON_CREATOR_TOKENS]: { default: null, internal: true },
+  // Written only by `utils/hostedProvider`: whether the low-balance alert went out since the last good reading.
+  [HOSTED_BALANCE_ALERTED]: { default: false, internal: true }
 };
 
 /**

@@ -1,5 +1,4 @@
 const db = require('../config/db');
-const { tableExists } = require('../schema/columns');
 
 /**
  * Formamorph AI usage rows. `schema/tables` says what a row holds.
@@ -17,6 +16,17 @@ const HostedUsage = {
   spendSince: (subject, since) => db
     .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND started_at >= ?')
     .get(subject, since).total,
+
+  /**
+   * Every subject's cost in a time range, open rows included.
+   *
+   * @param {string} from - ISO instant, inclusive
+   * @param {string} to - ISO instant, exclusive
+   * @returns {number} Micro-dollars
+   */
+  totalBetween: (from, to) => db
+    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE started_at >= ? AND started_at < ?')
+    .get(from, to).total,
 
   /**
    * One of the subject's turns, or null when the subject has no such turn.
@@ -83,14 +93,12 @@ const HostedUsage = {
   `).all(since),
 
   /**
-   * The provider's own spend per UTC day, as the daily provider read stores it. Empty while that table is absent.
+   * The provider's own spend per UTC day, as the daily provider read stores it.
    *
    * @param {string} fromDay - 'YYYY-MM-DD', inclusive
    * @returns {{ day: string, providerMicros: number }[]}
    */
   providerDaysSince: (fromDay) => {
-    if (!tableExists(db, 'hosted_provider_spend')) return [];
-
     return db.prepare('SELECT day, provider_micros AS providerMicros FROM hosted_provider_spend WHERE day >= ? ORDER BY day')
       .all(fromDay);
   },

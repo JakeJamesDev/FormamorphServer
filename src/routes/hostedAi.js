@@ -1,6 +1,6 @@
 const express = require('express');
-const { protect } = require('../middleware/auth');
-const { admit, routeError, proxy } = require('../controllers/hostedAiController');
+const { protect, staff, admin } = require('../middleware/auth');
+const { admit, routeError, proxy, getPause, liftPause } = require('../controllers/hostedAiController');
 const { getState, acknowledgeWarning } = require('../controllers/hostedStateController');
 const adminRoutes = require('./hostedAiAdmin');
 const { HOSTED_BODY_LIMIT } = require('../config/hostedAi');
@@ -20,5 +20,9 @@ router.post(
   proxy,
   routeError
 );
+
+// The day's pause: staff read it, only an admin lifts it.
+router.get('/pause', protect, staff, getPause);
+router.post('/pause/lift', protect, admin, liftPause);
 
 module.exports = router;

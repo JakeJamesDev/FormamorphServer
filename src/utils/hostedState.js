@@ -4,6 +4,7 @@ const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
 const { TIER_KEYS, MICROS_PER_DOLLAR } = require('../config/hostedAi');
 const { monthStart, resetAt } = require('./hostedMeter');
+const { pauseState } = require('./hostedPause');
 
 /**
  * What an account has of Formamorph AI right now, and how much of its month is left.
@@ -90,8 +91,8 @@ const monthKey = (now) => now.toISOString().slice(0, 7);
 /**
  * The hosted state an account reads.
  *
- * `config` is null when the proxy is not configured to send anything, which the state calls `paused` as
- * the proxy answers `service_paused`.
+ * The state is `paused` when `config` is null, as the proxy then answers `service_paused`, and while the
+ * day's pause holds.
  *
  * @param {Object} user - The signed-in account
  * @param {Object|null} config - The active config for the account's tier
@@ -111,7 +112,9 @@ const hostedState = (user, config, owned, now) => {
   const usage = usageOf(owned.subject, config, now);
   const thresholds = config.warnThresholds || [];
   let state = 'ready';
-  if (usage.exhausted) state = 'exhausted';
+  // The daily pause refuses a first call before the budget does.
+  if (pauseState(now).paused) state = 'paused';
+  else if (usage.exhausted) state = 'exhausted';
   else if (thresholds.length > 0 && usage.percentUsed >= thresholds[0]) state = 'warned';
 
   return {

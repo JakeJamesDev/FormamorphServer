@@ -6,6 +6,9 @@ const {
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
 const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
 const { ageConfirmed, entitlement, usageOf } = require('../utils/hostedState');
+const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
+const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
+const AuditLog = require('../models/AuditLog');
 
 /**
  * The Formamorph AI proxy.
@@ -60,6 +63,7 @@ const activeConfig = (tier, turnModel = null) => {
   if (!isPrice(entry.prices?.prompt) || !isPrice(entry.prices?.completion)) return null;
   if (!settings.tokenRatio || !Number.isInteger(settings.tokenMargin)) return null;
   if (!settings.turnLimitSeconds || !settings.turnCallCap) return null;
+  if (!settings.parallelLimit || !settings.perMinuteLimit || !(settings.dailyCeiling > 0)) return null;
   const limits = isPlainObject(settings.tiers) ? settings.tiers[tier] : null;
   if (!isPlainObject(limits)) return null;
   if (!upstreamUrl() || !upstreamKey() || !userSecret()) return null;
@@ -74,7 +78,10 @@ const activeConfig = (tier, turnModel = null) => {
     turnLimitMs: settings.turnLimitSeconds * 1000,
     turnCallCap: settings.turnCallCap,
     warnThresholds: settings.warnThresholds || null,
-    turnSample: settings.turnSample || null
+    turnSample: settings.turnSample || null,
+    parallelLimit: settings.parallelLimit,
+    perMinuteLimit: settings.perMinuteLimit,
+    ceilingMicros: Math.round(settings.dailyCeiling * MICROS_PER_DOLLAR)
   };
 };
 
@@ -138,7 +145,10 @@ const drained = (res) => new Promise((resolve) => {
   res.on('close', done);
 });
 
-/** Settle the call's row. A failed write leaves it open for the hourly sweep, at its reservation. */
+/**
+ * Settle the call's row, then check the ceiling against the settled cost. A failed write leaves the row open
+ * for the hourly sweep, at its reservation.
+ */
 const settle = (meter, { usage, outputChars, status }) => {
   try {
     HostedUsage.settle(meter.rowId, {
@@ -150,6 +160,11 @@ const settle = (meter, { usage, outputChars, status }) => {
     // A database error carries no player text.
     console.error('Hosted usage settle failed:', error);
   }
+  try {
+    checkPause(new Date(), meter.ceilingMicros);
+  } catch (error) {
+    console.error('Hosted pause check failed:', error);
+  }
 };
 
 exports.activeConfig = activeConfig;
@@ -158,6 +173,7 @@ exports.activeConfig = activeConfig;
  * Forward one chat completion and stream the reply back unchanged.
  *
  * An admitted call reserves its worst case before forwarding and settles in `finally`, whatever ended it.
+ * The parallel slot is released there too, so a refusal, an error or an abort never keeps it.
  * A client disconnect aborts the upstream call. An upstream silent past the idle limit is aborted too.
  */
 exports.proxy = async (req, res) => {
@@ -170,6 +186,7 @@ exports.proxy = async (req, res) => {
   };
 
   let meter = null;
+  let release = null;
   let usage = null;
   let outputChars = 0;
   let finished = false;
@@ -191,6 +208,12 @@ exports.proxy = async (req, res) => {
     const config = activeConfig(req.hosted.tier, turnId ? HostedUsage.turnModel(req.hosted.subject, turnId) : null);
     if (!config) return refuse(res, 'service_paused');
 
+    const started = new Date();
+    if (!turnId && checkPause(started, config.ceilingMicros)) return refuse(res, 'service_paused');
+    release = acquireSlot(req.user.id, config.parallelLimit);
+    if (!release) return refuse(res, 'rate_limited');
+    if (!takeMinute(req.user.id, config.perMinuteLimit, started.getTime())) return refuse(res, 'rate_limited');
+
     let body;
     try {
       body = buildUpstreamBody(req.body, { ...config, user: anonymousUser(req.hosted.subject, userSecret()) });
@@ -200,7 +223,6 @@ exports.proxy = async (req, res) => {
 
     const prices = config.entry.prices;
     const estimatedPromptTokens = estimateTokens(promptChars(body), config.ratio);
-    const started = new Date();
     const admitted = admitCall({
       subject: req.hosted.subject,
       userId: req.user.id,
@@ -211,13 +233,14 @@ exports.proxy = async (req, res) => {
       turnLimitMs: config.turnLimitMs,
       turnCallCap: config.turnCallCap,
       budgetMicros: Math.round(config.limits.budget * MICROS_PER_DOLLAR),
+      ceilingMicros: config.ceilingMicros,
       window: config.limits.window,
       margin: config.margin,
       estimatedPromptTokens,
       reserveMicros: worstCase(estimatedPromptTokens, body.max_tokens, prices)
     });
     if (admitted.refusal) return refuse(res, admitted.refusal, admitted.extra);
-    meter = { rowId: admitted.rowId, started, estimatedPromptTokens, ratio: config.ratio, prices };
+    meter = { rowId: admitted.rowId, started, estimatedPromptTokens, ratio: config.ratio, prices, ceilingMicros: config.ceilingMicros };
     res.set(TURN_HEADER, admitted.turnId);
 
     res.on('close', () => {
@@ -309,5 +332,38 @@ exports.proxy = async (req, res) => {
     clearTimeout(idleTimer);
     controller.abort();
     settleOnce(finished ? 'ok' : (clientGone ? 'aborted' : 'error'));
+    if (release) release();
+  }
+};
+
+/**
+ * @desc    Read today's Formamorph AI pause
+ * @route   GET /api/hosted-ai/pause
+ * @access  Private/Staff
+ */
+exports.getPause = (_req, res, next) => {
+  try {
+    res.status(200).json({ success: true, data: pauseState(new Date()) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Lift today's Formamorph AI pause until 00:00 UTC
+ * @route   POST /api/hosted-ai/pause/lift
+ * @access  Private/Admin
+ */
+exports.liftPause = (req, res, next) => {
+  try {
+    const now = new Date();
+    if (!liftPause(now, req.user.id)) {
+      return res.status(409).json({ success: false, error: 'Formamorph AI is not paused' });
+    }
+    AuditLog.tryRecord({ action: 'hosted_pause_lifted', actor: req.user });
+
+    return res.status(200).json({ success: true, data: pauseState(now) });
+  } catch (error) {
+    return next(error);
   }
 };

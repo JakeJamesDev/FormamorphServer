@@ -73,7 +73,9 @@ const ACTIONS = [
   'listing_supporter_only_cleared',
   // Staff took one account's access to Supporter content away, or gave it back.
   'supporter_access_revoked',
-  'supporter_access_restored'
+  'supporter_access_restored',
+  // An admin lifted the day's Formamorph AI pause.
+  'hosted_pause_lifted'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */

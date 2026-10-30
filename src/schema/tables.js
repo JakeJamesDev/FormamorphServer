@@ -753,6 +753,26 @@ const apply = (database) => {
     )
   `);
 
+  // One row per UTC day whose spend reached the daily ceiling. A lift holds for the rest of that day.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS hosted_pause (
+      day TEXT PRIMARY KEY,
+      paused_at TEXT NOT NULL,
+      lifted_at TEXT,
+      lifted_by TEXT
+    )
+  `);
+
+  // The provider's own spend for the server key per UTC day, beside what the usage rows summed to.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS hosted_provider_spend (
+      day TEXT PRIMARY KEY,
+      provider_micros INTEGER NOT NULL,
+      recorded_micros INTEGER NOT NULL,
+      read_at TEXT NOT NULL
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 

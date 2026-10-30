@@ -20,6 +20,7 @@ const { startNetworkLists } = require('./utils/networkLists');
 const { sweepSuspensions, startSuspensionSweeper } = require('./utils/sweepSuspensions');
 const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
 const { sweepHostedUsage, startHostedUsageSweeper } = require('./utils/sweepHostedUsage');
+const { monitorProvider, startHostedMonitors } = require('./utils/hostedProvider');
 const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
 
@@ -84,6 +85,10 @@ startPatreonReconciler();
 // And for Formamorph AI usage: settle the calls a restart left open, then hourly, and drop rows past retention.
 sweepHostedUsage();
 startHostedUsageSweeper();
+
+// And for the provider account: check its balance and store the days of spend it reports, now and hourly.
+void monitorProvider();
+startHostedMonitors();
 
 // Set port
 const PORT = process.env.PORT || 8797;

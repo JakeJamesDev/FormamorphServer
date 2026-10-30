@@ -9,6 +9,8 @@ const Setting = require('../src/models/Setting');
 const Policy = require('../src/models/Policy');
 const PatreonLink = require('../src/models/PatreonLink');
 const HostedGrant = require('../src/models/HostedGrant');
+const HostedProviderSpend = require('../src/models/HostedProviderSpend');
+const { checkPause } = require('../src/utils/hostedPause');
 const { eraseUser } = require('../src/utils/eraseUser');
 const { HOSTED_AI } = require('../src/config/hostedAi');
 
@@ -66,7 +68,12 @@ const SETTINGS = {
   turnCallCap: 4,
   retentionDays: 30,
   warnThresholds: [75, 90],
-  turnSample: { recent: 5, min: 3 }
+  turnSample: { recent: 5, min: 3 },
+  // Out of the way: limits and the ceiling have their own file.
+  parallelLimit: 50,
+  perMinuteLimit: 1000,
+  dailyCeiling: 1000,
+  balanceThreshold: null
 };
 
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -127,6 +134,8 @@ afterEach(() => {
   db.prepare('DELETE FROM patreon_links').run();
   db.prepare('DELETE FROM hosted_usage').run();
   db.prepare('DELETE FROM hosted_grants').run();
+  db.prepare('DELETE FROM hosted_provider_spend').run();
+  db.prepare('DELETE FROM hosted_pause').run();
   db.prepare('DELETE FROM hosted_warning_acks').run();
 });
 
@@ -170,6 +179,20 @@ describe('the hosted state route', () => {
     Setting.set(HOSTED_AI, { ...SETTINGS, models: [], activeModel: null });
 
     expect((await state(supporter())).body.data).toMatchObject({ state: 'paused', window: null, model: null });
+  });
+
+  it('says paused while the day is paused, ahead of exhausted, and not once an admin lifts it', async () => {
+    Setting.set(HOSTED_AI, { ...SETTINGS, dailyCeiling: 0.01 });
+    const user = supporter('supporter', 'p-paused');
+    settledTurns('p-paused', [[10000]]);
+    checkPause(new Date(), 10000);
+
+    const paused = await state(user);
+    await request(app).post(`${BASE}/pause/lift`).set(authHeader(account('admin')));
+    const lifted = await state(user);
+
+    expect(paused.body.data).toMatchObject({ state: 'paused', window: 2000, percentUsed: 100 });
+    expect(lifted.body.data.state).toBe('exhausted');
   });
 
   it('says warned from the first threshold and exhausted at the budget', async () => {
@@ -439,23 +462,19 @@ describe('the admin routes', () => {
     expect((await request(app).get(path).set(authHeader(account()))).status).toBe(403);
   });
 
-  it('reports recorded spend per day, with the provider figure when its store exists', async () => {
+  it('reports recorded spend per day, with the provider figure once it is stored', async () => {
     settledTurns('p-day', [[1000]]);
     const today = new Date().toISOString().slice(0, 10);
+    const readAt = new Date().toISOString();
 
     const bare = await request(app).get(`${BASE}/admin/spend-report`).set(authHeader(asAdmin()));
     expect(bare.body.data.days).toEqual([{ day: today, calls: 1, costMicros: 1000, providerMicros: null }]);
 
-    db.exec('CREATE TABLE hosted_provider_spend (day TEXT PRIMARY KEY, provider_micros INTEGER NOT NULL)');
-    try {
-      db.prepare('INSERT INTO hosted_provider_spend (day, provider_micros) VALUES (?, ?)').run(today, 1200);
-      db.prepare('INSERT INTO hosted_provider_spend (day, provider_micros) VALUES (?, ?)').run('2000-01-01', 5);
-      const full = await request(app).get(`${BASE}/admin/spend-report?days=7`).set(authHeader(asAdmin()));
+    HostedProviderSpend.record({ day: today, providerMicros: 1200, recordedMicros: 1000, readAt });
+    HostedProviderSpend.record({ day: '2000-01-01', providerMicros: 5, recordedMicros: 5, readAt });
+    const full = await request(app).get(`${BASE}/admin/spend-report?days=7`).set(authHeader(asAdmin()));
 
-      expect(full.body.data.days).toEqual([{ day: today, calls: 1, costMicros: 1000, providerMicros: 1200 }]);
-    } finally {
-      db.exec('DROP TABLE hosted_provider_spend');
-    }
+    expect(full.body.data.days).toEqual([{ day: today, calls: 1, costMicros: 1000, providerMicros: 1200 }]);
     expect((await request(app).get(`${BASE}/admin/spend-report`).set(authHeader(account('mod')))).status).toBe(403);
     expect((await request(app).get(`${BASE}/admin/spend-report?days=0`).set(authHeader(asAdmin()))).status).toBe(400);
   });
