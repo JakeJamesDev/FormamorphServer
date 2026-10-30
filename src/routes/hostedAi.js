@@ -1,9 +1,15 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { admit, routeError, proxy } = require('../controllers/hostedAiController');
+const { getState, acknowledgeWarning } = require('../controllers/hostedStateController');
+const adminRoutes = require('./hostedAiAdmin');
 const { HOSTED_BODY_LIMIT } = require('../config/hostedAi');
 
 const router = express.Router();
+
+router.get('/state', protect, getState);
+router.post('/warnings/:threshold/ack', protect, acknowledgeWarning);
+router.use('/admin', adminRoutes);
 
 // Admission runs before the body is parsed, so a refused account never costs a large parse.
 router.post(

@@ -100,7 +100,9 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | Term | Meaning |
 |---|---|
 | **Formamorph AI** | The hosted AI a Tier includes: a chat-completions proxy at `/api/hosted-ai` that forwards a turn upstream with the server's key. Players never see the key or pick the model. |
-| **Spend subject** | Who a call's cost is summed under: the Patreon user ID for a pledge. Relinking the membership or erasing and remaking the account keeps the subject and its month. Usage rows have no foreign key to the account; erasure nulls their account and keeps them. |
+| **Hosted state** | What `GET /api/hosted-ai/state` tells an account: tier, state, window, active model, percent used, turns left and acknowledged warnings. Percent and turns only, never a dollar amount. |
+| **Grant** | A staff gift of a Tier to an account until an end date. The highest of the pledge and live grants wins; a grant's spend subject is `grant:<id>`. |
+| **Spend subject** | Who a call's cost is summed under: the Patreon user ID for a pledge, or `grant:<id>` for a grant. Relinking the membership or erasing and remaking the account keeps the subject and its month. Usage rows have no foreign key to the account; erasure nulls their account and keeps them. |
 | **Turn** | The calls one player action makes, named by a turn id the server issues on the first call and the client sends back on the rest. Only a first call is checked against the budget, so a started turn finishes. A turn ends at its time limit or call cap. |
 | **Reservation** | The worst-case cost an admitted call records as an `open` usage row before it is forwarded: the estimated prompt plus the capped `max_tokens`. Budget sums count it, so parallel calls cannot all pass the same sum. The call then settles to its real cost. |
 | **Refusal code** | The `code` a refused Formamorph AI call answers with, such as `budget_exhausted` or `turn_expired`, each with its own status. The list lives in `config/hostedAi` and the client mirrors it. |

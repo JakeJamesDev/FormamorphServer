@@ -58,6 +58,9 @@ const userSecret = () => process.env.HOSTED_AI_USER_SECRET || '';
 /** The request header that carries a turn id, both ways. */
 const TURN_HEADER = 'X-Formamorph-Turn';
 
+/** The response header that carries the usage state on a non-streamed call. */
+const USAGE_HEADER = 'X-Formamorph-Usage';
+
 /** Model prices are dollars per million tokens, so tokens times a price is micro-dollars. */
 const MICROS_PER_DOLLAR = 1_000_000;
 
@@ -105,7 +108,7 @@ const validateModel = (entry) => {
  */
 const validateHostedAi = (value) => {
   if (!isPlainObject(value)) return 'Hosted AI settings must be an object';
-  const allowed = ['models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', ...INTEGER_LIMITS];
+  const allowed = ['models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', 'warnThresholds', 'turnSample', ...INTEGER_LIMITS];
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) return `Hosted AI settings have no field "${unknown}"`;
 
@@ -133,19 +136,40 @@ const validateHostedAi = (value) => {
     return 'tokenMargin must be a whole number of zero or more';
   }
 
-  return validateTiers(value.tiers);
+  return validateWarnings(value) || validateTiers(value.tiers);
 };
 
-/** Why a `tiers` value cannot be stored, or null. Budgets are dollars a month. */
+/** Why `warnThresholds` or `turnSample` cannot be stored, or null. Both may be absent or null. */
+const validateWarnings = ({ warnThresholds, turnSample }) => {
+  if (warnThresholds !== undefined && warnThresholds !== null) {
+    const valid = Array.isArray(warnThresholds) && warnThresholds.length <= 5
+      && warnThresholds.every((percent, i) => Number.isInteger(percent) && percent > 0 && percent < 100
+        && (i === 0 || percent > warnThresholds[i - 1]));
+    if (!valid) return 'warnThresholds must be a rising list of whole percents between 1 and 99';
+  }
+  if (turnSample !== undefined && turnSample !== null) {
+    if (!isPlainObject(turnSample) || Object.keys(turnSample).some((field) => !['recent', 'min'].includes(field))
+      || !isPositiveInteger(turnSample.recent) || !isPositiveInteger(turnSample.min) || turnSample.min > turnSample.recent) {
+      return 'turnSample holds recent and min, whole numbers above zero, with min no more than recent';
+    }
+  }
+
+  return null;
+};
+
+/** Why a `tiers` value cannot be stored, or null. Budgets and turn costs are dollars. */
 const validateTiers = (tiers) => {
   if (!isPlainObject(tiers)) return 'tiers must be an object';
   for (const [key, tier] of Object.entries(tiers)) {
     if (!TIER_KEYS.includes(key)) return `There is no tier "${key}"`;
-    if (!isPlainObject(tier) || Object.keys(tier).some((field) => !['window', 'budget'].includes(field))) {
-      return `Tier "${key}" holds only window and budget`;
+    if (!isPlainObject(tier) || Object.keys(tier).some((field) => !['window', 'budget', 'turnCost'].includes(field))) {
+      return `Tier "${key}" holds only window, budget and turnCost`;
     }
     if (!isPositiveInteger(tier.window)) return `Tier "${key}" window must be a whole number above zero`;
     if (typeof tier.budget !== 'number' || !(tier.budget >= 0)) return `Tier "${key}" budget must be zero or more`;
+    if (tier.turnCost !== undefined && tier.turnCost !== null && !(typeof tier.turnCost === 'number' && tier.turnCost > 0)) {
+      return `Tier "${key}" turnCost must be a number above zero`;
+    }
   }
 
   return null;
@@ -162,7 +186,9 @@ const HOSTED_AI_DEFAULT = Object.freeze({
   tokenMargin: null,
   turnLimitSeconds: null,
   turnCallCap: null,
-  retentionDays: null
+  retentionDays: null,
+  warnThresholds: null,
+  turnSample: null
 });
 
 module.exports = {
@@ -174,6 +200,7 @@ module.exports = {
   MICROS_PER_DOLLAR,
   TIER_KEYS,
   TURN_HEADER,
+  USAGE_HEADER,
   REFUSALS,
   REFUSAL_CODES,
   refusalBody,

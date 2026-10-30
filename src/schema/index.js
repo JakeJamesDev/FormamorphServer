@@ -56,6 +56,7 @@ const STEPS = [
   require('./steps/supporterContent'),
   require('./steps/networkKind'),
   require('./steps/supporterTop'),
+  require('./steps/hostedGrants'),
   require('./indexes')
 ];
 

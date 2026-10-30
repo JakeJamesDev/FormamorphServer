@@ -8,7 +8,7 @@ const { readClient, requireClientVersion } = require('./middleware/clientVersion
 const { CLIENT_HEADER_NAME } = require('./config/clientVersion');
 const { INSTALL_HEADER_NAME } = require('./config/anonymousLikes');
 const { SETTINGS_PATH } = require('./config/settings');
-const { HOSTED_AI_PATH, TURN_HEADER } = require('./config/hostedAi');
+const { HOSTED_AI_PATH, TURN_HEADER, USAGE_HEADER } = require('./config/hostedAi');
 const { clientIpKeyGenerator } = require('./utils/rateLimitKey');
 
 // Import routes
@@ -50,7 +50,7 @@ app.use(cors({
   // refuses a header it was not told to allow, and a cross-origin fetch cannot see a response header it
   // was not told to expose.
   allowedHeaders: ['Content-Type', 'Authorization', 'If-None-Match', CLIENT_HEADER_NAME, INSTALL_HEADER_NAME, TURN_HEADER],
-  exposedHeaders: ['ETag', 'Retry-After', TURN_HEADER]
+  exposedHeaders: ['ETag', 'Retry-After', TURN_HEADER, USAGE_HEADER]
 }));
 // Loose global rate limit (auth routes add a tighter one). After CORS, so a browser can read the 429.
 // The hosted proxy is exempt: its limits are per account, and every turn sends several calls.

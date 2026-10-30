@@ -1,12 +1,11 @@
-const Policy = require('../models/Policy');
-const PatreonLink = require('../models/PatreonLink');
 const Setting = require('../models/Setting');
 const HostedUsage = require('../models/HostedUsage');
 const {
-  HOSTED_AI, TIER_KEYS, MICROS_PER_DOLLAR, TURN_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject
+  HOSTED_AI, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
 const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
+const { ageConfirmed, entitlement, usageOf } = require('../utils/hostedState');
 
 /**
  * The Formamorph AI proxy.
@@ -14,36 +13,20 @@ const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = req
  * Nothing here logs: request and upstream bodies hold player text, and an error object can carry either.
  */
 
-const ENTITLED_TIERS = new Set(TIER_KEYS);
-
 const refuse = (res, code, extra = {}) => res.status(REFUSALS[code].status).json({ ...refusalBody(code), ...extra });
 
-/** Whether the account's age-gate acceptance is current. Anything unreadable counts as not accepted. */
-const ageConfirmed = (userId) => {
-  try {
-    return Policy.hasAccepted(Policy.AGE_GATE, userId);
-  } catch {
-    return false;
-  }
-};
-
 /**
- * Refuse an account that has not passed the age gate or holds no entitled tier.
+ * Refuse an account that has not passed the age gate or holds no entitled tier, by pledge or grant.
  *
  * Sets `req.hosted` with the spend subject and tier for the proxy.
  */
 exports.admit = (req, res, next) => {
   if (!ageConfirmed(req.user.id)) return refuse(res, 'age_gate_required');
 
-  let link;
-  try {
-    link = PatreonLink.findByUser(req.user.id);
-  } catch {
-    link = null;
-  }
-  if (!link || !ENTITLED_TIERS.has(link.tier)) return refuse(res, 'not_entitled');
+  const owned = entitlement(req.user.id);
+  if (!owned) return refuse(res, 'not_entitled');
 
-  req.hosted = { subject: link.patreon_user_id, tier: link.tier };
+  req.hosted = { subject: owned.subject, tier: owned.tier };
   return next();
 };
 
@@ -61,15 +44,18 @@ exports.routeError = (err, _req, res, _next) => {
 const isPrice = (value) => typeof value === 'number' && value >= 0;
 
 /**
- * The active model and limits for a tier, or null when the proxy is not configured to send anything.
+ * The model and limits for a tier, or null when the proxy is not configured to send anything.
  *
+ * A turn's later calls pass the model its first call ran on, so a model switch applies to the next admitted
+ * turn only. A model dropped from the approved list since falls back to the active one.
  * A model without prompt and completion prices counts as unconfigured: no reservation, no budget.
  */
-const activeConfig = (tier) => {
+const activeConfig = (tier, turnModel = null) => {
   const settings = Setting.get(HOSTED_AI);
   if (!settings || !Array.isArray(settings.models)) return null;
 
-  const entry = settings.models.find((model) => model.id === settings.activeModel);
+  const entry = settings.models.find((model) => model.id === turnModel)
+    || settings.models.find((model) => model.id === settings.activeModel);
   if (!entry || !settings.maxTokensCap || !settings.idleLimitSeconds) return null;
   if (!isPrice(entry.prices?.prompt) || !isPrice(entry.prices?.completion)) return null;
   if (!settings.tokenRatio || !Number.isInteger(settings.tokenMargin)) return null;
@@ -86,7 +72,9 @@ const activeConfig = (tier) => {
     ratio: settings.tokenRatio,
     margin: settings.tokenMargin,
     turnLimitMs: settings.turnLimitSeconds * 1000,
-    turnCallCap: settings.turnCallCap
+    turnCallCap: settings.turnCallCap,
+    warnThresholds: settings.warnThresholds || null,
+    turnSample: settings.turnSample || null
   };
 };
 
@@ -120,6 +108,22 @@ const eventData = (event) => parseJson(event
 
 const EVENT_END = /\r\n\r\n|\n\n|\r\r/;
 
+/** Whether one SSE event is the stream's `[DONE]` marker. */
+const isDone = (event) => event
+  .split(/\r\n|\r|\n/)
+  .some((line) => line.startsWith('data:') && line.slice(5).trim() === '[DONE]');
+
+/** The usage state as a client reads it, or null when it cannot be computed. */
+const usageSnapshot = (subject, config) => {
+  try {
+    const { percentUsed, turnsLeft, resetAt } = usageOf(subject, config, new Date());
+    return { percentUsed, turnsLeft, resetAt };
+  } catch (error) {
+    console.error('Hosted usage state failed:', error);
+    return null;
+  }
+};
+
 /** Thrown when the upstream sends an error inside a 200 reply. */
 class UpstreamErrorReply extends Error {}
 
@@ -148,6 +152,8 @@ const settle = (meter, { usage, outputChars, status }) => {
   }
 };
 
+exports.activeConfig = activeConfig;
+
 /**
  * Forward one chat completion and stream the reply back unchanged.
  *
@@ -167,6 +173,13 @@ exports.proxy = async (req, res) => {
   let usage = null;
   let outputChars = 0;
   let finished = false;
+  let settled = false;
+  // The first settle wins: the success path settles before it reports usage, `finally` covers the rest.
+  const settleOnce = (status) => {
+    if (settled || !meter) return;
+    settled = true;
+    settle(meter, { usage, outputChars, status });
+  };
   // Every parsed reply payload passes here, so usage and the output estimate see the same bytes.
   const observe = (payload) => {
     if (isPlainObject(payload) && payload.usage !== undefined) usage = payload.usage;
@@ -174,7 +187,8 @@ exports.proxy = async (req, res) => {
   };
 
   try {
-    const config = activeConfig(req.hosted.tier);
+    const turnId = req.get(TURN_HEADER) || null;
+    const config = activeConfig(req.hosted.tier, turnId ? HostedUsage.turnModel(req.hosted.subject, turnId) : null);
     if (!config) return refuse(res, 'service_paused');
 
     let body;
@@ -191,7 +205,8 @@ exports.proxy = async (req, res) => {
       subject: req.hosted.subject,
       userId: req.user.id,
       tier: req.hosted.tier,
-      turnId: req.get(TURN_HEADER) || null,
+      turnId,
+      model: config.entry.id,
       now: started,
       turnLimitMs: config.turnLimitMs,
       turnCallCap: config.turnCallCap,
@@ -235,6 +250,9 @@ exports.proxy = async (req, res) => {
       if (isError(parsed)) return refuse(res, 'upstream_error');
       observe(parsed);
       finished = true;
+      settleOnce('ok');
+      const state = usageSnapshot(req.hosted.subject, config);
+      if (state) res.set(USAGE_HEADER, JSON.stringify(state));
       return res.status(200).type('application/json').send(reply);
     }
 
@@ -244,6 +262,8 @@ exports.proxy = async (req, res) => {
     // Whole events only, so an error event split across chunks is still caught before any of it is sent.
     const decoder = new TextDecoder();
     let pending = '';
+    // Held back and sent last: clients stop reading at `[DONE]`, so the usage event has to precede it.
+    let doneEvent = '';
     for await (const chunk of upstream.body) {
       pending += decoder.decode(chunk, { stream: true });
       let complete = '';
@@ -252,7 +272,9 @@ exports.proxy = async (req, res) => {
         const payload = eventData(pending.slice(0, end.index));
         if (isError(payload)) throw new UpstreamErrorReply();
         observe(payload);
-        complete += pending.slice(0, end.index + end[0].length);
+        const whole = pending.slice(0, end.index + end[0].length);
+        if (isDone(whole)) doneEvent = whole;
+        else complete += whole;
         pending = pending.slice(end.index + end[0].length);
       }
       if (complete && !res.write(complete)) {
@@ -266,7 +288,18 @@ exports.proxy = async (req, res) => {
     const last = eventData(pending);
     if (isError(last)) throw new UpstreamErrorReply();
     observe(last);
+    if (isDone(pending)) {
+      doneEvent = pending;
+      pending = '';
+    }
     finished = true;
+    settleOnce('ok');
+    // An unterminated fragment goes before the usage event, so nothing follows [DONE].
+    if (pending) res.write(pending);
+    pending = '';
+    const state = usageSnapshot(req.hosted.subject, config);
+    if (state) res.write(`event: usage\ndata: ${JSON.stringify(state)}\n\n`);
+    if (doneEvent) res.write(/[\r\n]$/.test(doneEvent) ? doneEvent : `${doneEvent}\n\n`);
     return res.end(pending);
   } catch {
     if (clientGone) return undefined;
@@ -275,6 +308,6 @@ exports.proxy = async (req, res) => {
   } finally {
     clearTimeout(idleTimer);
     controller.abort();
-    if (meter) settle(meter, { usage, outputChars, status: finished ? 'ok' : (clientGone ? 'aborted' : 'error') });
+    settleOnce(finished ? 'ok' : (clientGone ? 'aborted' : 'error'));
   }
 };

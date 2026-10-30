@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { tableExists } = require('../schema/columns');
 
 /**
  * Formamorph AI usage rows. `schema/tables` says what a row holds.
@@ -33,15 +34,77 @@ const HostedUsage = {
   },
 
   /**
+   * The model entry id a turn was admitted on, from its first call.
+   *
+   * @param {string} subject - The spend subject
+   * @param {string} turnId - The turn
+   * @returns {string|null} Null for an unknown turn or a row from before models were recorded
+   */
+  turnModel: (subject, turnId) => db
+    .prepare('SELECT model FROM hosted_usage WHERE subject = ? AND turn_id = ? ORDER BY id LIMIT 1')
+    .get(subject, turnId)?.model || null,
+
+  /**
+   * What the subject's most recent turns cost, one total per turn, newest first.
+   *
+   * Turns with a call still open are left out: their cost is a reservation, not what the turn cost.
+   *
+   * @param {string} subject - The spend subject
+   * @param {number} limit - How many turns
+   * @returns {number[]} Micro-dollars per turn
+   */
+  recentTurnCosts: (subject, limit) => db.prepare(`
+    SELECT SUM(cost_micros) AS cost FROM hosted_usage WHERE subject = ?
+    GROUP BY turn_id HAVING SUM(status = 'open') = 0
+    ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
+  `).all(subject, limit).map((row) => row.cost),
+
+  /**
+   * A subject's calls and turns since an instant.
+   *
+   * @param {string} subject - The spend subject
+   * @param {string} since - ISO instant
+   * @returns {{ calls: number, turns: number, costMicros: number }}
+   */
+  summarySince: (subject, since) => db.prepare(`
+    SELECT COUNT(*) AS calls, COUNT(DISTINCT turn_id) AS turns, COALESCE(SUM(cost_micros), 0) AS costMicros
+    FROM hosted_usage WHERE subject = ? AND started_at >= ?
+  `).get(subject, since),
+
+  /**
+   * Every subject's cost per UTC day since an instant, oldest first.
+   *
+   * @param {string} since - ISO instant
+   * @returns {{ day: string, calls: number, costMicros: number }[]}
+   */
+  daySums: (since) => db.prepare(`
+    SELECT substr(started_at, 1, 10) AS day, COUNT(*) AS calls, SUM(cost_micros) AS costMicros
+    FROM hosted_usage WHERE started_at >= ? GROUP BY day ORDER BY day
+  `).all(since),
+
+  /**
+   * The provider's own spend per UTC day, as the daily provider read stores it. Empty while that table is absent.
+   *
+   * @param {string} fromDay - 'YYYY-MM-DD', inclusive
+   * @returns {{ day: string, providerMicros: number }[]}
+   */
+  providerDaysSince: (fromDay) => {
+    if (!tableExists(db, 'hosted_provider_spend')) return [];
+
+    return db.prepare('SELECT day, provider_micros AS providerMicros FROM hosted_provider_spend WHERE day >= ? ORDER BY day')
+      .all(fromDay);
+  },
+
+  /**
    * Record an admitted call as `open` with its reservation.
    *
-   * @param {Object} row - `{ subject, userId, turnId, tier, estimatedPromptTokens, costMicros, startedAt }`
+   * @param {Object} row - `{ subject, userId, turnId, tier, model, estimatedPromptTokens, costMicros, startedAt }`
    * @returns {number} The row id
    */
   open: (row) => Number(db.prepare(`
     INSERT INTO hosted_usage
-      (subject, user_id, turn_id, tier, estimated_prompt_tokens, cost_micros, started_at, status)
-    VALUES (@subject, @userId, @turnId, @tier, @estimatedPromptTokens, @costMicros, @startedAt, 'open')
+      (subject, user_id, turn_id, tier, model, estimated_prompt_tokens, cost_micros, started_at, status)
+    VALUES (@subject, @userId, @turnId, @tier, @model, @estimatedPromptTokens, @costMicros, @startedAt, 'open')
   `).run(row).lastInsertRowid),
 
   /**

@@ -80,8 +80,8 @@ npm install
    ```
 
    > 🤖 **Formamorph AI also needs its admin setting.** The `hosted_ai` setting holds the models (with
-   > prices in dollars per million tokens), each tier's window and monthly budget, and the turn, estimate
-   > and retention limits. Until every value is set, the proxy answers `service_paused`.
+   > prices in dollars per million tokens), each tier's window, monthly budget and fallback cost per turn,
+   > the warning thresholds, the turn sample, and the turn, estimate and retention limits. Until every value is set, the proxy answers `service_paused`.
 
    > 📬 **Mail is optional in development.** Without `RESEND_API_KEY` the server logs an error at boot
    > and refuses every message, so the site says the mail could not be sent. Nothing reaches a real inbox.
@@ -350,6 +350,58 @@ remove another's thumbnail. Swap the PNGs to change the art; no code knows about
   and update. It is `null` on every other kind, and when the stamp is missing or not a version.
 - A prompt can declare compatible worlds. No world can require one, so it cannot be unlisted.
 - A prompt cannot enter a contest. A publish that names one is a `400` with `CONTEST_KIND_REFUSED`.
+
+### Formamorph AI — hosted state, grants and admin routes
+
+The proxy itself is `POST /api/hosted-ai/chat/completions`. These routes sit beside it. Every route needs a
+signed-in account. None returns a dollar amount to a player.
+
+**`GET /api/hosted-ai/state`** answers `200 { success, data }` for any signed-in account:
+
+| Field | Meaning |
+|---|---|
+| `tier` | The tier key the account is entitled to, or `null`. A live pledge and live grants all count; the highest tier wins, and a tie keeps the pledge. |
+| `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to), `locked` (no entitlement) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
+| `window` | The tier's context window, in tokens. |
+| `maxTokens` | The cap on a call's `max_tokens`. |
+| `tokenMargin` | Tokens added to the window before `window_exceeded`. |
+| `model` | `{ id, capabilities }` of the active model. `id` changes when the admin switches model, so a client caches capability by it. |
+| `percentUsed` | Whole percent of this UTC month's allowance, 0 to 100. |
+| `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. With fewer settled turns than `turnSample.min` it uses the tier's `turnCost`. |
+| `resetAt` | 00:00 UTC on the 1st of next month. |
+| `acknowledged` | Warning thresholds this account acknowledged this month. |
+
+With `locked`, `age-gate` or `paused`, every field but `tier` and `state` is `null` and `acknowledged` is `[]`.
+
+**`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC month, for this
+account on every device. `:threshold` must be in the `warnThresholds` setting, else `400`. Answers
+`{ data: { acknowledged } }`. Repeating it changes nothing.
+
+**Usage after each call.** The proxy settles a call, then reports the new `{ percentUsed, turnsLeft, resetAt }`:
+a streamed call gets one `event: usage` SSE event immediately before the final `data: [DONE]` (clients stop
+reading at `[DONE]`), and a non-streamed call gets the same JSON in the `X-Formamorph-Usage` response header.
+Both are in CORS exposed headers. A failure to compute it leaves the event or header out.
+
+**A model switch** (the `hosted_ai` setting's `activeModel`) applies to the next admitted turn. Later calls of
+an admitted turn send its turn id and finish on the model, and prices, that its first call used; if that model
+was removed from the approved list they use the active one.
+
+**Staff routes** (`/api/hosted-ai/admin/…`):
+
+| Route | Who | What |
+|---|---|---|
+| `POST /grants` `{ userId, tier, endsAt }` | staff | Grant a tier to an account until a future date. `201`. |
+| `GET /grants` | staff | Every grant, newest first, with `subject` (`grant:<id>`) and `revokedAt`. No spend. |
+| `DELETE /grants/:id` | staff | Revoke now. |
+| `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros }` for the UTC month. A Patreon user id or `grant:<id>`. |
+| `GET /spend-report?days=N` | admin | Per UTC day: `calls`, `costMicros` recorded, and `providerMicros` (`null` before the provider figure is stored). Default 31 days, at most 366. |
+
+A moderator gets `403` on the admin-only routes. The approved model list and the active model are edited
+through `PUT /api/settings/hosted_ai`, which is admin-only. The setting's `tiers.<key>.turnCost` (dollars),
+`warnThresholds` (rising whole percents) and `turnSample` (`{ recent, min }`) feed the state route.
+
+A grant is its own spend subject, so its spend sums by grant id and never moves to a pledge. Grants and
+warning acknowledgments go with the account on erasure; the usage rows stay.
 
 ## Database schema
 

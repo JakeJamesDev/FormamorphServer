@@ -27,6 +27,9 @@ const SSE = [
   'data: [DONE]\n\n'
 ];
 
+/** The proxy's own usage event sits before [DONE]; every other byte is the upstream's. */
+const withoutUsage = (text) => text.replace(/event: usage\ndata: .*\n\n/, '');
+
 // The fake upstream: each test sets `script` to how it answers, and reads `received` for what it was sent.
 let script;
 let received;
@@ -385,7 +388,7 @@ describe('streaming', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
-    expect(res.text).toBe(SSE.join(''));
+    expect(withoutUsage(res.text)).toBe(SSE.join(''));
   });
 
   it('returns a non-streamed reply unchanged', async () => {
@@ -418,7 +421,7 @@ describe('streaming', () => {
 
     const res = await send(supporter(), chat({ stream: true }));
 
-    expect(res.text).toBe(whole);
+    expect(withoutUsage(res.text)).toBe(whole);
   });
 
   it('replaces an upstream error inside a 200 reply, streamed or not, split or whole', async () => {
@@ -478,7 +481,7 @@ describe('streaming', () => {
 
     const res = await send(supporter(), chat({ stream: true }));
 
-    expect(res.text).toBe(SSE.join(''));
+    expect(withoutUsage(res.text)).toBe(SSE.join(''));
   }, 10_000);
 
   it('aborts the upstream call when the client disconnects', async () => {

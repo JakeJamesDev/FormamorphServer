@@ -273,7 +273,7 @@ describe('the schema step', () => {
   it('applies the tables, the seeded rows and the indexes to a fresh database, and nothing to it twice', () => {
     const fresh = openDatabase();
 
-    expect(migrate(fresh)).toEqual(['tables', 'ageGate', 'privacyPolicy', 'placeholderUser', 'indexes']);
+    expect(migrate(fresh)).toEqual(['tables', 'ageGate', 'privacyPolicy', 'placeholderUser', 'hostedGrants', 'indexes']);
     expect(migrate(fresh)).toEqual([]);
 
     fresh.close();
