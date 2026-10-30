@@ -126,6 +126,70 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL`, `API_HOSTNAME`, `SSH_KEY_NAME`, `SERVER_IP`, `SSH_USER`,
 `PORT`, `NODE_ENV`, `JWT_SECRET`, `JWT_EXPIRE`, `DATA_DIR`, `DB_PATH`, `STORAGE_ROOT`, `SIGNAL_SALT`.
 
+## Formamorph AI launch checklist
+
+Work top to bottom. Each step needs the one before it.
+
+### 1. Prove the proxy under load
+
+Run the load script on the production host in a quiet window. It uses a scratch in-memory database and a fake
+upstream, so it never reads the real database or the upstream key.
+
+```bash
+cd /srv/formamorph/app && npm run load:hosted-ai -- --accounts 20 --parallel 4 --turns 5 --delay-ms 800
+```
+
+- It prints p50 and p90 time to first byte, failures by code, rows left `open` and parallel slots held.
+- `PASS` needs zero open rows, zero held slots and no failure the flags did not plan.
+- Pass `--expect rate_limited` (or another refusal code) only when the run is meant to trigger it, for
+  example with a low `--parallel-limit`.
+- Latency is information, not a gate. Compare it with the planned limits and decide.
+
+### 2. Check Caddy
+
+- The route body limit is `HOSTED_BODY_LIMIT` in `src/config/hostedAi.js`. The Caddyfile `request_body`
+  cap in `/etc/caddy/Caddyfile` must be at or above it. It was 210 MB at last check.
+- Streaming check, by hand, on the real host: send a streamed request through `https://api.formamorph.ai`
+  and confirm the chunks arrive one by one, not all at the end. The load script cannot see Caddy.
+
+### 3. Set the environment
+
+Add these keys to `/srv/formamorph/app/.env` by hand and keep `.env.production` in sync. Names only here.
+The values live in the local hosted-tier note.
+
+| Key | Purpose |
+|---|---|
+| `HOSTED_AI_UPSTREAM_URL` | Upstream chat-completions URL, ending in `/chat/completions` |
+| `HOSTED_AI_API_KEY` | Upstream key. Never in settings, responses or logs |
+| `HOSTED_AI_USER_SECRET` | Signs the anonymous `user` id. Generate once, never rotate |
+| `HOSTED_AI_BALANCE_URL` | Provider balance read. Unset skips the read |
+| `HOSTED_AI_USAGE_URL` | Provider per-day usage read. Unset skips the read |
+| `STAFF_ALERT_EMAIL` | Where pause and low-balance alerts are mailed |
+| `PATREON_SUPPORTER_TOP_TIER_ID` | Patreon tier ID for the top tier |
+
+Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the
+proxy answers `service_paused`.
+
+### 4. Run one process
+
+The API must run as one process. Admission and reservation share one synchronous transaction, and the
+per-account parallel and per-minute limits live in process memory. A second process (cluster mode, PM2
+instances, a second unit) splits those counters and lets parallel calls pass the same budget sum.
+
+### 5. Set the turn limit above the idle limit
+
+`turnLimitSeconds` must exceed the longest call the idle limit allows. The hourly sweep settles any row still
+`open` after the turn limit as `estimated`. A turn limit below a live call's length lets the sweep settle
+that call while it still runs.
+
+### 6. Roll out in this order
+
+1. **Deploy** the code and restart (see Deploying code). Check the journal.
+2. **Closed beta on staff grants.** Staff create grants for testers (`/api/hosted-ai/admin/…`), each with
+   an end date. Watch spend per subject and the spend-versus-estimate report.
+3. **Open to Supporters.** Staff decide when the beta ends. The proxy route's entry in `client_minimums`
+   (see Requiring a newer client on one route) names the first client build that ships Formamorph AI.
+
 ## Backups
 
 A cron job for the `formamorph` user runs `/usr/local/bin/formamorph-backup` daily at **04:17 UTC**.

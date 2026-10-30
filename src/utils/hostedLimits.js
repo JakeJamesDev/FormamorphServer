@@ -56,4 +56,7 @@ const takeMinute = (userId, limit, now) => {
   return true;
 };
 
-module.exports = { acquireSlot, takeMinute };
+/** Parallel slots held across every account; zero when no call is in flight. */
+const heldSlots = () => [...inFlight.values()].reduce((sum, held) => sum + held, 0);
+
+module.exports = { acquireSlot, takeMinute, heldSlots };
