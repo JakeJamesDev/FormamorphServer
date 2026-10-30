@@ -184,7 +184,8 @@ that call while it still runs.
 
 ### 6. Roll out in this order
 
-1. **Deploy** the code and restart (see Deploying code). Check the journal.
+1. **Deploy** the code and restart (see Deploying code). Check the journal. The privacy policy must
+   already name "a third-party AI provider" as a recipient of Formamorph AI turns, with no provider name.
 2. **Closed beta on staff grants.** Staff create grants for testers (`/api/hosted-ai/admin/…`), each with
    an end date. Watch spend per subject and the spend-versus-estimate report.
 3. **Open to Supporters.** Staff decide when the beta ends. The proxy route's entry in `client_minimums`
