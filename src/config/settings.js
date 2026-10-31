@@ -33,6 +33,9 @@ const SETTINGS_PATH = '/api/settings';
 /** The Patreon creator token pair: `{ accessToken, refreshToken, expiresAt }`. Null until the first refresh. */
 const PATREON_CREATOR_TOKENS = 'patreon_creator_tokens';
 
+/** The Patreon title of each tier, by tier key: `{ supporter, supporter_plus, supporter_top }`, each a string or null. */
+const PATREON_TIER_NAMES = 'patreon_tier_names';
+
 /** Every setting there is, by key. */
 const SETTINGS = {
   [CLIENT_MINIMUMS]: { default: {}, validate: validateClientMinimums },
@@ -54,6 +57,11 @@ const SETTINGS = {
   [HOSTED_AI]: { default: HOSTED_AI_DEFAULT, validate: validateHostedAi, adminOnly: true, adminRead: true },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true },
+  // Written only by `utils/tierNames`. Internal: the names come from Patreon, never from staff.
+  [PATREON_TIER_NAMES]: {
+    default: { supporter: null, supporter_plus: null, supporter_top: null },
+    internal: true
+  },
   // Written only by `utils/hostedProvider`: whether the low-balance alert went out since the last good reading.
   [HOSTED_BALANCE_ALERTED]: { default: false, internal: true }
 };
@@ -85,6 +93,7 @@ const defaultFor = (key) => JSON.parse(JSON.stringify(SETTINGS[key].default));
 module.exports = {
   CLIENT_MINIMUMS,
   PATREON_CREATOR_TOKENS,
+  PATREON_TIER_NAMES,
   SETTINGS_PATH,
   SETTINGS,
   isSetting,

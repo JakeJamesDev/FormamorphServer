@@ -26,6 +26,17 @@ const TIER_MAP = [
   [process.env.PATREON_SUPPORTER_TIER_ID, SUPPORTER]
 ].filter(([id]) => Boolean(id));
 
+/** The tier keys, lowest first. */
+const TIER_KEYS = [SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP];
+
+/**
+ * Our tier for a Patreon tier ID.
+ *
+ * @param {string} tierId - A Patreon tier ID
+ * @returns {string|null} The tier key, or null for an unmapped ID
+ */
+const tierKeyOf = (tierId) => TIER_MAP.find(([id]) => id === tierId)?.[1] ?? null;
+
 /** Whether this server can run a link from start to finish. */
 const patreonConfigured = () => Boolean(
   PATREON_CLIENT_ID && PATREON_CLIENT_SECRET && PATREON_REDIRECT_URI
@@ -92,6 +103,8 @@ module.exports = {
   SUPPORTER,
   SUPPORTER_PLUS,
   SUPPORTER_TOP,
+  TIER_KEYS,
+  tierKeyOf,
   patreonConfigured,
   tierFor,
   tierStateOf,

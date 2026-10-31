@@ -3,7 +3,8 @@ const PatreonLink = require('../models/PatreonLink');
 const {
   tierStateOf, patreonWebhookSecret, WEBHOOK_TIER_TRIGGERS, WEBHOOK_ENDING_TRIGGERS
 } = require('../config/patreon');
-const { memberFrom } = require('../utils/patreon');
+const { memberFrom, tierTitlesFrom } = require('../utils/patreon');
+const { storeTierTitles } = require('../utils/tierNames');
 
 /**
  * Whether `signature` is the hex HMAC-MD5 of `body` under `secret`, compared in constant time.
@@ -49,6 +50,14 @@ exports.patreonWebhook = (req, res, next) => {
       payload = JSON.parse(req.body.toString('utf8'));
     } catch {
       return res.status(400).json({ success: false, error: 'Webhook body is not JSON' });
+    }
+
+    // A delivery that carries tier resources renames those tiers; the other tiers keep their names.
+    const titles = tierTitlesFrom(payload);
+    try {
+      if (Object.keys(titles).length) storeTierTitles(titles, false);
+    } catch (error) {
+      console.error('Patreon webhook tier name write failed:', error);
     }
 
     const member = payload?.data ? memberFrom(payload.data) : null;

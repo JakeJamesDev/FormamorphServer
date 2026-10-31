@@ -493,6 +493,9 @@ Node's own `require` for that reason; take `app` and `db` from there.
 - `GET /api/users` - Get all users (admin only)
 - `PUT /api/users/:id/status` - Update user status and account type (admin only)
 
+### Patreon
+- `GET /api/patreon/tier-names` - Public. The Patreon title of each supporter tier: `{ supporter, supporter_plus, supporter_top }`, each a string or `null` when no title is known. The hourly reconcile and a webhook that carries tier resources refresh the stored names; a request never calls Patreon, and a failed refresh keeps the old names
+
 ### Policies
 
 - `GET /api/policies` - The popups that apply to the caller: the upload gate, the tag notice, and the Privacy Policy

@@ -12,7 +12,8 @@ const Setting = require('../models/Setting');
  * A client is `{ identify(code), members(accessToken), refresh(refreshToken) }`. `identify` exchanges the
  * OAuth code and returns only the Patreon user ID, so a member's tokens never leave this file. `members`
  * reads the whole campaign member list. `refresh` trades the creator refresh token for a new pair. The
- * creator token pair is kept above the seam, so a fake client runs the same refresh rules.
+ * creator token pair is kept above the seam, so a fake client runs the same refresh rules. `tierTitles` reads
+ * each tier's display title and answers `{ via, titles }`, `titles` being Patreon tier ID to title.
  */
 
 /** Thrown when Patreon answers 401: the token is expired or revoked. */
@@ -88,6 +89,46 @@ const memberFrom = (member) => {
   };
 };
 
+/**
+ * Tier ID to title from the tier resources of a reply's `included` list. A resource with no title is left out.
+ *
+ * @param {Object} page - A JSON:API reply
+ * @returns {Object<string, string>} Titles by Patreon tier ID
+ */
+const tierTitlesFrom = (page) => Object.fromEntries(
+  (page?.included || [])
+    .filter((resource) => resource?.type === 'tier' && typeof resource.attributes?.title === 'string')
+    .map((resource) => [String(resource.id), resource.attributes.title])
+);
+
+/**
+ * Read the whole member list one page at a time.
+ *
+ * @param {string} accessToken - The creator token
+ * @param {Object} fields - Extra query values for the call
+ * @param {(page: Object) => void} onPage - Called with each reply
+ */
+const eachMemberPage = async (accessToken, fields, onPage) => {
+  let cursor = null;
+
+  do {
+    const query = new URLSearchParams({
+      include: 'currently_entitled_tiers,user',
+      'fields[member]': 'pledge_relationship_start',
+      'page[count]': String(MEMBER_PAGE_SIZE),
+      ...fields
+    });
+    if (cursor) query.set('page[cursor]', cursor);
+
+    const page = await request(`${API_BASE}/campaigns/${PATREON_CAMPAIGN_ID}/members?${query}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    onPage(page);
+    cursor = page.meta?.pagination?.cursors?.next || null;
+  } while (cursor);
+};
+
 /** The client that talks to Patreon. */
 const httpClient = {
   identify: async (code) => {
@@ -117,29 +158,36 @@ const httpClient = {
 
   members: async (accessToken) => {
     const members = [];
-    let cursor = null;
 
-    do {
-      const query = new URLSearchParams({
-        include: 'currently_entitled_tiers,user',
-        'fields[member]': 'pledge_relationship_start',
-        'page[count]': String(MEMBER_PAGE_SIZE)
-      });
-      if (cursor) query.set('page[cursor]', cursor);
-
-      const page = await request(`${API_BASE}/campaigns/${PATREON_CAMPAIGN_ID}/members?${query}`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-
+    await eachMemberPage(accessToken, {}, (page) => {
       for (const member of page.data || []) {
         const parsed = memberFrom(member);
         if (parsed) members.push(parsed);
       }
-
-      cursor = page.meta?.pagination?.cursors?.next || null;
-    } while (cursor);
+    });
 
     return members;
+  },
+
+  // The campaign call names every tier, members or not. Its `include=tiers` is undocumented, so a refusal
+  // or a reply with no title falls back to the tiers the members call includes.
+  tierTitles: async (accessToken) => {
+    try {
+      const query = new URLSearchParams({ include: 'tiers', 'fields[tier]': 'title' });
+      const campaign = await request(`${API_BASE}/campaigns/${PATREON_CAMPAIGN_ID}?${query}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      const titles = tierTitlesFrom(campaign);
+      if (Object.keys(titles).length) return { via: 'campaign', titles };
+    } catch (error) {
+      if (error instanceof PatreonAuthError) throw error;
+    }
+
+    const titles = {};
+    await eachMemberPage(accessToken, { 'fields[tier]': 'title' }, (page) => Object.assign(titles, tierTitlesFrom(page)));
+
+    return { via: 'members', titles };
   },
 
   refresh: async (refreshToken) => {
@@ -239,31 +287,48 @@ const readyCreatorTokens = async () => {
 };
 
 /**
- * Every member of the campaign, read with the creator token. The token is refreshed ahead of its expiry,
- * and once on a refusal before the read is retried.
+ * Run a creator read. The token is refreshed ahead of its expiry, and once on a refusal before the read is
+ * retried.
  *
- * @returns {Promise<Array<{ patreonUserId: string, tierIds: string[], pledgeStart: string|null }>>} Members
+ * @param {(accessToken: string) => Promise<*>} read - The client call
+ * @returns {Promise<*>} What the call answered
  */
-const listMembers = async () => {
+const withCreatorToken = async (read) => {
   let tokens = await readyCreatorTokens();
 
   try {
-    return await client.members(tokens.accessToken);
+    return await read(tokens.accessToken);
   } catch (error) {
     if (!(error instanceof PatreonAuthError)) throw error;
     // A read that failed alongside a finished refresh retries with the new pair instead of refreshing again.
     const current = creatorTokens();
     tokens = current.accessToken !== tokens.accessToken ? current : await refreshCreatorTokens(current);
-    return client.members(tokens.accessToken);
+    return read(tokens.accessToken);
   }
 };
+
+/**
+ * Every member of the campaign, read with the creator token.
+ *
+ * @returns {Promise<Array<{ patreonUserId: string, tierIds: string[], pledgeStart: string|null }>>} Members
+ */
+const listMembers = () => withCreatorToken((accessToken) => client.members(accessToken));
+
+/**
+ * The Patreon title of each tier, read with the creator token.
+ *
+ * @returns {Promise<{ via: 'campaign'|'members', titles: Object<string, string> }>} Titles by tier ID
+ */
+const listTierTitles = () => withCreatorToken((accessToken) => client.tierTitles(accessToken));
 
 module.exports = {
   PatreonAuthError,
   authorizeUrl,
   identifyMember,
   listMembers,
+  listTierTitles,
   memberFrom,
+  tierTitlesFrom,
   setPatreonClient,
   resetPatreonClient,
   httpClient,

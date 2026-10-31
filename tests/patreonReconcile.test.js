@@ -42,6 +42,7 @@ beforeEach(() => {
   logged = vi.spyOn(console, 'error').mockImplementation(() => {});
   setPatreonClient({
     identify: async () => { throw new Error('not used'); },
+    tierTitles: async () => ({ via: 'campaign', titles: {} }),
     members: async (token) => {
       memberCalls.push(token);
       if (membersFail) throw new Error('Patreon is down');
@@ -135,15 +136,18 @@ describe('the Patreon reconcile', () => {
       }],
       meta: { pagination: { cursors: { next } } }
     });
-    const fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => page('p1', 'tier-5', 'cursor-2') })
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => page('p2', 'tier-10', null) });
+    const answer = (body) => ({ ok: true, status: 200, json: async () => body });
+    const memberPages = [page('p1', 'tier-5', 'cursor-2'), page('p2', 'tier-10', null)];
+    const fetch = vi.fn(async (url) => (String(url).includes('/members')
+      ? answer(memberPages.shift())
+      : answer({ included: [{ id: 'tier-5', type: 'tier', attributes: { title: 'Friend' } }] })));
     vi.stubGlobal('fetch', fetch);
 
     await reconcilePatreon();
 
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(new URL(fetch.mock.calls[1][0]).searchParams.get('page[cursor]')).toBe('cursor-2');
+    const memberCalls = fetch.mock.calls.filter(([url]) => String(url).includes('/members'));
+    expect(memberCalls).toHaveLength(2);
+    expect(new URL(memberCalls[1][0]).searchParams.get('page[cursor]')).toBe('cursor-2');
     expect(PatreonLink.findByUser(first.id).tier).toBe('supporter');
     expect(PatreonLink.findByUser(second.id).tier).toBe('supporter_plus');
   });
