@@ -61,6 +61,16 @@ const balanceUrl = () => process.env.HOSTED_AI_BALANCE_URL || '';
 const usageUrl = () => process.env.HOSTED_AI_USAGE_URL || '';
 const staffAlertEmail = () => process.env.STAFF_ALERT_EMAIL || '';
 
+/** The warning percents used while the setting holds none, so `warned` is always reachable. */
+const DEFAULT_WARN_THRESHOLDS = Object.freeze([75, 90]);
+
+/** The warning percents in force for a `hosted_ai` setting value: its own list, else the default. */
+const warnThresholdsOf = (settings) => (
+  Array.isArray(settings?.warnThresholds) && settings.warnThresholds.length > 0
+    ? settings.warnThresholds
+    : [...DEFAULT_WARN_THRESHOLDS]
+);
+
 /** The request header that carries a turn id, both ways. */
 const TURN_HEADER = 'X-Formamorph-Turn';
 
@@ -218,6 +228,8 @@ module.exports = {
   HOSTED_AI_DEFAULT,
   HOSTED_BALANCE_ALERTED,
   HOSTED_BODY_LIMIT,
+  DEFAULT_WARN_THRESHOLDS,
+  warnThresholdsOf,
   MICROS_PER_DOLLAR,
   TIER_KEYS,
   TURN_HEADER,

@@ -1,7 +1,8 @@
 const Setting = require('../models/Setting');
 const HostedUsage = require('../models/HostedUsage');
 const {
-  HOSTED_AI, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject
+  HOSTED_AI, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject,
+  warnThresholdsOf
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
 const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
@@ -77,7 +78,7 @@ const activeConfig = (tier, turnModel = null) => {
     margin: settings.tokenMargin,
     turnLimitMs: settings.turnLimitSeconds * 1000,
     turnCallCap: settings.turnCallCap,
-    warnThresholds: settings.warnThresholds || null,
+    warnThresholds: warnThresholdsOf(settings),
     turnSample: settings.turnSample || null,
     parallelLimit: settings.parallelLimit,
     perMinuteLimit: settings.perMinuteLimit,

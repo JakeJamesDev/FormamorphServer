@@ -377,13 +377,14 @@ signed-in account. None returns a dollar amount to a player.
 | `percentUsed` | Whole percent of this UTC month's allowance, 0 to 100. |
 | `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. With fewer settled turns than `turnSample.min` it uses the tier's `turnCost`. |
 | `resetAt` | 00:00 UTC on the 1st of next month. |
+| `warnThresholds` | Rising whole percents at which a warning shows: the `warnThresholds` setting, or the server default `[75, 90]` while it is unset. The ack route accepts exactly these values. |
 | `acknowledged` | Warning thresholds this account acknowledged this month. |
 
 With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` and
 `acknowledged` is `[]`. A `paused` day keeps every field filled.
 
 **`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC month, for this
-account on every device. `:threshold` must be in the `warnThresholds` setting, else `400`. Answers
+account on every device. `:threshold` must be in the state's `warnThresholds`, else `400`. Answers
 `{ data: { acknowledged } }`. Repeating it changes nothing.
 
 **Usage after each call.** The proxy settles a call, then reports the new `{ percentUsed, turnsLeft, resetAt }`:

@@ -1,6 +1,6 @@
 const Setting = require('../models/Setting');
 const HostedGrant = require('../models/HostedGrant');
-const { HOSTED_AI } = require('../config/hostedAi');
+const { HOSTED_AI, warnThresholdsOf } = require('../config/hostedAi');
 const { activeConfig } = require('./hostedAiController');
 const { entitlement, hostedState, monthKey } = require('../utils/hostedState');
 
@@ -28,7 +28,7 @@ exports.getState = (req, res, next) => {
  */
 exports.acknowledgeWarning = (req, res, next) => {
   try {
-    const thresholds = Setting.get(HOSTED_AI)?.warnThresholds || [];
+    const thresholds = warnThresholdsOf(Setting.get(HOSTED_AI));
     const threshold = Number(req.params.threshold);
     if (!Number.isInteger(threshold) || !thresholds.includes(threshold)) {
       return res.status(400).json({ success: false, error: 'That is not a warning threshold' });

@@ -103,14 +103,14 @@ const monthKey = (now) => now.toISOString().slice(0, 7);
 const hostedState = (user, config, owned, now) => {
   const empty = {
     tier: owned ? owned.tier : null, state: null, window: null, maxTokens: null, tokenMargin: null, model: null,
-    percentUsed: null, turnsLeft: null, resetAt: null, acknowledged: []
+    percentUsed: null, turnsLeft: null, resetAt: null, warnThresholds: null, acknowledged: []
   };
   if (!ageConfirmed(user.id)) return { ...empty, state: 'age-gate' };
   if (!owned) return { ...empty, state: 'locked' };
   if (!config) return { ...empty, state: 'paused' };
 
   const usage = usageOf(owned.subject, config, now);
-  const thresholds = config.warnThresholds || [];
+  const thresholds = config.warnThresholds;
   let state = 'ready';
   // The daily pause refuses a first call before the budget does.
   if (pauseState(now).paused) state = 'paused';
@@ -127,6 +127,7 @@ const hostedState = (user, config, owned, now) => {
     percentUsed: usage.percentUsed,
     turnsLeft: usage.turnsLeft,
     resetAt: usage.resetAt,
+    warnThresholds: thresholds,
     acknowledged: HostedGrant.acknowledged(user.id, monthKey(now))
   };
 };

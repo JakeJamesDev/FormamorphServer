@@ -160,6 +160,7 @@ describe('the hosted state route', () => {
       percentUsed: 0,
       turnsLeft: 7,
       resetAt: expect.stringMatching(/^\d{4}-\d{2}-01T00:00:00\.000Z$/),
+      warnThresholds: [75, 90],
       acknowledged: []
     });
     expect(Object.keys(res.body.data).filter((key) => /cost|price|budget|micro|dollar|spend/i.test(key))).toEqual([]);
@@ -267,6 +268,31 @@ describe('warning acknowledgments', () => {
     expect((await ack(user, 50)).status).toBe(400);
     expect((await ack(user, 'abc')).status).toBe(400);
     expect((await state(user)).body.data.acknowledged).toEqual([]);
+  });
+
+  it('returns a custom list and accepts exactly those values', async () => {
+    Setting.set(HOSTED_AI, { ...SETTINGS, warnThresholds: [50, 60, 95] });
+    const user = supporter('supporter', 'p-custom');
+
+    expect((await state(user)).body.data.warnThresholds).toEqual([50, 60, 95]);
+    for (const threshold of [50, 60, 95]) expect((await ack(user, threshold)).status).toBe(200);
+    for (const threshold of [75, 90]) expect((await ack(user, threshold)).status).toBe(400);
+
+    settledTurns('p-custom', [[5500]]);
+    expect((await state(user)).body.data).toMatchObject({ state: 'warned', percentUsed: 55 });
+  });
+
+  it.each([null, []])('falls back to the default when the setting holds %j, so warned is reachable', async (unset) => {
+    Setting.set(HOSTED_AI, { ...SETTINGS, warnThresholds: unset });
+    const user = supporter('supporter', 'p-default');
+
+    expect((await state(user)).body.data.warnThresholds).toEqual([75, 90]);
+    expect((await ack(user, 75)).status).toBe(200);
+    expect((await ack(user, 90)).status).toBe(200);
+    expect((await ack(user, 50)).status).toBe(400);
+
+    settledTurns('p-default', [[8000]]);
+    expect((await state(user)).body.data).toMatchObject({ state: 'warned', percentUsed: 80 });
   });
 
   it('shows an earlier month as not acknowledged', async () => {
