@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { app, request, db } from './context.js';
+import { app, request, db, scratchDir } from './context.js';
 import { createUser, authHeader, worldPayload, fromAddress } from './helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -303,7 +302,7 @@ describe('the classifier', () => {
 });
 
 describe('refreshing the lists', () => {
-  const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'fms-lists-'));
+  const scratch = () => scratchDir('fms-lists-');
   const serve = (lists) => async (url) => {
     const text = lists[nameFor(url)];
     if (text instanceof Error) throw text;

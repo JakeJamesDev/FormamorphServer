@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createRequire } from 'module';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { db } from './context.js';
+import { db, scratchDir } from './context.js';
 import { createUser } from './helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -246,7 +245,9 @@ describe('WatermarkMark', () => {
 });
 
 describe('read-leak', () => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-leak-'));
+  const tmp = scratchDir('fms-leak-');
+  // libvips keeps a file it read open while cached; on Windows that blocks removing the folder.
+  afterAll(() => sharp.cache(false));
 
   it('names the account a leaked file was marked for', async () => {
     const ada = createUser();

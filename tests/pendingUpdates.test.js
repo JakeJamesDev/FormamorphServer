@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { createRequire } from 'module';
-import { app, request, db, paths } from './context.js';
+import { app, request, db, paths, scratchDir } from './context.js';
 import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -506,7 +505,7 @@ describe('backup and restore', () => {
   it('carry the pending directory', async () => {
     await seedUpdate();
     const held = pendingFiles();
-    const backupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-backup-'));
+    const backupDir = scratchDir('fms-backup-');
 
     await backupPending(backupDir);
     for (const name of held) fs.unlinkSync(path.join(paths.PENDING_DIR, name));

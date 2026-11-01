@@ -14,9 +14,22 @@ import path from 'path';
  * require, and always take the app and the db from here.
  */
 
-// Must be set before anything reads `config/paths`, which resolves once at load. `||=` so a worker that
-// already has one (or a caller overriding it) keeps it.
-process.env.STORAGE_ROOT ||= fs.mkdtempSync(path.join(os.tmpdir(), 'fms-test-'));
+const scratchDirs = [];
+
+/** A fresh folder under the OS temp dir, removed once the file's tests are done (setup.js). */
+export function scratchDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  scratchDirs.push(dir);
+  return dir;
+}
+
+export function removeScratchDirs() {
+  for (const dir of scratchDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+}
+
+// Must be set before anything reads `config/paths`, which resolves once at load. A caller's own root is
+// kept, and is never removed.
+process.env.STORAGE_ROOT ||= scratchDir('fms-test-');
 
 const require = createRequire(import.meta.url);
 

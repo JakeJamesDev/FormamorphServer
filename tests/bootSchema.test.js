@@ -3,9 +3,8 @@ import { createRequire } from 'module';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { db, migrate } from './context.js';
+import { db, migrate, scratchDir } from './context.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -259,7 +258,7 @@ const runScript = (script, env, { until, cwd = ROOT } = {}) => new Promise((reso
 
 /** A scratch directory holding a database file on the oldest schema, for a process of its own to migrate. */
 const oldestOnDisk = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-schema-'));
+  const dir = scratchDir('fms-schema-');
   const file = path.join(dir, 'old.db');
   oldestDatabase(file).close();
   return { dir, file };

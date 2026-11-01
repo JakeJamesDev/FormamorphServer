@@ -3,9 +3,8 @@ import { createRequire } from 'module';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { app, request, db, migrate } from './context.js';
+import { app, request, db, migrate, scratchDir } from './context.js';
 import { createUser } from './helpers.js';
 
 const require = createRequire(import.meta.url);
@@ -119,7 +118,7 @@ describe('the diff', () => {
 
 describe('the authored file', () => {
   it('reads the same body from a CRLF checkout as from an LF one', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-policy-'));
+    const dir = scratchDir('fms-policy-');
     const file = path.join(dir, 'policy.md');
     fs.writeFileSync(file, 'First line.\r\n\r\nSecond line.\r\n');
 
@@ -130,7 +129,7 @@ describe('the authored file', () => {
 describe('the command', () => {
   /** A database file with the live row in it, for a child process to open. */
   const liveDatabase = (body) => {
-    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fms-publish-')), 'live.db');
+    const file = path.join(scratchDir('fms-publish-'), 'live.db');
     const fresh = new Database(file);
     migrate(fresh);
     fresh.prepare("UPDATE policies SET enabled = 1, body = ? WHERE id = 'privacy_policy'").run(body);
