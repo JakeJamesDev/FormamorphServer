@@ -22,6 +22,9 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  await closeServer();
-  removeScratchDirs();
+  try {
+    await closeServer();
+  } finally {
+    removeScratchDirs();
+  }
 });

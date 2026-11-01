@@ -23,8 +23,17 @@ export function scratchDir(prefix) {
   return dir;
 }
 
+/** Removes every scratch folder, then throws once if any could not be removed. */
 export function removeScratchDirs() {
-  for (const dir of scratchDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+  const errors = [];
+  for (const dir of scratchDirs.splice(0)) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, `Could not remove ${errors.length} scratch folder(s)`);
 }
 
 // Must be set before anything reads `config/paths`, which resolves once at load. A caller's own root is
