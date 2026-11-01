@@ -106,14 +106,26 @@ const HostedUsage = {
   /**
    * Record an admitted call as `open` with its reservation.
    *
-   * @param {Object} row - `{ subject, userId, turnId, tier, model, estimatedPromptTokens, costMicros, startedAt }`
+   * @param {Object} row - `{ subject, userId, turnId, tier, model, promptType, estimatedPromptTokens, costMicros, startedAt }`
    * @returns {number} The row id
    */
   open: (row) => Number(db.prepare(`
     INSERT INTO hosted_usage
-      (subject, user_id, turn_id, tier, model, estimated_prompt_tokens, cost_micros, started_at, status)
-    VALUES (@subject, @userId, @turnId, @tier, @model, @estimatedPromptTokens, @costMicros, @startedAt, 'open')
-  `).run(row).lastInsertRowid),
+      (subject, user_id, turn_id, tier, model, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status)
+    VALUES (@subject, @userId, @turnId, @tier, @model, @promptType, @estimatedPromptTokens, @costMicros, @startedAt, 'open')
+  `).run({ promptType: null, ...row }).lastInsertRowid),
+
+  /**
+   * A subject's cost per prompt type since an instant, open rows included.
+   *
+   * @param {string} subject - The spend subject
+   * @param {string} since - ISO instant
+   * @returns {{ promptType: string|null, costMicros: number }[]} A null type is a row with none recorded
+   */
+  costByType: (subject, since) => db.prepare(`
+    SELECT prompt_type AS promptType, SUM(cost_micros) AS costMicros
+    FROM hosted_usage WHERE subject = ? AND started_at >= ? GROUP BY prompt_type
+  `).all(subject, since),
 
   /**
    * Settle an open row. A row the sweep settled first stays as the sweep left it.

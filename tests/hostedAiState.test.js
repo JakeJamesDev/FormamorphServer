@@ -164,6 +164,8 @@ describe('the hosted state route', () => {
       turnsLeft: 7,
       resetAt: expect.any(String),
       warnThresholds: [75, 90],
+      breakdown: {},
+      breakdownThreshold: 10,
       acknowledged: []
     });
     const reset = new Date(res.body.data.resetAt);

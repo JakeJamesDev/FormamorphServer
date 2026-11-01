@@ -3,6 +3,7 @@ const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
 const { TIER_KEYS } = require('../config/hostedAi');
 const { weekStart, resetAt } = require('../utils/hostedMeter');
+const { breakdownOf } = require('../utils/hostedState');
 const { DAY_MS } = require('../config/time');
 
 /** The staff and admin routes of Formamorph AI: grants, a subject's week and the spend report. */
@@ -82,7 +83,13 @@ exports.getSpend = (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: { subject: req.params.subject, since, resetAt: resetAt(now), ...HostedUsage.summarySince(req.params.subject, since) }
+      data: {
+        subject: req.params.subject,
+        since,
+        resetAt: resetAt(now),
+        ...HostedUsage.summarySince(req.params.subject, since),
+        breakdown: breakdownOf(req.params.subject, now, true)
+      }
     });
   } catch (error) {
     next(error);

@@ -74,6 +74,29 @@ const warnThresholdsOf = (settings) => (
 /** The request header that carries a turn id, both ways. */
 const TURN_HEADER = 'X-Formamorph-Turn';
 
+/** The request header that carries a call's prompt type. It never goes upstream. */
+const PROMPT_TYPE_HEADER = 'X-Formamorph-Prompt-Type';
+
+/** Every prompt type a usage row can record. */
+const PROMPT_TYPES = Object.freeze([
+  'narration',
+  'thinking', 'director', 'character', 'storyboard',
+  'choices',
+  'statUpdates', 'locationChange', 'entityLocation', 'discoverEntity', 'timePassed', 'openingTime', 'sceneTags',
+  'inventory',
+  'summary', 'milestoneSelect', 'diary',
+  'help', 'descriptionSummary', 'descriptionBridge', 'imageTags'
+]);
+
+/** The stored type for a header value: a known type, else null. */
+const promptTypeOf = (value) => (PROMPT_TYPES.includes(value) ? value : null);
+
+/** The share, in percent, at which the client names a single prompt under its group. */
+const DEFAULT_BREAKDOWN_THRESHOLD = 10;
+
+/** The breakdown threshold in force for a `hosted_ai` setting value: its own, else the default. */
+const breakdownThresholdOf = (settings) => settings?.breakdownThreshold ?? DEFAULT_BREAKDOWN_THRESHOLD;
+
 /** The response header that carries the usage state on a non-streamed call. */
 const USAGE_HEADER = 'X-Formamorph-Usage';
 
@@ -131,7 +154,7 @@ const validateModel = (entry) => {
 const validateHostedAi = (value) => {
   if (!isPlainObject(value)) return 'Hosted AI settings must be an object';
   const allowed = [
-    'models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', 'warnThresholds', 'turnSample', ...INTEGER_LIMITS, ...DOLLAR_LIMITS
+    'models', 'activeModel', 'tiers', 'tokenRatio', 'tokenMargin', 'warnThresholds', 'turnSample', 'breakdownThreshold', ...INTEGER_LIMITS, ...DOLLAR_LIMITS
   ];
   const unknown = Object.keys(value).find((key) => !allowed.includes(key));
   if (unknown) return `Hosted AI settings have no field "${unknown}"`;
@@ -170,8 +193,8 @@ const validateHostedAi = (value) => {
   return validateWarnings(value) || validateTiers(value.tiers);
 };
 
-/** Why `warnThresholds` or `turnSample` cannot be stored, or null. Both may be absent or null. */
-const validateWarnings = ({ warnThresholds, turnSample }) => {
+/** Why a warning, turn sample or breakdown setting cannot be stored, or null. Each may be absent or null. */
+const validateWarnings = ({ warnThresholds, turnSample, breakdownThreshold }) => {
   if (warnThresholds !== undefined && warnThresholds !== null) {
     const valid = Array.isArray(warnThresholds) && warnThresholds.length <= 5
       && warnThresholds.every((percent, i) => Number.isInteger(percent) && percent > 0 && percent < 100
@@ -183,6 +206,11 @@ const validateWarnings = ({ warnThresholds, turnSample }) => {
       || !isPositiveInteger(turnSample.recent) || !isPositiveInteger(turnSample.min) || turnSample.min > turnSample.recent) {
       return 'turnSample holds recent and min, whole numbers above zero, with min no more than recent';
     }
+  }
+
+  if (breakdownThreshold !== undefined && breakdownThreshold !== null
+    && !(Number.isInteger(breakdownThreshold) && breakdownThreshold >= 1 && breakdownThreshold <= 100)) {
+    return 'breakdownThreshold must be a whole percent between 1 and 100';
   }
 
   return null;
@@ -220,6 +248,7 @@ const HOSTED_AI_DEFAULT = Object.freeze({
   retentionDays: null,
   warnThresholds: null,
   turnSample: null,
+  breakdownThreshold: null,
   parallelLimit: null,
   perMinuteLimit: null,
   dailyCeiling: null,
@@ -235,6 +264,11 @@ module.exports = {
   HOSTED_BODY_LIMIT,
   DEFAULT_WARN_THRESHOLDS,
   warnThresholdsOf,
+  PROMPT_TYPE_HEADER,
+  PROMPT_TYPES,
+  promptTypeOf,
+  DEFAULT_BREAKDOWN_THRESHOLD,
+  breakdownThresholdOf,
   MICROS_PER_DOLLAR,
   TIER_KEYS,
   TURN_HEADER,

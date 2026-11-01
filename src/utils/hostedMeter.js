@@ -41,7 +41,7 @@ const worstCase = (estimatedPromptTokens, maxTokens, prices) => promptAndOutput(
  * Turn, then budget, then window. The checks and the insert share one synchronous transaction, so
  * parallel first calls each see the reservations before them. The reservation then checks the daily ceiling.
  *
- * @param {Object} call - `{ subject, userId, tier, model, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
+ * @param {Object} call - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
  *   ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
  * @returns {{ refusal: string, extra?: Object }|{ rowId: number, turnId: string }}
  */
@@ -69,6 +69,7 @@ const admitCall = db.transaction((call) => {
     turnId: admittedTurn,
     tier: call.tier,
     model: call.model,
+    promptType: call.promptType,
     estimatedPromptTokens: call.estimatedPromptTokens,
     costMicros: call.reserveMicros,
     startedAt: now.toISOString()

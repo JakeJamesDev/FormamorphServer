@@ -1,8 +1,8 @@
 const { addColumns } = require('../columns');
 
 /**
- * Staff grants of a Formamorph AI tier, the per-week warning acknowledgments, and the model a usage row
- * was admitted on.
+ * Staff grants of a Formamorph AI tier, the per-week warning acknowledgments, and the model and prompt type
+ * a usage row was admitted on.
  *
  * A grant is its own spend subject (`grant:<id>`), so usage rows never point at it. Grants and
  * acknowledgments belong to the account and go with it; the usage rows stay.
@@ -33,7 +33,7 @@ const apply = (database) => {
     );
   `);
 
-  const added = addColumns(database, 'hosted_usage', [['model', 'TEXT']]);
+  const added = addColumns(database, 'hosted_usage', [['model', 'TEXT'], ['prompt_type', 'TEXT']]);
   const after = database.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'").get().n;
 
   return added.length > 0 || after > before;

@@ -2,7 +2,7 @@ const Policy = require('../models/Policy');
 const PatreonLink = require('../models/PatreonLink');
 const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
-const { TIER_KEYS, MICROS_PER_DOLLAR } = require('../config/hostedAi');
+const { TIER_KEYS, MICROS_PER_DOLLAR, PROMPT_TYPES } = require('../config/hostedAi');
 const { weekStart, resetAt } = require('./hostedMeter');
 const { pauseState } = require('./hostedPause');
 
@@ -85,6 +85,33 @@ const usageOf = (subject, config, now) => {
   };
 };
 
+/**
+ * Each prompt type's share of the subject's cost this week, as a percent with one decimal.
+ *
+ * Costs include open rows. A missing or unknown type counts as `other`.
+ *
+ * @param {string} subject - The spend subject
+ * @param {Date} now - The instant
+ * @param {boolean} [listAll] - List every type, zero included, with `other` last; else only types with a share
+ * @returns {Object<string, number>} Type to percent; empty for a week with no spend
+ */
+const breakdownOf = (subject, now, listAll = false) => {
+  const costs = new Map();
+  for (const { promptType, costMicros } of HostedUsage.costByType(subject, weekStart(now))) {
+    const key = PROMPT_TYPES.includes(promptType) ? promptType : 'other';
+    costs.set(key, (costs.get(key) || 0) + costMicros);
+  }
+  const total = [...costs.values()].reduce((sum, cost) => sum + cost, 0);
+  const keys = listAll ? [...PROMPT_TYPES, 'other'] : [...costs.keys()];
+  const shares = {};
+  for (const key of keys) {
+    const share = total > 0 ? Math.round(((costs.get(key) || 0) * 1000) / total) / 10 : 0;
+    if (listAll || share > 0) shares[key] = share;
+  }
+
+  return shares;
+};
+
 /** The week's UTC Monday as `YYYY-MM-DD`: the key a warning acknowledgment is kept under. */
 const weekKey = (now) => weekStart(now).slice(0, 10);
 
@@ -103,7 +130,7 @@ const weekKey = (now) => weekStart(now).slice(0, 10);
 const hostedState = (user, config, owned, now) => {
   const empty = {
     tier: owned ? owned.tier : null, state: null, window: null, maxTokens: null, tokenMargin: null, model: null,
-    percentUsed: null, turnsLeft: null, resetAt: null, warnThresholds: null, acknowledged: []
+    percentUsed: null, turnsLeft: null, resetAt: null, warnThresholds: null, breakdown: null, breakdownThreshold: null, acknowledged: []
   };
   if (!ageConfirmed(user.id)) return { ...empty, state: 'age-gate' };
   if (!owned) return { ...empty, state: 'locked' };
@@ -128,8 +155,10 @@ const hostedState = (user, config, owned, now) => {
     turnsLeft: usage.turnsLeft,
     resetAt: usage.resetAt,
     warnThresholds: thresholds,
+    breakdown: breakdownOf(owned.subject, now),
+    breakdownThreshold: config.breakdownThreshold,
     acknowledged: HostedGrant.acknowledged(user.id, weekKey(now))
   };
 };
 
-module.exports = { ageConfirmed, entitlement, usageOf, hostedState, weekKey };
+module.exports = { ageConfirmed, entitlement, usageOf, breakdownOf, hostedState, weekKey };

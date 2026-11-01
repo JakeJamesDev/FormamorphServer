@@ -364,6 +364,11 @@ remove another's thumbnail. Swap the PNGs to change the art; no code knows about
 The proxy itself is `POST /api/hosted-ai/chat/completions`. These routes sit beside it. Every route needs a
 signed-in account. None returns a dollar amount to a player.
 
+**Prompt type header.** A proxy call may send `X-Formamorph-Prompt-Type` with the client's prompt type
+(`narration`, `choices`, `statUpdates` and so on).
+- A known type is stored on the usage row. An absent or unknown one is stored as null, and the call is still admitted.
+- The header is in CORS allowed headers and never goes upstream.
+
 **`GET /api/hosted-ai/state`** answers `200 { success, data }` for any signed-in account:
 
 | Field | Meaning |
@@ -378,9 +383,11 @@ signed-in account. None returns a dollar amount to a player.
 | `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. With fewer settled turns than `turnSample.min` it uses the tier's `turnCost`. |
 | `resetAt` | 00:00 UTC on the next Monday. |
 | `warnThresholds` | Rising whole percents at which a warning shows: the `warnThresholds` setting, or the server default `[75, 90]` while it is unset. The ack route accepts exactly these values. |
+| `breakdown` | Each prompt type's share of this week's use, as a percent with one decimal: `{ "narration": 61.2, "other": 0.4 }`. Only types with a share are listed, a call with no known type counts as `other`, and `{}` means nothing is spent yet. Shares follow cost, not tokens, and need not total 100. No dollar amount. |
+| `breakdownThreshold` | The share, in whole percent, at which a client names a single prompt under its group: the `breakdownThreshold` setting (1 to 100), or the server default `10` while it is unset. |
 | `acknowledged` | Warning thresholds this account acknowledged this week. |
 
-With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` and
+With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` (`breakdown` and `breakdownThreshold` too) and
 `acknowledged` is `[]`. A `paused` day keeps every field filled.
 
 **`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC week, for this
@@ -403,7 +410,7 @@ was removed from the approved list they use the active one.
 | `POST /grants` `{ userId, tier, endsAt }` | staff | Grant a tier to an account until a future date. `201`. |
 | `GET /grants` | staff | Every grant, newest first, with `subject` (`grant:<id>`) and `revokedAt`. No spend. |
 | `DELETE /grants/:id` | staff | Revoke now. |
-| `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros }` for the UTC week. A Patreon user id or `grant:<id>`. |
+| `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros, breakdown }` for the UTC week. `breakdown` lists every prompt type, `other` last, with its share in percent (zero included) and no threshold. A Patreon user id or `grant:<id>`. |
 | `GET /spend-report?days=N` | admin | Per UTC day: `calls`, `costMicros` recorded, and `providerMicros` (`null` before the provider figure is stored). Default 31 days, at most 366. |
 
 **The daily pause.** When the UTC day's spend, open calls at their reservation included, reaches the
@@ -417,7 +424,7 @@ mail to `STAFF_ALERT_EMAIL`.
 
 A moderator gets `403` on the admin-only routes. The approved model list and the active model are edited
 through `PUT /api/settings/hosted_ai`, which is admin-only. The setting's `tiers.<key>.turnCost` (dollars),
-`warnThresholds` (rising whole percents) and `turnSample` (`{ recent, min }`) feed the state route.
+`warnThresholds` (rising whole percents), `turnSample` (`{ recent, min }`) and `breakdownThreshold` (a whole percent from 1 to 100) feed the state route.
 
 A grant is its own spend subject, so its spend sums by grant id and never moves to a pledge. Grants and
 warning acknowledgments go with the account on erasure; the usage rows stay.
