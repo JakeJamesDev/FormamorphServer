@@ -2,7 +2,7 @@ const Setting = require('../models/Setting');
 const HostedGrant = require('../models/HostedGrant');
 const { HOSTED_AI, warnThresholdsOf } = require('../config/hostedAi');
 const { activeConfig } = require('./hostedAiController');
-const { entitlement, hostedState, monthKey } = require('../utils/hostedState');
+const { entitlement, hostedState, weekKey } = require('../utils/hostedState');
 
 /**
  * @desc    The signed-in account's Formamorph AI state: tier, window, allowance used and warnings seen
@@ -22,7 +22,7 @@ exports.getState = (req, res, next) => {
 };
 
 /**
- * @desc    Acknowledge a usage warning for this month, so no device shows it again
+ * @desc    Acknowledge a usage warning for this week, so no device shows it again
  * @route   POST /api/hosted-ai/warnings/:threshold/ack
  * @access  Private
  */
@@ -34,10 +34,10 @@ exports.acknowledgeWarning = (req, res, next) => {
       return res.status(400).json({ success: false, error: 'That is not a warning threshold' });
     }
 
-    const month = monthKey(new Date());
-    HostedGrant.acknowledge(req.user.id, month, threshold);
+    const week = weekKey(new Date());
+    HostedGrant.acknowledge(req.user.id, week, threshold);
 
-    return res.status(200).json({ success: true, data: { acknowledged: HostedGrant.acknowledged(req.user.id, month) } });
+    return res.status(200).json({ success: true, data: { acknowledged: HostedGrant.acknowledged(req.user.id, week) } });
   } catch (error) {
     return next(error);
   }

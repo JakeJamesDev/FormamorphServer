@@ -1,7 +1,7 @@
 const { addColumns } = require('../columns');
 
 /**
- * Staff grants of a Formamorph AI tier, the per-month warning acknowledgments, and the model a usage row
+ * Staff grants of a Formamorph AI tier, the per-week warning acknowledgments, and the model a usage row
  * was admitted on.
  *
  * A grant is its own spend subject (`grant:<id>`), so usage rows never point at it. Grants and
@@ -26,9 +26,9 @@ const apply = (database) => {
 
     CREATE TABLE IF NOT EXISTS hosted_warning_acks (
       user_id TEXT NOT NULL,
-      month TEXT NOT NULL,
+      week TEXT NOT NULL,
       threshold INTEGER NOT NULL,
-      PRIMARY KEY (user_id, month, threshold),
+      PRIMARY KEY (user_id, week, threshold),
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
   `);

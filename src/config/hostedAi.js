@@ -31,7 +31,7 @@ const REFUSALS = Object.freeze({
   service_paused: { status: 503, error: 'Formamorph AI is paused. Try again later.' },
   rate_limited: { status: 429, error: 'Too many requests. Wait a moment and try again.' },
   turn_expired: { status: 409, error: 'This turn has ended. Start a new turn.' },
-  budget_exhausted: { status: 402, error: 'Your Formamorph AI allowance for this month is used up.' },
+  budget_exhausted: { status: 402, error: 'Your Formamorph AI allowance for this week is used up.' },
   window_exceeded: { status: 413, error: 'This prompt is longer than your Formamorph AI window.' },
   image_not_supported: { status: 400, error: 'Formamorph AI does not accept images.' },
   upstream_error: { status: 502, error: 'The AI provider did not answer. Try again.' }
@@ -85,6 +85,8 @@ const TIER_KEYS = Object.freeze([SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP]);
 const INTEGER_LIMITS = [
   'maxTokensCap', 'idleLimitSeconds', 'turnLimitSeconds', 'turnCallCap', 'retentionDays', 'parallelLimit', 'perMinuteLimit'
 ];
+/** Usage rows must outlive the week that sums them. */
+const MIN_RETENTION_DAYS = 7;
 /** Dollar amounts: the daily ceiling over all spend, and the provider balance that raises an alert. */
 const DOLLAR_LIMITS = ['dailyCeiling', 'balanceThreshold'];
 
@@ -151,6 +153,9 @@ const validateHostedAi = (value) => {
   for (const key of INTEGER_LIMITS) {
     if (value[key] !== null && !isPositiveInteger(value[key])) return `${key} must be a whole number above zero`;
   }
+  if (value.retentionDays !== null && value.retentionDays < MIN_RETENTION_DAYS) {
+    return `retentionDays must be at least ${MIN_RETENTION_DAYS}`;
+  }
   for (const key of DOLLAR_LIMITS) {
     if (value[key] !== null && !(typeof value[key] === 'number' && value[key] >= 0)) return `${key} must be zero or more`;
   }
@@ -183,7 +188,7 @@ const validateWarnings = ({ warnThresholds, turnSample }) => {
   return null;
 };
 
-/** Why a `tiers` value cannot be stored, or null. Budgets and turn costs are dollars. */
+/** Why a `tiers` value cannot be stored, or null. A budget is dollars per week and a turn cost is dollars. */
 const validateTiers = (tiers) => {
   if (!isPlainObject(tiers)) return 'tiers must be an object';
   for (const [key, tier] of Object.entries(tiers)) {

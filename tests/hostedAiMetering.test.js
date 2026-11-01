@@ -13,7 +13,7 @@ const { sweepHostedUsage } = require('../src/utils/sweepHostedUsage');
 const { HOSTED_AI, REFUSALS } = require('../src/config/hostedAi');
 
 /**
- * Formamorph AI metering: reservation, settlement, turns, the monthly budget and the window, over HTTP
+ * Formamorph AI metering: reservation, settlement, turns, the weekly budget and the window, over HTTP
  * against a fake upstream.
  *
  * Prices are dollars per million tokens, so here one prompt token costs 1 micro-dollar, one cached token 1
@@ -108,7 +108,7 @@ const fire = (...args) => { send(...args).then(() => {}, () => {}); };
 const rows = () => db.prepare('SELECT * FROM hosted_usage ORDER BY id').all();
 const lastRow = () => db.prepare('SELECT * FROM hosted_usage ORDER BY id DESC LIMIT 1').get();
 
-/** Spend a subject's whole month in one call: its reservation alone reaches the budget. */
+/** Spend a subject's whole week in one call: its reservation alone reaches the budget. */
 const exhaust = async (user) => {
   const res = await send(user, chat({ max_tokens: 1000 }));
   expect(res.status).toBe(200);
@@ -168,7 +168,7 @@ describe('the usage table', () => {
 });
 
 describe('the spend subject', () => {
-  it('keeps the month when the Patreon membership moves to another account', async () => {
+  it('keeps the week when the Patreon membership moves to another account', async () => {
     const first = supporter('supporter', 'p-moving');
     await exhaust(first);
 
@@ -180,7 +180,7 @@ describe('the spend subject', () => {
     expect(res.body.code).toBe('budget_exhausted');
   });
 
-  it('keeps the month, and the rows, when the account is erased and made again', async () => {
+  it('keeps the week, and the rows, when the account is erased and made again', async () => {
     const first = supporter('supporter', 'p-erased');
     await exhaust(first);
 
@@ -457,22 +457,46 @@ describe('turns', () => {
   });
 });
 
-describe('the monthly budget', () => {
-  it('refuses a first call once the month sum reaches the tier budget, with the reset time', async () => {
+describe('the weekly budget', () => {
+  // 2026-11-02 and 2027-01-04 are Mondays. The first week here spans two months, the second two years.
+  it.each([
+    ['inside one month', '2026-11-03T12:00:00Z', '2026-11-08T23:59:00Z', '2026-11-09T00:00:00Z'],
+    ['across two months', '2026-10-30T12:00:00Z', '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z'],
+    ['across two years', '2026-12-31T12:00:00Z', '2027-01-01T00:00:00Z', '2027-01-04T00:00:00Z']
+  ])('refuses a first call until the Monday reset, %s', async (_name, spentAt, stillRefusedAt, resetsAt) => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-31T23:59:00Z'));
+    vi.setSystemTime(new Date(spentAt));
     const user = supporter();
     await exhaust(user);
 
+    vi.setSystemTime(new Date(stillRefusedAt));
     const refused = await send(user);
-    vi.setSystemTime(new Date('2026-11-01T00:00:00Z'));
-    const nextMonth = await send(user);
+    vi.setSystemTime(new Date(new Date(resetsAt).getTime() - 1000));
+    const justBefore = await send(user);
+    vi.setSystemTime(new Date(resetsAt));
+    const nextWeek = await send(user);
 
     expect(refused.status).toBe(402);
     expect(refused.body).toEqual({
-      success: false, code: 'budget_exhausted', error: REFUSALS.budget_exhausted.error, resetAt: '2026-11-01T00:00:00.000Z'
+      success: false, code: 'budget_exhausted', error: REFUSALS.budget_exhausted.error, resetAt: new Date(resetsAt).toISOString()
     });
-    expect(nextMonth.status).toBe(200);
+    expect(justBefore.status).toBe(402);
+    expect(nextWeek.status).toBe(200);
+  });
+
+  it('lets a turn admitted before the reset finish after it, while a new turn is refused', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-01T23:59:30Z'));
+    const user = supporter();
+    const first = await send(user);
+
+    vi.setSystemTime(new Date('2026-11-02T00:00:10Z'));
+    await exhaust(user);
+    const finished = await send(user, chat(), first.headers[TURN]);
+    const fresh = await send(user);
+
+    expect(finished.status).toBe(200);
+    expect(fresh.status).toBe(402);
   });
 
   it('admits a first call one micro-dollar under the budget', async () => {

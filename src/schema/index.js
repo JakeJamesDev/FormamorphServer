@@ -57,6 +57,7 @@ const STEPS = [
   require('./steps/networkKind'),
   require('./steps/supporterTop'),
   require('./steps/hostedGrants'),
+  require('./steps/warningAckWeek'),
   require('./indexes')
 ];
 

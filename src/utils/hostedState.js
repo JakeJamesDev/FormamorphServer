@@ -3,11 +3,11 @@ const PatreonLink = require('../models/PatreonLink');
 const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
 const { TIER_KEYS, MICROS_PER_DOLLAR } = require('../config/hostedAi');
-const { monthStart, resetAt } = require('./hostedMeter');
+const { weekStart, resetAt } = require('./hostedMeter');
 const { pauseState } = require('./hostedPause');
 
 /**
- * What an account has of Formamorph AI right now, and how much of its month is left.
+ * What an account has of Formamorph AI right now, and how much of its week is left.
  *
  * Nothing here returns a dollar amount to a caller that sends it to a player: `usageOf` speaks in percent
  * and turns.
@@ -28,7 +28,7 @@ const ageConfirmed = (userId) => {
  * The tier an account is entitled to and the spend subject that pays for it, or null.
  *
  * A live pledge and live grants all count and the highest tier wins. On a tie the pledge wins, so a grant
- * that only repeats the pledge never moves the month's spend to another subject.
+ * that only repeats the pledge never moves the week's spend to another subject.
  *
  * @param {string} userId - The account
  * @param {Date} [now] - The instant, for tests
@@ -55,7 +55,7 @@ const entitlement = (userId, now = new Date()) => {
 };
 
 /**
- * Percent of the month used and about how many turns are left.
+ * Percent of the week used and about how many turns are left.
  *
  * Turns left divides what remains by the subject's average cost per recent turn, grouped by turn id. With
  * fewer settled turns than the minimum it uses the tier's fallback cost, and with neither it is null.
@@ -67,7 +67,7 @@ const entitlement = (userId, now = new Date()) => {
  */
 const usageOf = (subject, config, now) => {
   const budget = Math.round(config.limits.budget * MICROS_PER_DOLLAR);
-  const spent = HostedUsage.spendSince(subject, monthStart(now));
+  const spent = HostedUsage.spendSince(subject, weekStart(now));
   const exhausted = spent >= budget;
 
   let perTurn = null;
@@ -85,8 +85,8 @@ const usageOf = (subject, config, now) => {
   };
 };
 
-/** `YYYY-MM` of the UTC month an instant falls in: the key a warning acknowledgment is kept under. */
-const monthKey = (now) => now.toISOString().slice(0, 7);
+/** The week's UTC Monday as `YYYY-MM-DD`: the key a warning acknowledgment is kept under. */
+const weekKey = (now) => weekStart(now).slice(0, 10);
 
 /**
  * The hosted state an account reads.
@@ -128,8 +128,8 @@ const hostedState = (user, config, owned, now) => {
     turnsLeft: usage.turnsLeft,
     resetAt: usage.resetAt,
     warnThresholds: thresholds,
-    acknowledged: HostedGrant.acknowledged(user.id, monthKey(now))
+    acknowledged: HostedGrant.acknowledged(user.id, weekKey(now))
   };
 };
 
-module.exports = { ageConfirmed, entitlement, usageOf, hostedState, monthKey };
+module.exports = { ageConfirmed, entitlement, usageOf, hostedState, weekKey };

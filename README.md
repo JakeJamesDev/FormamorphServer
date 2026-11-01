@@ -85,8 +85,8 @@ npm install
    ```
 
    > 🤖 **Formamorph AI also needs its admin setting.** The `hosted_ai` setting holds the models (with
-   > prices in dollars per million tokens), each tier's window, monthly budget and fallback cost per turn,
-   > the warning thresholds, the turn sample, the turn, estimate and retention limits, the per-account
+   > prices in dollars per million tokens), each tier's window, weekly budget and fallback cost per turn,
+   > the warning thresholds, the turn sample, the turn, estimate and retention limits (retention is at least 7 days), the per-account
    > parallel and per-minute limits, and the daily ceiling in dollars. Until every value is set, the proxy
    > answers `service_paused`. `balanceThreshold` (dollars) is optional: without it, nobody is alerted
    > about the provider balance.
@@ -374,16 +374,16 @@ signed-in account. None returns a dollar amount to a player.
 | `maxTokens` | The cap on a call's `max_tokens`. |
 | `tokenMargin` | Tokens added to the window before `window_exceeded`. |
 | `model` | `{ id, capabilities }` of the active model. `id` changes when the admin switches model, so a client caches capability by it. |
-| `percentUsed` | Whole percent of this UTC month's allowance, 0 to 100. |
+| `percentUsed` | Whole percent of this UTC week's allowance (the week starts Monday 00:00 UTC), 0 to 100. |
 | `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. With fewer settled turns than `turnSample.min` it uses the tier's `turnCost`. |
-| `resetAt` | 00:00 UTC on the 1st of next month. |
+| `resetAt` | 00:00 UTC on the next Monday. |
 | `warnThresholds` | Rising whole percents at which a warning shows: the `warnThresholds` setting, or the server default `[75, 90]` while it is unset. The ack route accepts exactly these values. |
-| `acknowledged` | Warning thresholds this account acknowledged this month. |
+| `acknowledged` | Warning thresholds this account acknowledged this week. |
 
 With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` and
 `acknowledged` is `[]`. A `paused` day keeps every field filled.
 
-**`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC month, for this
+**`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC week, for this
 account on every device. `:threshold` must be in the state's `warnThresholds`, else `400`. Answers
 `{ data: { acknowledged } }`. Repeating it changes nothing.
 
@@ -403,7 +403,7 @@ was removed from the approved list they use the active one.
 | `POST /grants` `{ userId, tier, endsAt }` | staff | Grant a tier to an account until a future date. `201`. |
 | `GET /grants` | staff | Every grant, newest first, with `subject` (`grant:<id>`) and `revokedAt`. No spend. |
 | `DELETE /grants/:id` | staff | Revoke now. |
-| `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros }` for the UTC month. A Patreon user id or `grant:<id>`. |
+| `GET /spend/:subject` | admin | `{ subject, since, resetAt, calls, turns, costMicros }` for the UTC week. A Patreon user id or `grant:<id>`. |
 | `GET /spend-report?days=N` | admin | Per UTC day: `calls`, `costMicros` recorded, and `providerMicros` (`null` before the provider figure is stored). Default 31 days, at most 366. |
 
 **The daily pause.** When the UTC day's spend, open calls at their reservation included, reaches the

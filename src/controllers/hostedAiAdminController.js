@@ -2,10 +2,10 @@ const User = require('../models/User');
 const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
 const { TIER_KEYS } = require('../config/hostedAi');
-const { monthStart, resetAt } = require('../utils/hostedMeter');
+const { weekStart, resetAt } = require('../utils/hostedMeter');
 const { DAY_MS } = require('../config/time');
 
-/** The staff and admin routes of Formamorph AI: grants, a subject's month and the spend report. */
+/** The staff and admin routes of Formamorph AI: grants, a subject's week and the spend report. */
 
 const grantBody = (grant) => ({
   id: grant.id,
@@ -71,14 +71,14 @@ exports.revokeGrant = (req, res, next) => {
 };
 
 /**
- * @desc    A spend subject's calls, turns and cost this UTC month
+ * @desc    A spend subject's calls, turns and cost this UTC week (Monday 00:00 to Monday 00:00)
  * @route   GET /api/hosted-ai/admin/spend/:subject
  * @access  Private/Admin
  */
 exports.getSpend = (req, res, next) => {
   try {
     const now = new Date();
-    const since = monthStart(now);
+    const since = weekStart(now);
 
     res.status(200).json({
       success: true,

@@ -733,7 +733,7 @@ const apply = (database) => {
 
   // One row per Formamorph AI call: what it reserved, then what it cost, in micro-dollars. No prompt or
   // reply text, ever. `user_id` has no foreign key: erasure sets it null and the row stays with its
-  // subject, so the month and the day keep their sums.
+  // subject, so the week and the day keep their sums.
   database.exec(`
     CREATE TABLE IF NOT EXISTS hosted_usage (
       id INTEGER PRIMARY KEY,

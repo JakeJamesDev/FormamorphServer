@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import http from 'http';
 import { app, request, db, migrate } from './context.js';
@@ -8,6 +8,8 @@ const require = createRequire(import.meta.url);
 const Setting = require('../src/models/Setting');
 const Policy = require('../src/models/Policy');
 const PatreonLink = require('../src/models/PatreonLink');
+const Database = require('better-sqlite3');
+const warningAckWeek = require('../src/schema/steps/warningAckWeek');
 const HostedGrant = require('../src/models/HostedGrant');
 const HostedProviderSpend = require('../src/models/HostedProviderSpend');
 const { checkPause } = require('../src/utils/hostedPause');
@@ -131,6 +133,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   db.prepare('DELETE FROM patreon_links').run();
   db.prepare('DELETE FROM hosted_usage').run();
   db.prepare('DELETE FROM hosted_grants').run();
@@ -159,10 +162,12 @@ describe('the hosted state route', () => {
       model: { id: 'first', capabilities: { tools: true, reasoning: 'a' } },
       percentUsed: 0,
       turnsLeft: 7,
-      resetAt: expect.stringMatching(/^\d{4}-\d{2}-01T00:00:00\.000Z$/),
+      resetAt: expect.any(String),
       warnThresholds: [75, 90],
       acknowledged: []
     });
+    const reset = new Date(res.body.data.resetAt);
+    expect([reset.getUTCDay(), reset.getUTCHours(), reset.getUTCMinutes()]).toEqual([1, 0, 0]);
     expect(Object.keys(res.body.data).filter((key) => /cost|price|budget|micro|dollar|spend/i.test(key))).toEqual([]);
     expect(JSON.stringify(res.body)).not.toMatch(/cost|price|budget|micro|dollar|spend/i);
   });
@@ -241,7 +246,7 @@ describe('the hosted state route', () => {
 describe('warning acknowledgments', () => {
   const ack = (user, threshold) => request(app).post(`${BASE}/warnings/${threshold}/ack`).set(authHeader(user));
 
-  it('records a warning for this month, for this account only', async () => {
+  it('records a warning for this week, for this account only', async () => {
     const user = supporter();
     const other = supporter();
 
@@ -295,11 +300,48 @@ describe('warning acknowledgments', () => {
     expect((await state(user)).body.data).toMatchObject({ state: 'warned', percentUsed: 80 });
   });
 
-  it('shows an earlier month as not acknowledged', async () => {
+  it('shows an earlier week as not acknowledged', async () => {
     const user = supporter();
-    HostedGrant.acknowledge(user.id, '2020-01', 75);
+    HostedGrant.acknowledge(user.id, '2020-01-06', 75);
 
     expect((await state(user)).body.data.acknowledged).toEqual([]);
+  });
+
+  it('applies an acknowledgment across a month change inside its week, and again the next Monday', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-30T12:00:00Z'));
+    const user = supporter();
+    await ack(user, 90);
+
+    vi.setSystemTime(new Date('2026-11-01T23:59:00Z'));
+    const sameWeek = (await state(user)).body.data.acknowledged;
+    vi.setSystemTime(new Date('2026-11-02T00:00:00Z'));
+    const nextWeek = (await state(user)).body.data.acknowledged;
+
+    vi.setSystemTime(new Date('2026-11-03T12:00:00Z'));
+    await ack(user, 75);
+    vi.setSystemTime(new Date('2026-11-09T00:00:00Z'));
+    const sameMonthNextWeek = (await state(user)).body.data.acknowledged;
+
+    expect(sameWeek).toEqual([90]);
+    expect(nextWeek).toEqual([]);
+    expect(sameMonthNextWeek).toEqual([]);
+  });
+
+  it('renames the old month column and leaves old monthly rows unmatched', async () => {
+    const legacy = new Database(':memory:');
+    legacy.exec(`
+      CREATE TABLE hosted_warning_acks (
+        user_id TEXT NOT NULL, month TEXT NOT NULL, threshold INTEGER NOT NULL, PRIMARY KEY (user_id, month, threshold)
+      );
+      INSERT INTO hosted_warning_acks VALUES ('u1', '2026-11', 75);
+    `);
+
+    const changed = warningAckWeek.apply(legacy);
+
+    expect(changed).toBe(true);
+    expect(legacy.prepare('SELECT user_id, week FROM hosted_warning_acks').all()).toEqual([{ user_id: 'u1', week: '2026-11' }]);
+    expect(warningAckWeek.apply(legacy)).toBe(false);
   });
 });
 
@@ -475,7 +517,17 @@ describe('the admin routes', () => {
     expect((await edit({ ...SETTINGS, warnThresholds: null, turnSample: null })).status).toBe(200);
   });
 
-  it('reads a subject month spend for an admin only', async () => {
+  it('refuses a retention below 7 days, and accepts 7 or none', async () => {
+    const admin = asAdmin();
+    const edit = (retentionDays) => request(app).put('/api/settings/hosted_ai').set(authHeader(admin)).send({ value: { ...SETTINGS, retentionDays } });
+
+    expect((await edit(6)).status).toBe(400);
+    expect((await edit(1)).status).toBe(400);
+    expect((await edit(7)).status).toBe(200);
+    expect((await edit(null)).status).toBe(200);
+  });
+
+  it('reads a subject week spend for an admin only', async () => {
     settledTurns('p-spent', [[300, 200], [500]]);
     settledTurns('p-other', [[900]]);
     const path = `${BASE}/admin/spend/p-spent`;

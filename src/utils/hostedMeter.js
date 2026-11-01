@@ -11,11 +11,16 @@ const { checkPause } = require('./hostedPause');
  * already micro-dollars.
  */
 
-/** 00:00 UTC on the 1st of the month `now` falls in. */
-const monthStart = (now) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+/** 00:00 UTC on the Monday of the week `now` falls in; `getUTCDay` counts Sunday as 0. */
+const weekStartMs = (now) => Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7));
 
-/** 00:00 UTC on the 1st of the next month: when a budget resets. */
-const resetAt = (now) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+const weekStart = (now) => new Date(weekStartMs(now)).toISOString();
+
+/** 00:00 UTC on the next Monday: when a budget resets. */
+const resetAt = (now) => {
+  const monday = new Date(weekStartMs(now));
+  return new Date(Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + 7)).toISOString();
+};
 
 /** Tokens from a character count, rounded up. */
 const estimateTokens = (chars, ratio) => Math.ceil(chars / ratio);
@@ -49,7 +54,7 @@ const admitCall = db.transaction((call) => {
       || now.getTime() - Date.parse(turn.first) >= call.turnLimitMs
       || turn.calls >= call.turnCallCap;
     if (expired) return { refusal: 'turn_expired' };
-  } else if (HostedUsage.spendSince(subject, monthStart(now)) >= call.budgetMicros) {
+  } else if (HostedUsage.spendSince(subject, weekStart(now)) >= call.budgetMicros) {
     return { refusal: 'budget_exhausted', extra: { resetAt: resetAt(now) } };
   }
 
@@ -151,4 +156,4 @@ const generatedChars = (chunk) => {
   return chars;
 };
 
-module.exports = { monthStart, resetAt, estimateTokens, worstCase, admitCall, settlement, generatedChars };
+module.exports = { weekStart, resetAt, estimateTokens, worstCase, admitCall, settlement, generatedChars };

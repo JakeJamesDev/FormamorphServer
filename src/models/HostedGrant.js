@@ -56,20 +56,20 @@ const HostedGrant = {
     .all(userId, now.toISOString()),
 
   /**
-   * Warnings an account acknowledged in a month.
+   * Warnings an account acknowledged in a week.
    *
    * @param {string} userId - The account
-   * @param {string} month - `YYYY-MM`, UTC
+   * @param {string} week - `YYYY-MM-DD` of the week's UTC Monday
    * @returns {number[]} Thresholds, ascending
    */
-  acknowledged: (userId, month) => db
-    .prepare('SELECT threshold FROM hosted_warning_acks WHERE user_id = ? AND month = ? ORDER BY threshold')
-    .all(userId, month).map((row) => row.threshold),
+  acknowledged: (userId, week) => db
+    .prepare('SELECT threshold FROM hosted_warning_acks WHERE user_id = ? AND week = ? ORDER BY threshold')
+    .all(userId, week).map((row) => row.threshold),
 
   /** Record a warning as acknowledged. Repeating it changes nothing. */
-  acknowledge: (userId, month, threshold) => {
-    db.prepare('INSERT OR IGNORE INTO hosted_warning_acks (user_id, month, threshold) VALUES (?, ?, ?)')
-      .run(userId, month, threshold);
+  acknowledge: (userId, week, threshold) => {
+    db.prepare('INSERT OR IGNORE INTO hosted_warning_acks (user_id, week, threshold) VALUES (?, ?, ?)')
+      .run(userId, week, threshold);
   }
 };
 

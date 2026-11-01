@@ -68,7 +68,7 @@ const eraseRows = db.transaction((user, removeContent) => {
   db.prepare('UPDATE event_placements SET author_name = ? WHERE author_name = ?')
     .run(PLACEHOLDER_USERNAME, user.username);
 
-  // Formamorph AI usage stays with its spend subject, so the month and the day keep their sums.
+  // Formamorph AI usage stays with its spend subject, so the week and the day keep their sums.
   HostedUsage.forgetUser(user.id);
 
   // Last, so every reference to it has already gone or moved. Likes, follows, policy answers, Signals,
