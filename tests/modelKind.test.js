@@ -404,6 +404,7 @@ describe('the bundled Formamorph avatars', () => {
   const files = [
     ['default-avatar.vrm', path.resolve(TESTS_DIR, '..', '..', 'formamorph', 'public', 'default-avatar.vrm')],
     ['alternate-avatar.vrm', path.resolve(TESTS_DIR, '..', '..', 'formamorph', 'build-assets', 'alternate-avatar.vrm')],
+    ['praline-avatar.vrm', path.resolve(TESTS_DIR, '..', '..', 'formamorph', 'build-assets', 'praline-avatar.vrm')],
   ];
 
   // The gate alone: the route refuses these files as default Avatars before the gate runs.

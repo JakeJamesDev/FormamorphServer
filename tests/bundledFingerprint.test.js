@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import fs from 'fs';
 import path from 'path';
 import { paths } from './context.js';
 
@@ -47,4 +48,47 @@ describe('the bundled fingerprint list', () => {
     expect(list.worlds.size).toBeGreaterThan(0);
     for (const hex of [...list.worlds, ...list.avatars]) expect(hex).toMatch(HEX);
   });
+});
+
+describe('the shipped default Avatar list', () => {
+  const shipped = loadBundledFingerprints(path.join(paths.PROJECT_ROOT, 'src', 'config', 'bundledFingerprints.json')).avatars;
+  const SIBLING = path.resolve(paths.PROJECT_ROOT, '..', 'formamorph');
+
+  // Sei, Aki, and Praline.
+  const CURRENT = [
+    '5cce5f17db28bb4199477b46984edcfc1f07e23e99130ce0bdcd0c9ba50db2c5',
+    '901620a4ee86a2c6721190012922ddf425c2ca8b0473d96484f3559f56207083',
+    'd9b84905d76d82824b2fac975dd554fa68e1bcf6f73f85b1fa6b2bb07cf6f6c9',
+  ];
+  // Every hash the list held before the replacement, Elaina's among them. Releases already out ship these files.
+  const PREVIOUS = [
+    '096aa26fc8fb4adcc81be4c96d0904b1e247d412bbc671c372f4896554edbe3c',
+    '213a46c0dcc2e17615867f14b7cbb8ab9cd07997e7e1873aeff52288442eed36',
+    '7093babdacd8b745d81c4beb4fdfee9c1325206ae578d6a0c7d77bb2c9d8deab',
+    'af72fbe9335679fbcdd1d6bf6e798682b4a5fba84d42e98947968ab07175d520',
+    'ff832498411f730270c28f5feeafe01c6c31a8ba4f183354a66215cc1359ee33',
+  ];
+
+  it.each(CURRENT)('refuses the current default Avatar %s', (hash) => {
+    expect(shipped.has(hash)).toBe(true);
+  });
+
+  it.each(PREVIOUS)('still refuses the earlier default Avatar %s', (hash) => {
+    expect(shipped.has(hash)).toBe(true);
+  });
+
+  // Real files from the sibling checkout. Skipped when it is absent, as in a worktree.
+  const files = [
+    ['public', 'default-avatar.vrm'],
+    ['build-assets', 'alternate-avatar.vrm'],
+    ['build-assets', 'praline-avatar.vrm'],
+  ].map((parts) => path.join(SIBLING, ...parts));
+  for (const file of files) {
+    const runner = fs.existsSync(file) ? it : it.skip;
+    runner(`refuses the file ${path.basename(file)} and passes an edited copy`, () => {
+      const bytes = fs.readFileSync(file);
+      expect(shipped.has(sha256Hex(bytes))).toBe(true);
+      expect(shipped.has(sha256Hex(Buffer.concat([bytes, Buffer.from([0])])))).toBe(false);
+    });
+  }
 });
