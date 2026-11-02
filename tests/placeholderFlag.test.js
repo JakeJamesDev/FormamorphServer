@@ -4,7 +4,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { app, request, db, paths } from './context.js';
 import { createUser, authHeader, worldPayload, TINY_PNG } from './helpers.js';
-import { makeVrm1 } from './glbFixture.js';
+import { makeVrm1, PASSING_META } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -24,12 +24,7 @@ const storedFlag = (id) => db.prepare('SELECT placeholder FROM worlds WHERE id =
 
 /** Publishes an avatar through the API; a thumbnail is optional. */
 const createAvatar = (user, overrides = {}) => {
-  const meta = {
-    avatarPermission: 'everyone',
-    allowRedistribution: true,
-    modification: 'allowModificationRedistribution',
-    commercialUsage: 'corporation',
-  };
+  const meta = PASSING_META;
 
   return request(app).post('/api/worlds').set(authHeader(user)).send({
     name: 'Avatar',

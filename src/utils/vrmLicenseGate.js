@@ -15,6 +15,8 @@ const CHUNK_JSON = 0x4e4f534a; // 'JSON'
 const HEADER_BYTES = 12;
 const CHUNK_HEADER_BYTES = 8;
 
+const VRM_PUBLIC_LICENSE_URL = 'https://vrm.dev/licenses/1.0/';
+
 /** Absence is failure, never permission — a stand-in for a VRM this repo could not identify at all. */
 const UNKNOWN_META = { metaVersion: null };
 
@@ -48,7 +50,7 @@ function parseGlbJson(buffer) {
  * Read a VRM's license-relevant metadata from its raw file bytes.
  *
  * @param {Buffer} bytes - The `.vrm` file's own bytes (a GLB container)
- * @returns {{metaVersion: '0'|'1'|null, avatarPermission?: string, allowRedistribution?: boolean, modification?: string, commercialUsage?: string, name?: string, authors?: string[], licenseUrl?: string, creditNotation?: string}}
+ * @returns {{metaVersion: '0'|'1'|null, avatarPermission?: string, allowRedistribution?: boolean, modification?: string, commercialUsage?: string, allowExcessivelySexualUsage?: boolean, allowExcessivelyViolentUsage?: boolean, allowPoliticalOrReligiousUsage?: boolean, allowAntisocialOrHateUsage?: boolean, creditNotation?: string, licenseUrl?: string, otherLicenseUrl?: string, name?: string, authors?: string[]}}
  */
 function readVrmLicenseMeta(bytes) {
   const json = parseGlbJson(bytes);
@@ -62,11 +64,16 @@ function readVrmLicenseMeta(bytes) {
       allowRedistribution: v1.allowRedistribution,
       modification: v1.modification,
       commercialUsage: v1.commercialUsage,
+      allowExcessivelySexualUsage: v1.allowExcessivelySexualUsage,
+      allowExcessivelyViolentUsage: v1.allowExcessivelyViolentUsage,
+      allowPoliticalOrReligiousUsage: v1.allowPoliticalOrReligiousUsage,
+      allowAntisocialOrHateUsage: v1.allowAntisocialOrHateUsage,
+      creditNotation: v1.creditNotation,
+      licenseUrl: v1.licenseUrl,
+      otherLicenseUrl: v1.otherLicenseUrl,
       // Read for the listing's own license display, never by the gate.
       name: v1.name,
       authors: v1.authors,
-      licenseUrl: v1.licenseUrl,
-      creditNotation: v1.creditNotation,
     };
   }
 
@@ -91,9 +98,15 @@ function licenseGate(meta) {
   if (meta.avatarPermission !== 'everyone') failedRequirements.push('avatarPermission');
   if (meta.allowRedistribution !== true) failedRequirements.push('allowRedistribution');
   if (meta.modification !== 'allowModificationRedistribution') failedRequirements.push('modification');
-  if (meta.commercialUsage !== 'personalProfit' && meta.commercialUsage !== 'corporation') {
-    failedRequirements.push('commercialUsage');
-  }
+  if (meta.commercialUsage !== 'corporation') failedRequirements.push('commercialUsage');
+  if (meta.allowExcessivelySexualUsage !== true) failedRequirements.push('allowExcessivelySexualUsage');
+  if (meta.allowExcessivelyViolentUsage !== true) failedRequirements.push('allowExcessivelyViolentUsage');
+  if (meta.allowPoliticalOrReligiousUsage !== true) failedRequirements.push('allowPoliticalOrReligiousUsage');
+  if (meta.allowAntisocialOrHateUsage !== true) failedRequirements.push('allowAntisocialOrHateUsage');
+  if (meta.creditNotation !== 'unnecessary') failedRequirements.push('creditNotation');
+  if (meta.licenseUrl !== VRM_PUBLIC_LICENSE_URL) failedRequirements.push('licenseUrl');
+  // The one field where absence passes: exporters omit it when there are no extra terms.
+  if (meta.otherLicenseUrl !== undefined && meta.otherLicenseUrl !== '') failedRequirements.push('otherLicenseUrl');
 
   return { allowed: failedRequirements.length === 0, failedRequirements };
 }
@@ -101,6 +114,9 @@ function licenseGate(meta) {
 /** Narrow a raw enum to one of its known values, or `undefined` when it is missing or unrecognized. */
 const pickKnown = (value, allowed) => (allowed.includes(value) ? value : undefined);
 
+const pickBoolean = (value) => (typeof value === 'boolean' ? value : undefined);
+
+const CREDIT_NOTATIONS = ['required', 'unnecessary'];
 const COMMERCIAL_USES = ['personalNonProfit', 'personalProfit', 'corporation'];
 const AVATAR_PERMISSIONS = ['onlyAuthor', 'explicitlyLicensedPerson', 'everyone'];
 const MODIFICATIONS = ['prohibited', 'allowModification', 'allowModificationRedistribution'];
@@ -129,6 +145,12 @@ function normalizeVrmLicense(meta) {
     creditRequired: meta.creditNotation === 'required' ? true
       : meta.creditNotation === 'unnecessary' ? false
       : undefined,
+    creditNotation: pickKnown(meta.creditNotation, CREDIT_NOTATIONS),
+    otherLicenseUrl: typeof meta.otherLicenseUrl === 'string' ? meta.otherLicenseUrl || undefined : undefined,
+    allowExcessivelySexualUsage: pickBoolean(meta.allowExcessivelySexualUsage),
+    allowExcessivelyViolentUsage: pickBoolean(meta.allowExcessivelyViolentUsage),
+    allowPoliticalOrReligiousUsage: pickBoolean(meta.allowPoliticalOrReligiousUsage),
+    allowAntisocialOrHateUsage: pickBoolean(meta.allowAntisocialOrHateUsage),
     avatarPermission: pickKnown(meta.avatarPermission, AVATAR_PERMISSIONS),
     modification: pickKnown(meta.modification, MODIFICATIONS),
   };

@@ -1,26 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
-import { makeGlb, makeVrm1, makeVrm0, makePlainGltf } from './glbFixture.js';
+import { makeGlb, makeVrm1, makeVrm0, makePlainGltf, PASSING_META, BREAKS } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
 const { readVrmLicenseMeta, licenseGate, normalizeVrmLicense, MODEL_LICENSE_REQUIREMENTS } = require('../src/utils/vrmLicenseGate');
 
-/** Meta that satisfies every requirement of the Permissive License gate. */
-const PASSING_META = {
-  avatarPermission: 'everyone',
-  allowRedistribution: true,
-  modification: 'allowModificationRedistribution',
-  commercialUsage: 'corporation',
-};
+const ALL_BREAKS = { metaVersion: { metaVersion: '0' }, ...BREAKS };
 
-/** One way to break each requirement in isolation, keeping every other field passing. */
-const BREAKS = {
-  metaVersion: { metaVersion: '0' },
-  avatarPermission: { avatarPermission: 'onlyAuthor' },
-  allowRedistribution: { allowRedistribution: false },
-  modification: { modification: 'prohibited' },
-  commercialUsage: { commercialUsage: 'personalNonProfit' },
-};
+/** Every requirement a file with no VRM 1.0 metadata fails: all but `otherLicenseUrl`, where absence passes. */
+const FAILED_BY_NO_META = MODEL_LICENSE_REQUIREMENTS.filter((r) => r !== 'otherLicenseUrl');
 
 describe('readVrmLicenseMeta', () => {
   it("reads a VRM 1.0 file's license fields", () => {
@@ -90,14 +78,29 @@ describe('licenseGate', () => {
     expect(licenseGate({ metaVersion: '1', ...PASSING_META })).toEqual({ allowed: true, failedRequirements: [] });
   });
 
-  it('allows personalProfit commercial use, not only corporation', () => {
+  it('refuses personalProfit commercial use', () => {
     const meta = { metaVersion: '1', ...PASSING_META, commercialUsage: 'personalProfit' };
-    expect(licenseGate(meta)).toEqual({ allowed: true, failedRequirements: [] });
+    expect(licenseGate(meta)).toEqual({ allowed: false, failedRequirements: ['commercialUsage'] });
+  });
+
+  it.each([
+    ['a truthy non-boolean flag', { allowExcessivelySexualUsage: 'true' }, 'allowExcessivelySexualUsage'],
+    ['a flag of 1', { allowAntisocialOrHateUsage: 1 }, 'allowAntisocialOrHateUsage'],
+    ['a licenseUrl without the trailing slash', { licenseUrl: 'https://vrm.dev/licenses/1.0' }, 'licenseUrl'],
+    ['an http licenseUrl', { licenseUrl: 'http://vrm.dev/licenses/1.0/' }, 'licenseUrl'],
+    ['a case-variant creditNotation', { creditNotation: 'Unnecessary' }, 'creditNotation'],
+  ])('refuses %s', (_label, change, requirement) => {
+    expect(licenseGate({ metaVersion: '1', ...PASSING_META, ...change })).toEqual({ allowed: false, failedRequirements: [requirement] });
+  });
+
+  it('accepts an absent or empty otherLicenseUrl, since exporters omit it when there are no extra terms', () => {
+    expect(licenseGate({ metaVersion: '1', ...PASSING_META })).toEqual({ allowed: true, failedRequirements: [] });
+    expect(licenseGate({ metaVersion: '1', ...PASSING_META, otherLicenseUrl: '' })).toEqual({ allowed: true, failedRequirements: [] });
   });
 
   for (const requirement of MODEL_LICENSE_REQUIREMENTS) {
     it(`fails only '${requirement}' when just that requirement is broken`, () => {
-      const meta = { metaVersion: '1', ...PASSING_META, ...BREAKS[requirement] };
+      const meta = { metaVersion: '1', ...PASSING_META, ...ALL_BREAKS[requirement] };
       expect(licenseGate(meta)).toEqual({ allowed: false, failedRequirements: [requirement] });
     });
   }
@@ -105,19 +108,22 @@ describe('licenseGate', () => {
   it('rejects VRM 0.0, failing every requirement — none of them is ever supplied', () => {
     const result = licenseGate(readVrmLicenseMeta(makeVrm0({ title: 'Old Format' })));
     expect(result.allowed).toBe(false);
-    expect(result.failedRequirements.slice().sort()).toEqual(MODEL_LICENSE_REQUIREMENTS.slice().sort());
+    expect(result.failedRequirements.slice().sort()).toEqual(FAILED_BY_NO_META.slice().sort());
   });
 
   it('rejects a plain glTF, failing every requirement', () => {
     const result = licenseGate(readVrmLicenseMeta(makePlainGltf()));
     expect(result.allowed).toBe(false);
-    expect(result.failedRequirements.slice().sort()).toEqual(MODEL_LICENSE_REQUIREMENTS.slice().sort());
+    expect(result.failedRequirements.slice().sort()).toEqual(FAILED_BY_NO_META.slice().sort());
   });
 
-  it('treats one missing field as that field failing, never as permission', () => {
-    const { avatarPermission, ...withoutPermission } = { metaVersion: '1', ...PASSING_META };
-    expect(licenseGate(withoutPermission)).toEqual({ allowed: false, failedRequirements: ['avatarPermission'] });
-  });
+  // otherLicenseUrl is the one field where absence passes, so it is the one left out.
+  for (const requirement of FAILED_BY_NO_META.filter((r) => r !== 'metaVersion')) {
+    it(`treats a missing '${requirement}' as that requirement failing, never as permission`, () => {
+      const { [requirement]: _omitted, ...without } = { metaVersion: '1', ...PASSING_META };
+      expect(licenseGate(without)).toEqual({ allowed: false, failedRequirements: [requirement] });
+    });
+  }
 });
 
 describe('normalizeVrmLicense', () => {
@@ -128,6 +134,8 @@ describe('normalizeVrmLicense', () => {
     authors: ['Alice', 'Bob'],
     licenseUrl: 'https://example.test/license',
     creditNotation: 'required',
+    otherLicenseUrl: 'https://example.test/extra-terms',
+    allowExcessivelySexualUsage: false,
   };
 
   it("reports a VRM 1.0 file's license in the shape the client renders", () => {
@@ -136,9 +144,15 @@ describe('normalizeVrmLicense', () => {
       title: 'Sedge',
       authors: ['Alice', 'Bob'],
       licenseUrl: 'https://example.test/license',
+      otherLicenseUrl: 'https://example.test/extra-terms',
       allowRedistribution: true,
       commercialUse: 'corporation',
       creditRequired: true,
+      creditNotation: 'required',
+      allowExcessivelySexualUsage: false,
+      allowExcessivelyViolentUsage: true,
+      allowPoliticalOrReligiousUsage: true,
+      allowAntisocialOrHateUsage: true,
       avatarPermission: 'everyone',
       modification: 'allowModificationRedistribution',
     });
@@ -148,8 +162,10 @@ describe('normalizeVrmLicense', () => {
     const notRequired = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1({ ...FULL_META, creditNotation: 'unnecessary' })));
     expect(notRequired.creditRequired).toBe(false);
 
-    const silent = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1(PASSING_META)));
+    const { creditNotation: _omitted, ...withoutCredit } = PASSING_META;
+    const silent = normalizeVrmLicense(readVrmLicenseMeta(makeVrm1(withoutCredit)));
     expect(silent.creditRequired).toBeUndefined();
+    expect(silent.creditNotation).toBeUndefined();
   });
 
   it('drops an enum value it does not recognize rather than passing it through', () => {

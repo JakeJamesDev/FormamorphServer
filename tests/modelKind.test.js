@@ -5,7 +5,7 @@ import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { app, request, db } from './context.js';
 import { createUser, authHeader } from './helpers.js';
-import { makeVrm1, makeVrm0, makePlainGltf } from './glbFixture.js';
+import { makeVrm1, makeVrm0, makePlainGltf, PASSING_META, BREAKS } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
 const { KIND_RULES, MODEL_LICENSE_REQUIREMENTS } = require('../src/config/kinds');
@@ -17,20 +17,6 @@ const TESTS_DIR = fileURLToPath(new URL('.', import.meta.url));
  * anything the client claims. Prior art for the route-test style is `kind.test.js` and
  * `contestEntries.test.js`; the Permissive License gate's own unit tests live in `vrmLicenseGate.test.js`.
  */
-
-const PASSING_META = {
-  avatarPermission: 'everyone',
-  allowRedistribution: true,
-  modification: 'allowModificationRedistribution',
-  commercialUsage: 'corporation',
-};
-
-const BREAKS = {
-  avatarPermission: { avatarPermission: 'onlyAuthor' },
-  allowRedistribution: { allowRedistribution: false },
-  modification: { modification: 'prohibited' },
-  commercialUsage: { commercialUsage: 'personalNonProfit' },
-};
 
 const vrmDataUrl = (bytes) => `data:model/vnd.vrm;base64,${bytes.toString('base64')}`;
 
@@ -93,7 +79,7 @@ describe('publishing an Avatar', () => {
     const user = createUser();
     const created = await post(user, modelPayload({ name: 'Original' }));
 
-    const updated = vrmDataUrl(makeVrm1({ ...PASSING_META, commercialUsage: 'personalProfit' }));
+    const updated = vrmDataUrl(makeVrm1({ ...PASSING_META, name: 'Re-exported', otherLicenseUrl: '' }));
     const res = await put(user, created.body.data.id, {
       contentData: { vrm: updated, license: { metaVersion: '1' }, hash: 'new-hash' },
     });
@@ -142,7 +128,18 @@ describe('the license gate', () => {
     const res = await post(user, modelPayload({ name: 'Plain glTF', contentData: { vrm, license: {}, hash: 'h' } }));
 
     expect(res.status).toBe(400);
-    expect(res.body.failedRequirements.slice().sort()).toEqual(MODEL_LICENSE_REQUIREMENTS.slice().sort());
+    // Absence passes `otherLicenseUrl`, so it is the one requirement a file with no metadata does not fail.
+    const expected = MODEL_LICENSE_REQUIREMENTS.filter((r) => r !== 'otherLicenseUrl');
+    expect(res.body.failedRequirements.slice().sort()).toEqual(expected.sort());
+  });
+
+  it('refuses personalProfit commercial use', async () => {
+    const user = createUser();
+    const vrm = vrmDataUrl(makeVrm1({ ...PASSING_META, commercialUsage: 'personalProfit' }));
+    const res = await post(user, modelPayload({ name: 'Profit', contentData: { vrm, license: {}, hash: 'h' } }));
+
+    expect(res.status).toBe(400);
+    expect(res.body.failedRequirements).toEqual(['commercialUsage']);
   });
 
   it('ignores a forged client-sent license and re-derives the verdict from the file itself', async () => {
@@ -192,8 +189,6 @@ describe('the license a reader is shown', () => {
     ...PASSING_META,
     name: 'Sedge',
     authors: ['Alice', 'Bob'],
-    licenseUrl: 'https://example.test/license',
-    creditNotation: 'required',
   };
 
   const creditedPayload = (overrides = {}) => modelPayload({
@@ -214,10 +209,15 @@ describe('the license a reader is shown', () => {
       metaVersion: '1',
       title: 'Sedge',
       authors: ['Alice', 'Bob'],
-      licenseUrl: 'https://example.test/license',
+      licenseUrl: 'https://vrm.dev/licenses/1.0/',
       allowRedistribution: true,
       commercialUse: 'corporation',
-      creditRequired: true,
+      creditRequired: false,
+      creditNotation: 'unnecessary',
+      allowExcessivelySexualUsage: true,
+      allowExcessivelyViolentUsage: true,
+      allowPoliticalOrReligiousUsage: true,
+      allowAntisocialOrHateUsage: true,
       avatarPermission: 'everyone',
       modification: 'allowModificationRedistribution',
     });
@@ -229,7 +229,7 @@ describe('the license a reader is shown', () => {
     const created = await post(user, modelPayload({
       name: 'Liar',
       contentData: {
-        vrm: vrmDataUrl(makeVrm1({ ...CREDITED_META, creditNotation: 'unnecessary' })),
+        vrm: vrmDataUrl(makeVrm1(CREDITED_META)),
         license: { metaVersion: '1', ...PASSING_META, creditRequired: true, title: 'Not The File' },
         hash: 'test-hash',
       },
@@ -247,7 +247,7 @@ describe('the license a reader is shown', () => {
     await put(user, created.body.data.id, {
       name: 'Re-exported',
       contentData: {
-        vrm: vrmDataUrl(makeVrm1({ ...CREDITED_META, authors: ['Carol'], creditNotation: 'unnecessary' })),
+        vrm: vrmDataUrl(makeVrm1({ ...CREDITED_META, authors: ['Carol'] })),
         license: { metaVersion: '1', ...PASSING_META },
         hash: 'test-hash-2',
       },

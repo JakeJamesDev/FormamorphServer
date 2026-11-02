@@ -114,6 +114,13 @@ const MODEL_LICENSE_REQUIREMENTS = [
   'allowRedistribution',
   'modification',
   'commercialUsage',
+  'allowExcessivelySexualUsage',
+  'allowExcessivelyViolentUsage',
+  'allowPoliticalOrReligiousUsage',
+  'allowAntisocialOrHateUsage',
+  'creditNotation',
+  'licenseUrl',
+  'otherLicenseUrl',
 ];
 
 module.exports = {

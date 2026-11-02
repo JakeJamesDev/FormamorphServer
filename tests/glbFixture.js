@@ -44,4 +44,33 @@ const makeVrm0 = (meta) => makeGlb({ extensions: { VRM: { meta } } });
 /** A `.glb` with no VRM extension at all. */
 const makePlainGltf = () => makeGlb({ asset: { version: '2.0' } });
 
-module.exports = { makeGlb, makeVrm1, makeVrm0, makePlainGltf };
+/** VRM 1.0 meta that meets every requirement of the Permissive License gate. */
+const PASSING_META = {
+  avatarPermission: 'everyone',
+  allowRedistribution: true,
+  modification: 'allowModificationRedistribution',
+  commercialUsage: 'corporation',
+  allowExcessivelySexualUsage: true,
+  allowExcessivelyViolentUsage: true,
+  allowPoliticalOrReligiousUsage: true,
+  allowAntisocialOrHateUsage: true,
+  creditNotation: 'unnecessary',
+  licenseUrl: 'https://vrm.dev/licenses/1.0/',
+};
+
+/** One way to break each file-borne requirement in isolation, keeping every other field passing. */
+const BREAKS = {
+  avatarPermission: { avatarPermission: 'onlyAuthor' },
+  allowRedistribution: { allowRedistribution: false },
+  modification: { modification: 'prohibited' },
+  commercialUsage: { commercialUsage: 'personalNonProfit' },
+  allowExcessivelySexualUsage: { allowExcessivelySexualUsage: false },
+  allowExcessivelyViolentUsage: { allowExcessivelyViolentUsage: false },
+  allowPoliticalOrReligiousUsage: { allowPoliticalOrReligiousUsage: false },
+  allowAntisocialOrHateUsage: { allowAntisocialOrHateUsage: false },
+  creditNotation: { creditNotation: 'required' },
+  licenseUrl: { licenseUrl: 'https://example.test/license' },
+  otherLicenseUrl: { otherLicenseUrl: 'https://example.test/extra-terms' },
+};
+
+module.exports = { makeGlb, makeVrm1, makeVrm0, makePlainGltf, PASSING_META, BREAKS };

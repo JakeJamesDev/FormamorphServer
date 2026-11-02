@@ -2,19 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db, paths } from './context.js';
 import { createUser, authHeader } from './helpers.js';
-import { makeVrm1, makeVrm0 } from './glbFixture.js';
+import { makeVrm1, makeVrm0, PASSING_META } from './glbFixture.js';
 
 const require = createRequire(import.meta.url);
 const { sha256Hex, loadBundledFingerprints } = require('../src/utils/bundledFingerprint');
 
 const REFUSAL = 'This is the default avatar. Upload your own VRM.';
-
-const PASSING_META = {
-  avatarPermission: 'everyone',
-  allowRedistribution: true,
-  modification: 'allowModificationRedistribution',
-  commercialUsage: 'corporation',
-};
 
 // The test list (vitest.config) holds the byte hashes of these two files and no others.
 const DEFAULT_AVATAR = makeVrm1({ ...PASSING_META, name: 'Fixture Default Avatar' });
