@@ -134,6 +134,16 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 - A live grant still serves. Flair and the Supporters wall do not change.
 - The next successful Patreon read restores service with no action.
 
+Webhook deliveries are signals, because Patreon sends no delivery id:
+
+- A delete trigger clears the tier at once, and it stays cleared if the read fails.
+- Every tier trigger asks for a read of the member list (`READ_DEBOUNCE_MS` after the first delivery of a burst). The list decides.
+- A non-ending delivery changes no tier and no `checked_at` by itself, so a replay cannot extend the cutoff.
+- A delivery during any read voids that read's list, because it may be older than the delivery, and gets one more read.
+- A burst longer than the wait can make more than one read. The first delivery starts the wait, so a stream cannot defer the read.
+- A failed delivery read logs and does not count toward the alert. The next hourly run repairs it.
+- ⚠️ Unverified: the member list may lag behind a webhook. A new tier could then wait for a later read.
+
 ## Formamorph AI launch checklist
 
 Work top to bottom. Each step needs the one before it.

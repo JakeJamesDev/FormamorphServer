@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import { app, request, db } from './context.js';
@@ -62,15 +62,27 @@ describe('the top tier through the webhook and the reconcile', () => {
     linkAs(user, 'supporter');
     const body = memberBody(`p-${user.id}`, ['tier-top']);
     const signature = crypto.createHmac('md5', 'test-webhook-secret').update(body).digest('hex');
+    setPatreonClient({
+      identify: async () => { throw new Error('not used'); },
+      members: async () => [{
+        patreonUserId: `p-${user.id}`, tierIds: ['tier-top'], pledgeStart: '2026-03-01T00:00:00.000+00:00'
+      }]
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
-    const res = await request(app).post('/api/patreon/webhook')
-      .set('Content-Type', 'application/json')
-      .set('X-Patreon-Event', 'members:pledge:update')
-      .set('X-Patreon-Signature', signature)
-      .send(body);
+    try {
+      const res = await request(app).post('/api/patreon/webhook')
+        .set('Content-Type', 'application/json')
+        .set('X-Patreon-Event', 'members:pledge:update')
+        .set('X-Patreon-Signature', signature)
+        .send(body);
+      await vi.runAllTimersAsync();
 
-    expect(res.status).toBe(200);
-    expect(PatreonLink.findByUser(user.id).tier).toBe('supporter_top');
+      expect(res.status).toBe(200);
+      expect(PatreonLink.findByUser(user.id).tier).toBe('supporter_top');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('moves a linked account to supporter_top on a reconcile', async () => {

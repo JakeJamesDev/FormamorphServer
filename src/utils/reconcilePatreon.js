@@ -10,16 +10,55 @@ const { PATREON_RECONCILE_FAILURES } = require('../config/settings');
 /** Consecutive failed hourly reconciles that raise the admin alert. */
 const ALERT_AFTER_FAILURES = 3;
 
+/** How long a webhook delivery waits before its read, so a burst shares one. The first delivery starts the wait. */
+const READ_DEBOUNCE_MS = 5000;
+
+let readInFlight = null;
+let readTimer = null;
+let readAgain = false;
+
+const applyMemberList = async () => {
+  const list = await listMembers();
+  // A delivery landed during the fetch, so this list may be older than it: the read that follows decides.
+  if (readAgain) return 0;
+
+  const members = new Map(list.map((member) => [member.patreonUserId, member]));
+  return PatreonLink.setAllTiers((id) => tierStateOf(members.get(id) || null), new Date().toISOString());
+};
+
 /**
  * Set every link's tier from the full campaign member list.
  *
- * The shared read: it neither counts failures nor alerts. A failed read throws and changes no link.
+ * The shared read: it neither counts failures nor alerts. A failed read throws and changes no link. A call
+ * during a read joins that read.
  *
- * @returns {Promise<number>} How many links were set
+ * @returns {Promise<number>} How many links were set; 0 when a delivery during the read voids its list
  */
-const refreshLinksFromMembers = async () => {
-  const members = new Map((await listMembers()).map((member) => [member.patreonUserId, member]));
-  return PatreonLink.setAllTiers((id) => tierStateOf(members.get(id) || null), new Date().toISOString());
+const refreshLinksFromMembers = () => {
+  readInFlight ??= applyMemberList().finally(() => {
+    readInFlight = null;
+    if (readAgain) {
+      readAgain = false;
+      requestMemberRead();
+    }
+  });
+  return readInFlight;
+};
+
+/** Ask for a read after a webhook delivery; a delivery during a read gets one more. A failed read only logs. */
+const requestMemberRead = () => {
+  if (!patreonConfigured()) return;
+  if (readInFlight) {
+    readAgain = true;
+    return;
+  }
+  if (readTimer) return;
+
+  readTimer = setTimeout(() => {
+    readTimer = null;
+    refreshLinksFromMembers().catch((error) => console.error('Patreon webhook member read failed:', error));
+  }, READ_DEBOUNCE_MS);
+  readTimer.unref();
 };
 
 /** Count one failed hourly run, and alert the admins once, on the run that reaches the threshold. */
@@ -70,4 +109,6 @@ const reconcilePatreon = async () => {
 
 const startPatreonReconciler = () => hourly(reconcilePatreon);
 
-module.exports = { reconcilePatreon, refreshLinksFromMembers, startPatreonReconciler };
+module.exports = {
+  READ_DEBOUNCE_MS, reconcilePatreon, refreshLinksFromMembers, requestMemberRead, startPatreonReconciler
+};

@@ -215,6 +215,16 @@ describe('the refresh', () => {
 });
 
 describe('the webhook', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  });
+
+  // A delivery leaves its member read waiting; run it here so it cannot land in a later test.
+  afterEach(async () => {
+    await vi.runAllTimersAsync();
+    vi.useRealTimers();
+  });
+
   const deliver = (body) => request(app)
     .post('/api/patreon/webhook')
     .set('Content-Type', 'application/json')

@@ -5,6 +5,7 @@ const {
 } = require('../config/patreon');
 const { memberFrom, tierTitlesFrom, tierPricesFrom } = require('../utils/patreon');
 const { storeTierTitles } = require('../utils/tierNames');
+const { requestMemberRead } = require('../utils/reconcilePatreon');
 
 /**
  * Whether `signature` is the hex HMAC-MD5 of `body` under `secret`, compared in constant time.
@@ -24,7 +25,7 @@ const signatureMatches = (body, signature, secret) => {
 };
 
 /**
- * @desc    Apply a membership change Patreon sends to the account that links the member
+ * @desc    Take a membership signal from Patreon: an ending clears the tier, and every tier trigger asks for a read
  * @route   POST /api/patreon/webhook
  * @access  Public; the body's signature is the authentication
  */
@@ -60,14 +61,17 @@ exports.patreonWebhook = (req, res, next) => {
       console.error('Patreon webhook tier name write failed:', error);
     }
 
-    const member = payload?.data ? memberFrom(payload.data) : null;
-    if (member) {
+    // Patreon sends no delivery id, so a delivery may be stale: only an ending acts on its payload.
+    const ended = ending && payload?.data ? memberFrom(payload.data) : null;
+    if (ended) {
       PatreonLink.setTier({
-        patreonUserId: member.patreonUserId,
-        ...tierStateOf(ending ? null : member),
+        patreonUserId: ended.patreonUserId,
+        ...tierStateOf(null),
         checkedAt: new Date().toISOString()
       });
     }
+
+    requestMemberRead();
 
     res.status(200).json({ success: true });
   } catch (error) {
