@@ -429,6 +429,19 @@ through `PUT /api/settings/hosted_ai`, which is admin-only. The setting's `tiers
 A grant is its own spend subject, so its spend sums by grant id and never moves to a pledge. Grants and
 warning acknowledgments go with the account on erasure; the usage rows stay.
 
+### Offer funnel totals
+
+Anonymous per-day counts of how far players get through the Formamorph AI offer. The table `funnel_totals`
+holds a UTC day, a step and a count, and nothing else: no address, Install id or account.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /api/funnel/:step` | public | Add one to today's total. `:step` is `offer_shown`, `see_levels`, `patreon_click` or `checklist_finished`, else `400`. Answers `204`. |
+| `GET /api/funnel` | admin | `{ data: { days } }`, newest day first. Each day is `{ day, steps }`, with all four steps present and `0` for a step not yet counted. |
+
+The POST has its own limiter: 30 per minute per address, kept in memory (`config/funnel.js`). The privacy
+policy names these totals; the change needs no re-acceptance.
+
 ## Database schema
 
 The schema lives in `src/schema/`. `migrate(db)` runs an ordered list of steps: create every table, add

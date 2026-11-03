@@ -1,4 +1,4 @@
-**Last updated: 30 October 2026**
+**Last updated: 3 November 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It does not cover your play. The game runs on your device, and nothing about a playthrough reaches us.
 
@@ -67,6 +67,12 @@ The kind has one purpose: **to detect abuse**. It lets staff see when a listing'
 **We blank the kind after 90 days.** The like stays and still counts.
 
 The VPN and hosting lists come from [X4BNet lists_vpn](https://github.com/X4BNet/lists_vpn), built from IP address data by [IPLocate.io](https://www.iplocate.io) under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The Tor list comes from the Tor Project.
+
+## Counting the Formamorph AI offer
+
+When the app shows you the Formamorph AI offer, it adds one to a **daily total** for each step you reach: the offer was shown, you opened the levels, you chose Patreon, or you finished the checklist. The total is a number per step per day.
+
+**We store no address, no Install id, and no account with it.** Nothing in a total says who you are. We use the totals to learn whether the offer works.
 
 ## Who else handles your data
 

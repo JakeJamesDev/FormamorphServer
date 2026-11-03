@@ -30,6 +30,7 @@ const settingsRoutes = require('./routes/settings');
 const patreonRoutes = require('./routes/patreon');
 const supporterContentRoutes = require('./routes/supporterContent');
 const hostedAiRoutes = require('./routes/hostedAi');
+const funnelRoutes = require('./routes/funnel');
 
 const app = express();
 
@@ -107,6 +108,7 @@ app.use('/api/supporter-content', supporterContentRoutes);
 // Parses its own body with a limit sized for the largest window, and answers its own errors so no
 // request body reaches the log (see routes/hostedAi.js).
 app.use(HOSTED_AI_PATH, hostedAiRoutes);
+app.use('/api/funnel', funnelRoutes);
 
 // Base route
 app.get('/', (req, res) => {

@@ -773,6 +773,16 @@ const apply = (database) => {
     )
   `);
 
+  // Anonymous per-day totals for the Formamorph AI offer. A day, a step and a count; nothing else.
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS funnel_totals (
+      day TEXT NOT NULL,
+      step TEXT NOT NULL,
+      count INTEGER NOT NULL,
+      PRIMARY KEY (day, step)
+    )
+  `);
+
   return tableNames(database).length > before;
 };
 
