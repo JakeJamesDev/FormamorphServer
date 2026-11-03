@@ -6,6 +6,15 @@ const AuditLog = require('../models/AuditLog');
 const { flagDeletedTarget } = require('./reportController');
 const { recordSignal } = require('../utils/recordSignal');
 const { validationResult } = require('express-validator');
+const { resolverFor } = require('../utils/feedbackTargets');
+
+/**
+ * A comment with the links of its text resolved for its reader.
+ * @param {Object} comment - A comment as the model returns it
+ * @param {function(string): Array<Object>} targetsOf - From `resolverFor`
+ * @returns {Object} The comment with `targets`
+ */
+const withTargets = (comment, targetsOf) => ({ ...comment, targets: targetsOf(comment.content) });
 
 /**
  * @desc    Get all comments for a world
@@ -35,12 +44,14 @@ exports.getComments = async (req, res, next) => {
       limit
     });
 
+    const targetsOf = resolverFor(result.comments.map((comment) => comment.content), req.user);
+
     res.status(200).json({
       success: true,
       count: result.comments.length,
       pagination: result.pagination,
       total: result.total,
-      data: result.comments
+      data: result.comments.map((comment) => withTargets(comment, targetsOf))
     });
   } catch (error) {
     next(error);
@@ -137,7 +148,7 @@ exports.createComment = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      data: comment
+      data: withTargets(comment, resolverFor([comment.content], req.user))
     });
   } catch (error) {
     next(error);
@@ -197,7 +208,7 @@ exports.updateComment = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: comment
+      data: withTargets(comment, resolverFor([comment.content], req.user))
     });
   } catch (error) {
     next(error);
