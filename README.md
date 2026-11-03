@@ -414,8 +414,12 @@ was removed from the approved list they use the active one.
 | `GET /spend-report?days=N` | admin | Per UTC day: `calls`, `costMicros` recorded, and `providerMicros` (`null` before the provider figure is stored). Default 31 days, at most 366. |
 
 **The daily pause.** When the UTC day's spend, open calls at their reservation included, reaches the
-`dailyCeiling`, new turns get `503 service_paused` until 00:00 UTC. Admins get one in-app message and one
+`dailyCeiling`, first calls get `503 service_paused` until 00:00 UTC. Admins get one in-app message and one
 mail to `STAFF_ALERT_EMAIL`.
+
+- **Started turns:** each gets one call at or after the pause began. Its later calls get `service_paused`.
+- **Reaching the ceiling:** a first call whose reservation would reach it starts the pause, is refused, and keeps no usage row. A continuation that reaches it starts the pause and uses its one call.
+- **After a lift:** nothing is refused for the pause.
 
 | Route | Who | What |
 |---|---|---|

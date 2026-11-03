@@ -178,6 +178,9 @@ The values live in the local hosted-tier note.
 Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the
 proxy answers `service_paused`.
 
+A day that reaches `dailyCeiling` also answers `service_paused`, until 00:00 UTC or an admin lift. New turns
+stop at once. Each started turn gets one more call, then stops too.
+
 ### 4. Run one process
 
 The API must run as one process. Admission and reservation share one synchronous transaction, and the

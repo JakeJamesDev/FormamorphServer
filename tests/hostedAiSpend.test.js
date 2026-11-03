@@ -153,6 +153,7 @@ afterEach(() => {
   vi.useRealTimers();
   db.prepare('DELETE FROM patreon_links').run();
   db.prepare('DELETE FROM hosted_usage').run();
+  db.prepare('DELETE FROM hosted_pause').run();
 });
 
 describe('a client that stockpiles turn ids', () => {
@@ -290,5 +291,233 @@ describe('an honest turn', () => {
     expect(spent(subject)).toBe(5 * LARGEST_CALL);
     expect(spent(subject)).toBeGreaterThan(BUDGET_MICROS);
     expect((await send(user, cheap)).status).toBe(402);
+  });
+});
+
+describe('a paused day', () => {
+  const CEILING = 100_000;
+  const PAUSE = '/api/hosted-ai/pause';
+
+  const later = () => vi.setSystemTime(Date.now() + 1000);
+  const rows = (subject) => db.prepare('SELECT COUNT(*) AS n FROM hosted_usage WHERE subject = ?').get(subject).n;
+  const admin = () => createUser({ username: `admin-${rnd()}`, accountType: 'admin' });
+  const alerts = (user) => db.prepare('SELECT subject FROM messages WHERE recipient_id = ?').all(user.id);
+  const pauseOf = async (staff) => (await request(app).get(PAUSE).set(authHeader(staff))).body.data;
+
+  /** Another account's spend, so this account's week stays untouched. */
+  const dayReaches = (micros = CEILING) => {
+    otherSpend(supporter(), micros);
+    later();
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-03T12:00:00Z'));
+    Setting.set(HOSTED_AI, { ...SETTINGS, dailyCeiling: CEILING / 1_000_000 });
+  });
+
+  afterEach(() => {
+    db.prepare('DELETE FROM messages').run();
+  });
+
+  describe('a turn that runs into the pause', () => {
+    it('gets one more call, then service_paused, and the refusal reaches no upstream', async () => {
+      const { user, subject } = supporter();
+      const [turn] = await stockpile(user, 1);
+      dayReaches();
+
+      const grace = await send(user, largest, turn);
+      later();
+      const before = received;
+      const refused = await send(user, cheap, turn);
+
+      expect(grace.status).toBe(200);
+      expect(refused.status).toBe(503);
+      expect(refused.body.code).toBe('service_paused');
+      expect(received).toBe(before);
+      expect(rows(subject)).toBe(2);
+    });
+
+    it('counts a call of the turn from after the pause began, not one from before it', async () => {
+      const { user } = supporter();
+      const [turn] = await stockpile(user, 1);
+      later();
+      expect((await send(user, cheap, turn)).status).toBe(200);
+      dayReaches();
+
+      expect((await send(user, cheap, turn)).status).toBe(200);
+      later();
+      expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
+    });
+
+    it('still answers turn_expired for an unknown, foreign or expired turn id', async () => {
+      const { user } = supporter();
+      const stranger = supporter();
+      const [foreign] = await stockpile(stranger.user, 1);
+      const [turn] = await stockpile(user, 1);
+      dayReaches();
+
+      const unknown = await send(user, cheap, 'no-such-turn');
+      const theirs = await send(user, cheap, foreign);
+      vi.setSystemTime(new Date('2026-11-03T12:10:00Z'));
+      const expired = await send(user, cheap, turn);
+
+      expect([unknown.body.code, theirs.body.code, expired.body.code]).toEqual(['turn_expired', 'turn_expired', 'turn_expired']);
+    });
+
+    it('runs on when the next UTC day starts unpaused', async () => {
+      vi.setSystemTime(new Date('2026-11-03T23:58:00Z'));
+      const { user } = supporter();
+      const [turn] = await stockpile(user, 1);
+      dayReaches();
+      expect((await send(user, cheap, turn)).status).toBe(200);
+      later();
+      expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
+
+      vi.setSystemTime(new Date('2026-11-04T00:00:00Z'));
+
+      expect((await send(user, cheap, turn)).status).toBe(200);
+    });
+  });
+
+  describe('a held stockpile', () => {
+    it('gets one call per turn after the pause', async () => {
+      const { user } = supporter();
+      const turns = await stockpile(user, 4);
+      dayReaches();
+      const before = received;
+
+      const statuses = [];
+      for (const turn of turns) {
+        const perTurn = [];
+        for (let i = 1; i < CALL_CAP; i += 1) {
+          perTurn.push((await send(user, largest, turn)).status);
+          later();
+        }
+        statuses.push(perTurn);
+      }
+
+      expect(statuses).toEqual(turns.map(() => [200, 503, 503]));
+      expect(received - before).toBe(turns.length);
+    });
+
+    it('gets one call per turn when every held turn redeems at once', async () => {
+      const { user } = supporter();
+      const turns = await stockpile(user, 4);
+      dayReaches();
+      const before = received;
+
+      const calls = turns.flatMap((turn) => Array.from({ length: CALL_CAP - 1 }, () => send(user, largest, turn)));
+      const statuses = (await Promise.all(calls)).map((res) => res.status);
+
+      expect(statuses.filter((status) => status === 200)).toHaveLength(turns.length);
+      expect(statuses.filter((status) => status === 503)).toHaveLength(turns.length * (CALL_CAP - 2));
+      expect(received - before).toBe(turns.length);
+    });
+  });
+
+  describe('a first call that would reach the ceiling', () => {
+    it('is refused, keeps no row, and leaves the pause in place with one alert', async () => {
+      const staff = admin();
+      const { user, subject } = supporter();
+      dayReaches(CEILING - LARGEST_CALL);
+      const before = received;
+
+      const crossing = await send(user, largest);
+
+      expect(crossing.status).toBe(503);
+      expect(crossing.body.code).toBe('service_paused');
+      expect(rows(subject)).toBe(0);
+      expect(received).toBe(before);
+      expect((await pauseOf(staff)).paused).toBe(true);
+
+      // This reservation alone stays under the ceiling, so only the pause can refuse it.
+      later();
+      expect((await send(user, cheap)).body.code).toBe('service_paused');
+      expect(rows(subject)).toBe(0);
+      expect(alerts(staff)).toEqual([{ subject: 'Formamorph AI is paused' }]);
+    });
+
+    it('is admitted one micro-dollar under it, with no pause', async () => {
+      const staff = admin();
+      const { user } = supporter();
+      dayReaches(CEILING - LARGEST_CALL - 1);
+
+      const res = await send(user, largest);
+
+      expect(res.status).toBe(200);
+      expect((await pauseOf(staff)).paused).toBe(false);
+      expect(alerts(staff)).toEqual([]);
+    });
+
+    it.each([
+      { name: 'a spent week', refusal: 'budget_exhausted', prepare: ({ user, subject }) => otherSpend({ user, subject }, BUDGET_MICROS), body: largest },
+      {
+        name: 'a prompt over the window',
+        refusal: 'window_exceeded',
+        prepare: () => {},
+        // One token past window plus margin.
+        body: { messages: [{ role: 'user', content: 'x'.repeat(2051 * 4) }], max_tokens: 1000 }
+      }
+    ])('starts no pause when $name refuses it first', async ({ refusal, prepare, body }) => {
+      const staff = admin();
+      const account = supporter();
+      prepare(account);
+      // One micro-dollar under the ceiling, so this call's reservation would reach it.
+      dayReaches(CEILING - 1 - spent(account.subject));
+      const res = await send(account.user, body);
+
+      expect(res.body.code).toBe(refusal);
+      expect((await pauseOf(staff)).paused).toBe(false);
+    });
+  });
+
+  describe('a continuation that reaches the ceiling', () => {
+    it('starts the pause, runs as its one call, and the turn stops after it', async () => {
+      const staff = admin();
+      const { user, subject } = supporter();
+      const held = supporter();
+      const [turn] = await stockpile(user, 1);
+      const [heldTurn] = await stockpile(held.user, 1);
+      dayReaches(CEILING - LARGEST_CALL - spent(subject) - spent(held.subject));
+      const before = received;
+
+      const crossing = await send(user, largest, turn);
+
+      expect(crossing.status).toBe(200);
+      expect(received).toBe(before + 1);
+      expect(rows(subject)).toBe(2);
+      expect((await pauseOf(staff)).paused).toBe(true);
+      expect(alerts(staff)).toHaveLength(1);
+
+      later();
+      expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
+      expect((await send(user, cheap)).body.code).toBe('service_paused');
+      expect((await send(held.user, cheap, heldTurn)).status).toBe(200);
+      expect(alerts(staff)).toHaveLength(1);
+    });
+  });
+
+  describe('after an admin lift', () => {
+    it('admits continuations, spent grace or not, and first calls', async () => {
+      const staff = admin();
+      const { user } = supporter();
+      const [spentTurn, freshTurn] = await stockpile(user, 2);
+      dayReaches();
+      expect((await send(user, cheap, spentTurn)).status).toBe(200);
+      later();
+      expect((await send(user, cheap, spentTurn)).body.code).toBe('service_paused');
+      expect((await send(user, cheap)).body.code).toBe('service_paused');
+
+      const lift = await request(app).post(`${PAUSE}/lift`).set(authHeader(staff));
+      later();
+
+      expect(lift.status).toBe(200);
+      expect((await send(user, cheap, spentTurn)).status).toBe(200);
+      expect((await send(user, cheap, spentTurn)).status).toBe(200);
+      expect((await send(user, cheap, freshTurn)).status).toBe(200);
+      expect((await send(user, largest)).status).toBe(200);
+      expect((await pauseOf(staff)).paused).toBe(false);
+    });
   });
 });

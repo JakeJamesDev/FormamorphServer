@@ -4,14 +4,15 @@ const { alertAdmins } = require('./hostedAlerts');
 
 /**
  * The Formamorph AI daily ceiling. When the UTC day's spend, open rows included, reaches it, the day is
- * paused and the admins are alerted once. A lift holds until 00:00 UTC; the next day starts unpaused.
+ * paused and the admins are alerted once. A paused day refuses first calls and gives each started turn one
+ * more call. A lift holds until 00:00 UTC; the next day starts unpaused.
  */
 
 const PAUSE_ALERT = Object.freeze({
   subject: 'Formamorph AI is paused',
   body: [
     "Today's Formamorph AI spend reached the daily ceiling. New turns are refused until 00:00 UTC.",
-    'Turns already started finish. An admin can lift the pause for the rest of the day.'
+    'Each turn already started gets one more call, then is refused too. An admin can lift the pause for the rest of the day.'
   ].join('\n\n')
 });
 
@@ -28,21 +29,34 @@ const daySpend = (day) => {
 };
 
 /**
- * Whether new turns are paused at `now`. Pauses the day, and alerts once, when its spend reached the ceiling.
+ * Whether the day is paused at `now`. Pauses the day, and alerts once, when its spend reached the ceiling.
  *
  * @param {Date} now - The instant
  * @param {number} ceilingMicros - The daily ceiling
+ * @param {number} [reservingMicros] - A reservation not yet recorded, counted as spend
  * @returns {boolean}
  */
-const checkPause = (now, ceilingMicros) => {
+const checkPause = (now, ceilingMicros, reservingMicros = 0) => {
   const day = utcDay(now);
   const pause = HostedPause.forDay(day);
   if (pause) return !pause.lifted_at;
-  if (daySpend(day) < ceilingMicros) return false;
+  if (daySpend(day) + reservingMicros < ceilingMicros) return false;
   if (HostedPause.start(day, now.toISOString())) void alertAdmins(PAUSE_ALERT);
 
   return true;
 };
+
+/**
+ * Whether a paused day has already admitted a call of this turn.
+ *
+ * @param {Date} now - The instant
+ * @param {number} ceilingMicros - The daily ceiling
+ * @param {string} subject - The spend subject
+ * @param {string} turnId - The turn
+ * @returns {boolean}
+ */
+const pausedCallUsed = (now, ceilingMicros, subject, turnId) => checkPause(now, ceilingMicros)
+  && HostedUsage.turnStartedSince(subject, turnId, HostedPause.forDay(utcDay(now)).paused_at);
 
 /**
  * The day's pause as staff see it. No dollar figures.
@@ -66,4 +80,4 @@ const pauseState = (now) => {
  */
 const liftPause = (now, userId) => HostedPause.lift(utcDay(now), now.toISOString(), userId);
 
-module.exports = { utcDay, daySpend, checkPause, pauseState, liftPause };
+module.exports = { utcDay, daySpend, checkPause, pausedCallUsed, pauseState, liftPause };

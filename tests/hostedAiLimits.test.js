@@ -306,7 +306,7 @@ describe('the per-minute limit', () => {
 describe('the daily ceiling', () => {
   // A 'Hello' call reserves 9 prompt tokens plus 100 output tokens at 3: 309 micro-dollars.
 
-  it('pauses new turns once the day, open rows included, reaches the ceiling; started turns finish', async () => {
+  it('pauses once the day, open rows included, reaches the ceiling; a started turn gets one more call', async () => {
     configure({ dailyCeiling: 0.001 });
     const user = supporter();
     const started = await send(user);
@@ -314,10 +314,13 @@ describe('the daily ceiling', () => {
 
     const firstCall = await send(user);
     const turnCall = await send(user, chat(), started.headers[TURN]);
+    const nextTurnCall = await send(user, chat(), started.headers[TURN]);
 
     expect(firstCall.status).toBe(503);
     expect(firstCall.body.code).toBe('service_paused');
     expect(turnCall.status).toBe(200);
+    expect(nextTurnCall.status).toBe(503);
+    expect(nextTurnCall.body.code).toBe('service_paused');
   });
 
   it('answers a pause before the rate limits, so a paused call never spends a minute slot', async () => {
@@ -330,6 +333,45 @@ describe('the daily ceiling', () => {
     expect(codes).toEqual(['service_paused', 'service_paused']);
   });
 
+  it("answers a refused continuation before the rate limits, so it cannot use up another turn's call", async () => {
+    configure({ dailyCeiling: 0.001, perMinuteLimit: 4 });
+    const user = supporter();
+    const spentTurn = (await send(user)).headers[TURN];
+    const otherTurn = (await send(user)).headers[TURN];
+    spend(1000);
+    // Past the pause's start, whatever the clock's resolution.
+    await new Promise((resolve) => { setTimeout(resolve, 5); });
+    expect((await send(user, chat(), spentTurn)).status).toBe(200);
+
+    const codes = [];
+    for (let i = 0; i < 3; i += 1) codes.push((await send(user, chat(), spentTurn)).body.code);
+    const other = await send(user, chat(), otherTurn);
+
+    expect(codes).toEqual(['service_paused', 'service_paused', 'service_paused']);
+    expect(other.status).toBe(200);
+  });
+
+  it('gives a turn one more call when its own settled cost started the pause', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-30T12:00:00Z'));
+    configure({ dailyCeiling: 0.001 });
+    const costly = answer(delta('Hi'), event({ choices: [], usage: { prompt_tokens: 9, completion_tokens: 2, cost: 0.002 } }), DONE);
+    // The call settles a second after it started, so the pause begins after that call.
+    script = (req, res) => {
+      vi.setSystemTime(new Date('2026-10-30T12:00:01Z'));
+      costly(req, res);
+    };
+    const user = supporter();
+    const started = await send(user);
+    script = plain;
+
+    const grace = await send(user, chat(), started.headers[TURN]);
+    const next = await send(user, chat(), started.headers[TURN]);
+
+    expect(grace.status).toBe(200);
+    expect(next.body.code).toBe('service_paused');
+  });
+
   it('admits first calls while the day is under the ceiling', async () => {
     configure({ dailyCeiling: 0.001 });
     spend(999 - 309);
@@ -339,15 +381,17 @@ describe('the daily ceiling', () => {
     expect(res.status).toBe(200);
   });
 
-  it('pauses on the reservation that reaches the ceiling', async () => {
+  it('pauses on the first-call reservation that would reach the ceiling, and refuses it', async () => {
     configure({ dailyCeiling: 0.0003 });
     const user = supporter();
 
     const crossing = await send(user);
     const next = await send(user);
 
-    expect(crossing.status).toBe(200);
+    expect(crossing.body.code).toBe('service_paused');
     expect(next.body.code).toBe('service_paused');
+    expect(received).toHaveLength(0);
+    expect(lastRow()).toBeUndefined();
   });
 
   it('pauses when a settled cost reaches the ceiling, with no new turn', async () => {

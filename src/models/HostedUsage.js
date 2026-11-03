@@ -30,6 +30,18 @@ const HostedUsage = {
     .get(subject, turnId, since).total,
 
   /**
+   * Whether a turn has a call started at or after an instant.
+   *
+   * @param {string} subject - The spend subject
+   * @param {string} turnId - The turn
+   * @param {string} since - ISO instant
+   * @returns {boolean}
+   */
+  turnStartedSince: (subject, turnId, since) => db
+    .prepare('SELECT 1 FROM hosted_usage WHERE subject = ? AND turn_id = ? AND started_at >= ? LIMIT 1')
+    .get(subject, turnId, since) !== undefined,
+
+  /**
    * Every subject's cost in a time range, open rows included.
    *
    * @param {string} from - ISO instant, inclusive
