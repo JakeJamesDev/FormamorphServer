@@ -138,7 +138,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  for (const res of held) res.end();
+  for (const res of held) res.end(delta('Hi'));
   db.prepare('DELETE FROM patreon_links').run();
   db.prepare('DELETE FROM hosted_usage').run();
 });
@@ -151,7 +151,7 @@ describe('the usage table', () => {
 
     expect(columns).toEqual([
       'id', 'subject', 'user_id', 'turn_id', 'tier', 'estimated_prompt_tokens', 'prompt_tokens', 'cached_tokens',
-      'output_tokens', 'cost_micros', 'cost_source', 'started_at', 'duration_ms', 'status', 'model', 'prompt_type'
+      'output_tokens', 'cost_micros', 'cost_source', 'started_at', 'duration_ms', 'status', 'retry', 'stopped', 'model', 'prompt_type'
     ]);
     expect(indexes.sort()).toEqual(['started_at', 'subject,started_at']);
     expect(db.prepare('PRAGMA foreign_key_list(hosted_usage)').all()).toEqual([]);
@@ -225,7 +225,7 @@ describe('reservation', () => {
     const calls = Array.from({ length: 6 }, () => send(user, chat({ stream: true, max_tokens: 1000 }))
       .then((res) => { settled.push(res); return res; }));
     await vi.waitFor(() => expect(received.length + settled.length).toBe(6));
-    for (const res of held) res.end();
+    for (const res of held) res.end(delta('Hi'));
     const results = await Promise.all(calls);
 
     expect(received).toHaveLength(4);
@@ -359,7 +359,7 @@ describe('the hourly sweep', () => {
 
     const early = sweepHostedUsage(new Date(Date.now() + 599 * 1000));
     const late = sweepHostedUsage(new Date(Date.now() + 601 * 1000));
-    for (const res of held) res.end(event({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 } }));
+    for (const res of held) res.end(delta('Hi') + event({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 } }));
     held = [];
     await new Promise((resolve) => { setTimeout(resolve, 50); });
 

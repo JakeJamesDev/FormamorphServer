@@ -168,7 +168,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   resetMailTransport();
-  for (const res of held) res.end();
+  for (const res of held) res.end(delta('Hi'));
   for (const table of ['patreon_links', 'hosted_usage', 'hosted_pause', 'hosted_provider_spend']) db.prepare(`DELETE FROM ${table}`).run();
 });
 

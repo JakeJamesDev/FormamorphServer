@@ -5,7 +5,7 @@ const {
   warnThresholdsOf, breakdownThresholdOf, PROMPT_TYPE_HEADER, promptTypeOf
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
-const { estimateTokens, worstCase, turnGrace, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
+const { estimateTokens, worstCase, turnGrace, admitCall, admitRetry, settlement, generatedChars } = require('../utils/hostedMeter');
 const { ageConfirmed, entitlement, unconfirmedTier, usageOf } = require('../utils/hostedState');
 const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
 const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
@@ -124,6 +124,22 @@ const isDone = (event) => event
   .split(/\r\n|\r|\n/)
   .some((line) => line.startsWith('data:') && line.slice(5).trim() === '[DONE]');
 
+/** Whether a model entry asks for no thinking. With no field the provider decides, which counts as on. */
+const thinkingOff = (entry) => entry.reasoning?.enabled === false || entry.reasoning?.effort === 'none';
+
+/** The delta or message of each choice in one parsed reply. */
+const replyParts = (payload) => (isPlainObject(payload) && Array.isArray(payload.choices)
+  ? payload.choices.map((choice) => [choice?.delta, choice?.message].find(isPlainObject)).filter(Boolean)
+  : []);
+
+const isText = (value) => typeof value === 'string' && value.length > 0;
+
+const hasReply = (payload) => replyParts(payload)
+  .some((part) => isText(part.content) || (Array.isArray(part.tool_calls) && part.tool_calls.length > 0));
+
+const hasThinking = (payload) => replyParts(payload)
+  .some((part) => isText(part.reasoning) || isText(part.reasoning_content));
+
 /** The usage state as a client reads it, or null when it cannot be computed. */
 const usageSnapshot = (subject, config) => {
   try {
@@ -135,8 +151,11 @@ const usageSnapshot = (subject, config) => {
   }
 };
 
-/** Thrown when the upstream sends an error inside a 200 reply. */
+/** Thrown when the upstream refuses a call or sends an error inside a 200 reply. */
 class UpstreamErrorReply extends Error {}
+
+/** Thrown when a reply shows thinking on a model with thinking off, or a stream ends with nothing to forward. */
+class AttemptStopped extends Error {}
 
 /** Resolve once a full socket buffer drains, or the client leaves. */
 const drained = (res) => new Promise((resolve) => {
@@ -153,10 +172,11 @@ const drained = (res) => new Promise((resolve) => {
  * Settle the call's row, then check the ceiling against the settled cost. A failed write leaves the row open
  * for the hourly sweep, at its reservation.
  */
-const settle = (meter, { usage, outputChars, status }) => {
+const settle = (meter, { usage, outputChars, status, stopped }) => {
   try {
     HostedUsage.settle(meter.rowId, {
       status,
+      stopped: stopped ? 1 : 0,
       durationMs: Date.now() - meter.started.getTime(),
       ...settlement({ usage, outputChars, estimatedPromptTokens: meter.estimatedPromptTokens, ratio: meter.ratio, prices: meter.prices })
     });
@@ -179,14 +199,19 @@ exports.activeConfig = activeConfig;
  * An admitted call reserves its worst case before forwarding and settles in `finally`, whatever ended it.
  * The parallel slot is released there too, so a refusal, an error or an abort never keeps it.
  * A client disconnect aborts the upstream call. An upstream silent past the idle limit is aborted too.
+ *
+ * A stream holds its frames until one has reply text or a tool call, or thinking on a model with thinking on.
+ * An attempt that fails before then, or thinks on a model with thinking off, is stopped and sent once more.
+ * The parallel slot, the per-minute count and the turn-cap slot cover both attempts.
  */
 exports.proxy = async (req, res) => {
-  const controller = new AbortController();
+  let controller = new AbortController();
   let idleTimer = null;
   let clientGone = false;
   const armIdle = (idleMs) => {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => controller.abort(), idleMs);
+    const running = controller;
+    idleTimer = setTimeout(() => running.abort(), idleMs);
   };
 
   let meter = null;
@@ -196,10 +221,10 @@ exports.proxy = async (req, res) => {
   let finished = false;
   let settled = false;
   // The first settle wins: the success path settles before it reports usage, `finally` covers the rest.
-  const settleOnce = (status) => {
+  const settleOnce = (status, stopped = false) => {
     if (settled || !meter) return;
     settled = true;
-    settle(meter, { usage, outputChars, status });
+    settle(meter, { usage, outputChars, status, stopped });
   };
   // Every parsed reply payload passes here, so usage and the output estimate see the same bytes.
   const observe = (payload) => {
@@ -228,23 +253,26 @@ exports.proxy = async (req, res) => {
 
     const prices = config.entry.prices;
     const estimatedPromptTokens = estimateTokens(promptChars(body), config.ratio);
-    const admitted = admitCall({
+    const call = {
       subject: req.hosted.subject,
       userId: req.user.id,
       tier: req.hosted.tier,
-      turnId,
       model: config.entry.id,
       promptType: promptTypeOf(req.get(PROMPT_TYPE_HEADER)),
-      now: started,
       turnLimitMs: config.turnLimitMs,
+      ceilingMicros: config.ceilingMicros,
+      estimatedPromptTokens,
+      reserveMicros: worstCase(estimatedPromptTokens, body.max_tokens, prices)
+    };
+    const admitted = admitCall({
+      ...call,
+      turnId,
+      now: started,
       turnCallCap: config.turnCallCap,
       budgetMicros: Math.round(config.limits.budget * MICROS_PER_DOLLAR),
       graceMicros: turnGrace(config, prices),
-      ceilingMicros: config.ceilingMicros,
       window: config.limits.window,
-      margin: config.margin,
-      estimatedPromptTokens,
-      reserveMicros: worstCase(estimatedPromptTokens, body.max_tokens, prices)
+      margin: config.margin
     });
     if (admitted.refusal) return refuse(res, admitted.refusal, admitted.extra);
     meter = { rowId: admitted.rowId, started, estimatedPromptTokens, ratio: config.ratio, prices, ceilingMicros: config.ceilingMicros };
@@ -256,20 +284,9 @@ exports.proxy = async (req, res) => {
       controller.abort();
     });
 
-    armIdle(config.idleMs);
-    const upstream = await fetch(upstreamUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${upstreamKey()}` },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    const noThinking = thinkingOff(config.entry);
 
-    if (!upstream.ok) {
-      await upstream.body?.cancel().catch(() => {});
-      return refuse(res, 'upstream_error');
-    }
-
-    if (!body.stream) {
+    const forwardWhole = async (upstream) => {
       const chunks = [];
       for await (const chunk of upstream.body) {
         armIdle(config.idleMs);
@@ -277,60 +294,115 @@ exports.proxy = async (req, res) => {
       }
       const reply = Buffer.concat(chunks);
       const parsed = parseJson(reply.toString('utf8'));
-      if (isError(parsed)) return refuse(res, 'upstream_error');
+      if (isError(parsed)) throw new UpstreamErrorReply();
       observe(parsed);
+      if (noThinking && hasThinking(parsed) && !hasReply(parsed)) throw new AttemptStopped();
       finished = true;
       settleOnce('ok');
       const state = usageSnapshot(req.hosted.subject, config);
       if (state) res.set(USAGE_HEADER, JSON.stringify(state));
       return res.status(200).type('application/json').send(reply);
-    }
+    };
 
-    res.status(200);
-    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-    res.flushHeaders();
-    // Whole events only, so an error event split across chunks is still caught before any of it is sent.
-    const decoder = new TextDecoder();
-    let pending = '';
-    // Held back and sent last: clients stop reading at `[DONE]`, so the usage event has to precede it.
-    let doneEvent = '';
-    for await (const chunk of upstream.body) {
-      pending += decoder.decode(chunk, { stream: true });
-      let complete = '';
-      let end;
-      while ((end = EVENT_END.exec(pending))) {
-        const payload = eventData(pending.slice(0, end.index));
+    const forwardStream = async (upstream) => {
+      // Whole events only, so an error event split across chunks is still caught before any of it is sent.
+      const decoder = new TextDecoder();
+      let pending = '';
+      // Held back and sent last: clients stop reading at `[DONE]`, so the usage event has to precede it.
+      let doneEvent = '';
+      let holding = true;
+      let unsent = '';
+      const openStream = () => {
+        if (res.headersSent) return;
+        res.status(200);
+        res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+        res.flushHeaders();
+      };
+      const readFrame = (payload) => {
         if (isError(payload)) throw new UpstreamErrorReply();
         observe(payload);
-        const whole = pending.slice(0, end.index + end[0].length);
-        if (isDone(whole)) doneEvent = whole;
-        else complete += whole;
-        pending = pending.slice(end.index + end[0].length);
+        if (!holding) return;
+        const thinking = hasThinking(payload);
+        if (hasReply(payload) || (thinking && !noThinking)) holding = false;
+        else if (thinking) throw new AttemptStopped();
+      };
+      for await (const chunk of upstream.body) {
+        pending += decoder.decode(chunk, { stream: true });
+        let end;
+        while ((end = EVENT_END.exec(pending))) {
+          readFrame(eventData(pending.slice(0, end.index)));
+          const whole = pending.slice(0, end.index + end[0].length);
+          if (isDone(whole)) doneEvent = whole;
+          else unsent += whole;
+          pending = pending.slice(end.index + end[0].length);
+        }
+        if (!holding && unsent) {
+          openStream();
+          const flowing = res.write(unsent);
+          unsent = '';
+          if (!flowing) {
+            // A slow client is not upstream silence, so the idle clock stops while the buffer drains.
+            clearTimeout(idleTimer);
+            await drained(res);
+          }
+        }
+        armIdle(config.idleMs);
       }
-      if (complete && !res.write(complete)) {
-        // A slow client is not upstream silence, so the idle clock stops while the buffer drains.
-        clearTimeout(idleTimer);
-        await drained(res);
+      pending += decoder.decode();
+      readFrame(eventData(pending));
+      if (holding) throw new AttemptStopped();
+      if (isDone(pending)) {
+        doneEvent = pending;
+        pending = '';
       }
+      finished = true;
+      settleOnce('ok');
+      openStream();
+      // An unterminated fragment goes before the usage event, so nothing follows [DONE].
+      if (unsent || pending) res.write(unsent + pending);
+      const state = usageSnapshot(req.hosted.subject, config);
+      if (state) res.write(`event: usage\ndata: ${JSON.stringify(state)}\n\n`);
+      if (doneEvent) res.write(/[\r\n]$/.test(doneEvent) ? doneEvent : `${doneEvent}\n\n`);
+      return res.end();
+    };
+
+    const attempt = async () => {
       armIdle(config.idleMs);
+      const upstream = await fetch(upstreamUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${upstreamKey()}` },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+
+      if (!upstream.ok) {
+        await upstream.body?.cancel().catch(() => {});
+        throw new UpstreamErrorReply();
+      }
+
+      return body.stream ? forwardStream(upstream) : forwardWhole(upstream);
+    };
+
+    let retried = false;
+    for (;;) {
+      try {
+        return await attempt();
+      } catch (error) {
+        if (clientGone || res.headersSent || !(body.stream || retried || error instanceof AttemptStopped)) throw error;
+      }
+      settleOnce('error', true);
+      if (retried) return refuse(res, 'upstream_error');
+      retried = true;
+      const now = new Date();
+      const rowId = admitRetry({ ...call, turnId: admitted.turnId, now });
+      if (rowId === null) return refuse(res, 'upstream_error');
+      controller.abort();
+      controller = new AbortController();
+      meter = { ...meter, rowId, started: now };
+      usage = null;
+      outputChars = 0;
+      settled = false;
     }
-    pending += decoder.decode();
-    const last = eventData(pending);
-    if (isError(last)) throw new UpstreamErrorReply();
-    observe(last);
-    if (isDone(pending)) {
-      doneEvent = pending;
-      pending = '';
-    }
-    finished = true;
-    settleOnce('ok');
-    // An unterminated fragment goes before the usage event, so nothing follows [DONE].
-    if (pending) res.write(pending);
-    pending = '';
-    const state = usageSnapshot(req.hosted.subject, config);
-    if (state) res.write(`event: usage\ndata: ${JSON.stringify(state)}\n\n`);
-    if (doneEvent) res.write(/[\r\n]$/.test(doneEvent) ? doneEvent : `${doneEvent}\n\n`);
-    return res.end(pending);
   } catch {
     if (clientGone) return undefined;
     if (res.headersSent) return endWithErrorEvent(res);

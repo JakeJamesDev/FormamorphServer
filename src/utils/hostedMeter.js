@@ -94,6 +94,35 @@ const admitCall = db.transaction((call) => {
   return { rowId, turnId: admittedTurn };
 });
 
+/**
+ * Reserve the one retry of a stopped call, or say no when the turn limit has passed or the day is paused.
+ *
+ * The call passed its budget, window and turn cap at admission, so only these two checks repeat.
+ *
+ * @param {Object} retry - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, ceilingMicros,
+ *   estimatedPromptTokens, reserveMicros }`
+ * @returns {number|null} The new row id, or null
+ */
+const admitRetry = db.transaction((retry) => {
+  const { subject, turnId, now } = retry;
+  const turn = HostedUsage.turn(subject, turnId);
+  if (!turn || now.getTime() - Date.parse(turn.first) >= retry.turnLimitMs) return null;
+  if (checkPause(now, retry.ceilingMicros, retry.reserveMicros)) return null;
+
+  return HostedUsage.open({
+    subject,
+    userId: retry.userId,
+    turnId,
+    tier: retry.tier,
+    model: retry.model,
+    promptType: retry.promptType,
+    estimatedPromptTokens: retry.estimatedPromptTokens,
+    costMicros: retry.reserveMicros,
+    startedAt: now.toISOString(),
+    retry: 1
+  });
+});
+
 const isCount = (value) => Number.isInteger(value) && value >= 0;
 const isCost = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
@@ -171,4 +200,4 @@ const generatedChars = (chunk) => {
   return chars;
 };
 
-module.exports = { weekStart, resetAt, estimateTokens, worstCase, turnGrace, admitCall, settlement, generatedChars };
+module.exports = { weekStart, resetAt, estimateTokens, worstCase, turnGrace, admitCall, admitRetry, settlement, generatedChars };

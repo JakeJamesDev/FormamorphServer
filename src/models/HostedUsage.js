@@ -3,7 +3,8 @@ const db = require('../config/db');
 /**
  * Formamorph AI usage rows. `schema/tables` says what a row holds.
  *
- * Sums include `open` rows, whose cost is the call's worst-case reservation until it settles.
+ * Sums include `open` rows, whose cost is the call's worst-case reservation until it settles. A subject's
+ * sums leave out stopped attempts, which only the whole day's sums hold.
  */
 const HostedUsage = {
   /**
@@ -14,7 +15,7 @@ const HostedUsage = {
    * @returns {number} Micro-dollars
    */
   spendSince: (subject, since) => db
-    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND started_at >= ?')
+    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND started_at >= ? AND stopped = 0')
     .get(subject, since).total,
 
   /**
@@ -26,7 +27,7 @@ const HostedUsage = {
    * @returns {number} Micro-dollars
    */
   turnSpendSince: (subject, turnId, since) => db
-    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND turn_id = ? AND started_at >= ?')
+    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND turn_id = ? AND started_at >= ? AND stopped = 0')
     .get(subject, turnId, since).total,
 
   /**
@@ -45,11 +46,11 @@ const HostedUsage = {
    *
    * @param {string} subject - The spend subject
    * @param {string} turnId - The turn
-   * @returns {{ calls: number, first: string }|null} Its call count and its first call's start
+   * @returns {{ calls: number, first: string }|null} Its call count, retries left out, and its first call's start
    */
   turn: (subject, turnId) => {
     const row = db.prepare(`
-      SELECT COUNT(*) AS calls, MIN(started_at) AS first FROM hosted_usage WHERE subject = ? AND turn_id = ?
+      SELECT COALESCE(SUM(retry = 0), 0) AS calls, MIN(started_at) AS first FROM hosted_usage WHERE subject = ? AND turn_id = ?
     `).get(subject, turnId);
 
     return row.calls > 0 ? row : null;
@@ -77,7 +78,7 @@ const HostedUsage = {
    * @returns {number[]} Micro-dollars per turn
    */
   recentTurnCosts: (subject, limit) => db.prepare(`
-    SELECT SUM(cost_micros) AS cost FROM hosted_usage WHERE subject = ?
+    SELECT SUM(cost_micros) AS cost FROM hosted_usage WHERE subject = ? AND stopped = 0
     GROUP BY turn_id HAVING SUM(status = 'open') = 0 AND SUM(prompt_type = 'narration') > 0
     ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
   `).all(subject, limit).map((row) => row.cost),
@@ -90,7 +91,8 @@ const HostedUsage = {
    * @returns {{ calls: number, turns: number, costMicros: number }}
    */
   summarySince: (subject, since) => db.prepare(`
-    SELECT COUNT(*) AS calls, COUNT(DISTINCT turn_id) AS turns, COALESCE(SUM(cost_micros), 0) AS costMicros
+    SELECT COALESCE(SUM(retry = 0), 0) AS calls, COUNT(DISTINCT turn_id) AS turns,
+      COALESCE(SUM(CASE WHEN stopped = 0 THEN cost_micros END), 0) AS costMicros
     FROM hosted_usage WHERE subject = ? AND started_at >= ?
   `).get(subject, since),
 
@@ -119,14 +121,14 @@ const HostedUsage = {
   /**
    * Record an admitted call as `open` with its reservation.
    *
-   * @param {Object} row - `{ subject, userId, turnId, tier, model, promptType, estimatedPromptTokens, costMicros, startedAt }`
+   * @param {Object} row - `{ subject, userId, turnId, tier, model, promptType, estimatedPromptTokens, costMicros, startedAt, retry }`
    * @returns {number} The row id
    */
   open: (row) => Number(db.prepare(`
     INSERT INTO hosted_usage
-      (subject, user_id, turn_id, tier, model, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status)
-    VALUES (@subject, @userId, @turnId, @tier, @model, @promptType, @estimatedPromptTokens, @costMicros, @startedAt, 'open')
-  `).run({ promptType: null, ...row }).lastInsertRowid),
+      (subject, user_id, turn_id, tier, model, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status, retry)
+    VALUES (@subject, @userId, @turnId, @tier, @model, @promptType, @estimatedPromptTokens, @costMicros, @startedAt, 'open', @retry)
+  `).run({ promptType: null, retry: 0, ...row }).lastInsertRowid),
 
   /**
    * A subject's cost per prompt type since an instant, open rows included.
@@ -137,22 +139,22 @@ const HostedUsage = {
    */
   costByType: (subject, since) => db.prepare(`
     SELECT prompt_type AS promptType, SUM(cost_micros) AS costMicros
-    FROM hosted_usage WHERE subject = ? AND started_at >= ? GROUP BY prompt_type
+    FROM hosted_usage WHERE subject = ? AND started_at >= ? AND stopped = 0 GROUP BY prompt_type
   `).all(subject, since),
 
   /**
    * Settle an open row. A row the sweep settled first stays as the sweep left it.
    *
    * @param {number} id - The row
-   * @param {Object} result - `{ status, costSource, costMicros, promptTokens, cachedTokens, outputTokens, durationMs }`
+   * @param {Object} result - `{ status, stopped, costSource, costMicros, promptTokens, cachedTokens, outputTokens, durationMs }`
    */
   settle: (id, result) => {
     db.prepare(`
       UPDATE hosted_usage
-      SET status = @status, cost_source = @costSource, cost_micros = @costMicros, prompt_tokens = @promptTokens,
+      SET status = @status, stopped = @stopped, cost_source = @costSource, cost_micros = @costMicros, prompt_tokens = @promptTokens,
         cached_tokens = @cachedTokens, output_tokens = @outputTokens, duration_ms = @durationMs
       WHERE id = @id AND status = 'open'
-    `).run({ id, ...result });
+    `).run({ id, stopped: 0, ...result });
   },
 
   /**

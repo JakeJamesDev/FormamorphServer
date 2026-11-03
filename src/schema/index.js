@@ -58,6 +58,7 @@ const STEPS = [
   require('./steps/supporterTop'),
   require('./steps/hostedGrants'),
   require('./steps/warningAckWeek'),
+  require('./steps/hostedUsageRetry'),
   require('./indexes')
 ];
 

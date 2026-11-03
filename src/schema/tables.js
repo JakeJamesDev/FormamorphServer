@@ -733,7 +733,9 @@ const apply = (database) => {
 
   // One row per Formamorph AI call: what it reserved, then what it cost, in micro-dollars. No prompt or
   // reply text, ever. `user_id` has no foreign key: erasure sets it null and the row stays with its
-  // subject, so the week and the day keep their sums.
+  // subject, so the week and the day keep their sums. `retry` is the proxy's second attempt at a call and
+  // takes no turn-cap slot. `stopped` is an attempt stopped before any reply text: on the day's spend, off
+  // the player's allowance.
   database.exec(`
     CREATE TABLE IF NOT EXISTS hosted_usage (
       id INTEGER PRIMARY KEY,
@@ -749,7 +751,9 @@ const apply = (database) => {
       cost_source TEXT CHECK (cost_source IN ('upstream', 'computed', 'estimated')),
       started_at TEXT NOT NULL,
       duration_ms INTEGER,
-      status TEXT NOT NULL CHECK (status IN ('open', 'ok', 'aborted', 'error', 'swept'))
+      status TEXT NOT NULL CHECK (status IN ('open', 'ok', 'aborted', 'error', 'swept')),
+      retry INTEGER NOT NULL DEFAULT 0,
+      stopped INTEGER NOT NULL DEFAULT 0
     )
   `);
 
