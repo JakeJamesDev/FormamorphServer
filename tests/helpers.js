@@ -7,6 +7,17 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
 /**
+ * Load a module again, as a new process would, and keep the database it shares.
+ *
+ * @param {string} path - The module, relative to this folder
+ * @returns {*} The module's new exports
+ */
+export function freshRequire(path) {
+  delete require.cache[require.resolve(path)];
+  return require(path);
+}
+
+/**
  * Seed a user straight into the database rather than through `POST /auth/register`: that route is rate
  * limited to 20 attempts per window and supertest sends every request from one IP, so registering per
  * test would eventually 429 and make the suite flaky. Register/login are covered directly in auth.test.js.

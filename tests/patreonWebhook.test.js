@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import { app, request } from './context.js';
-import { createUser, authHeader } from './helpers.js';
+import { createUser, authHeader, freshRequire } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const { setPatreonClient, resetPatreonClient } = require('../src/utils/patreon');
-const { reconcilePatreon, READ_DEBOUNCE_MS } = require('../src/utils/reconcilePatreon');
+const { reconcilePatreon, READ_WAIT_MS } = require('../src/utils/reconcilePatreon');
 const PatreonLink = require('../src/models/PatreonLink');
 const Setting = require('../src/models/Setting');
 const { PATREON_RECONCILE_FAILURES } = require('../src/config/settings');
@@ -595,7 +595,7 @@ describe('a burst of deliveries', () => {
     const body = memberBody('p1', ['tier-10']);
 
     await deliver('members:update', body);
-    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS - 1);
+    await vi.advanceTimersByTimeAsync(READ_WAIT_MS - 1);
     await deliver('members:update', body);
     expect(reads).toBe(0);
 
@@ -609,21 +609,21 @@ describe('a burst of deliveries', () => {
 
     await deliver('members:update', memberBody('p1', ['tier-10']));
 
-    const debounce = timers.mock.results.find((_, index) => timers.mock.calls[index][1] === READ_DEBOUNCE_MS);
-    expect(debounce.value.hasRef()).toBe(false);
+    const wait = timers.mock.results.find((_, index) => timers.mock.calls[index][1] === READ_WAIT_MS);
+    expect(wait.value.hasRef()).toBe(false);
   });
 
   it('makes one more read for deliveries that land during a read, and answers them first', async () => {
     const release = holdNextRead();
     const body = memberBody('p1', ['tier-5']);
     await deliver('members:update', body);
-    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(READ_WAIT_MS);
     expect(reads).toBe(1);
 
     const during = await deliver('members:update', body);
     await deliver('members:pledge:update', body);
     expect(during.status).toBe(200);
-    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(READ_WAIT_MS);
     expect(reads).toBe(1);
 
     release();
@@ -640,7 +640,7 @@ describe('a read already in flight when a delivery lands', () => {
     await link(user, 'p1', ['tier-5']);
     const release = holdNextRead();
     await deliver('members:update', memberBody('p1', ['tier-5']));
-    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(READ_WAIT_MS);
     expect(reads).toBe(1);
     return { user, release };
   };
@@ -712,7 +712,7 @@ describe('an hourly run beside a delivery read', () => {
     await link(createUser(), 'p1', ['tier-5']);
     const release = holdNextRead();
     await deliver('members:update', memberBody('p1', ['tier-5']));
-    await vi.advanceTimersByTimeAsync(READ_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(READ_WAIT_MS);
     return release;
   };
 
@@ -745,12 +745,6 @@ describe('an hourly run beside a delivery read', () => {
 });
 
 describe('a server without Patreon configured', () => {
-  /** Load a module again, as a new process would, and keep the database it shares. */
-  const freshRequire = (path) => {
-    delete require.cache[require.resolve(path)];
-    return require(path);
-  };
-
   it('makes no read when one is asked for', async () => {
     vi.stubEnv('PATREON_CAMPAIGN_ID', '');
     freshRequire('../src/config/patreon');

@@ -14,7 +14,7 @@ const HostedGrant = require('../src/models/HostedGrant');
 const HostedProviderSpend = require('../src/models/HostedProviderSpend');
 const { checkPause } = require('../src/utils/hostedPause');
 const { eraseUser } = require('../src/utils/eraseUser');
-const { HOSTED_AI, REFUSALS, PLEDGE_CONFIRMED_MS } = require('../src/config/hostedAi');
+const { HOSTED_AI, REFUSALS } = require('../src/config/hostedAi');
 const { entitlement } = require('../src/utils/hostedState');
 
 /**
@@ -640,6 +640,7 @@ describe('switching the model', () => {
 describe('an unconfirmed pledge', () => {
   const DAY = 24 * 3_600_000;
   const MINUTE = 60_000;
+  const CUTOFF = 7 * DAY;
   const confirmedAgo = (ms) => new Date(Date.now() - ms).toISOString();
   const pledged = (checkedAt, tier = 'supporter', patreonUserId = `p-${rnd()}`) => {
     const user = account();
@@ -648,8 +649,8 @@ describe('an unconfirmed pledge', () => {
   };
 
   it('serves just inside 7 days and refuses just past it with pledge_unconfirmed', async () => {
-    const inside = pledged(confirmedAgo(PLEDGE_CONFIRMED_MS - MINUTE)).user;
-    const past = pledged(confirmedAgo(PLEDGE_CONFIRMED_MS + MINUTE)).user;
+    const inside = pledged(confirmedAgo(CUTOFF - MINUTE)).user;
+    const past = pledged(confirmedAgo(CUTOFF + MINUTE)).user;
 
     expect((await send(inside)).status).toBe(200);
     const refused = await send(past);
@@ -662,7 +663,7 @@ describe('an unconfirmed pledge', () => {
   it('entitles at exactly 7 days and not one millisecond later', () => {
     const checkedAt = '2026-01-01T00:00:00.000Z';
     const { user } = pledged(checkedAt);
-    const exact = new Date(Date.parse(checkedAt) + PLEDGE_CONFIRMED_MS);
+    const exact = new Date(Date.parse(checkedAt) + CUTOFF);
 
     expect(entitlement(user.id, exact)).toMatchObject({ source: 'pledge' });
     expect(entitlement(user.id, new Date(exact.getTime() + 1))).toBeNull();

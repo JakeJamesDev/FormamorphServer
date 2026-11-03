@@ -57,8 +57,8 @@ const turnGrace = ({ turnCallCap, limits, margin, maxTokensCap }, prices) => tur
 const admitCall = db.transaction((call) => {
   const { subject, turnId, now } = call;
   const week = weekStart(now);
-  let counted = HostedUsage.spendSince(subject, week);
-  let level = call.budgetMicros;
+  let spend = HostedUsage.spendSince(subject, week);
+  let limit = call.budgetMicros;
 
   if (turnId) {
     const turn = HostedUsage.turn(subject, turnId);
@@ -66,10 +66,10 @@ const admitCall = db.transaction((call) => {
       || now.getTime() - Date.parse(turn.first) >= call.turnLimitMs
       || turn.calls >= call.turnCallCap;
     if (expired) return { refusal: 'turn_expired' };
-    counted -= HostedUsage.turnSpendSince(subject, turnId, week);
-    level += call.graceMicros;
+    spend -= HostedUsage.turnSpendSince(subject, turnId, week);
+    limit += call.graceMicros;
   }
-  if (counted >= level) return { refusal: 'budget_exhausted', extra: { resetAt: resetAt(now) } };
+  if (spend >= limit) return { refusal: 'budget_exhausted', extra: { resetAt: resetAt(now) } };
 
   if (call.estimatedPromptTokens > call.window + call.margin) {
     return { refusal: 'window_exceeded', extra: { window: call.window } };

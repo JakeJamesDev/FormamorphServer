@@ -20,7 +20,8 @@ const HOSTED_BALANCE_ALERTED = 'hosted_ai_balance_alerted';
 const HOSTED_BODY_LIMIT = '8mb';
 
 /** How long a pledge stays entitled after Patreon last confirmed it. */
-const PLEDGE_CONFIRMED_MS = 7 * 24 * 60 * 60 * 1000;
+const PLEDGE_CONFIRMED_DAYS = 7;
+const PLEDGE_CONFIRMED_MS = PLEDGE_CONFIRMED_DAYS * 24 * 60 * 60 * 1000;
 
 /**
  * Every refusal the proxy answers with, by code. The client mirrors this list.
@@ -266,6 +267,7 @@ module.exports = {
   HOSTED_AI_DEFAULT,
   HOSTED_BALANCE_ALERTED,
   HOSTED_BODY_LIMIT,
+  PLEDGE_CONFIRMED_DAYS,
   PLEDGE_CONFIRMED_MS,
   DEFAULT_WARN_THRESHOLDS,
   warnThresholdsOf,

@@ -14,10 +14,7 @@ const { HOSTED_AI, REFUSALS } = require('../src/config/hostedAi');
 const { entitlement } = require('../src/utils/hostedState');
 const { setPatreonClient, resetPatreonClient } = require('../src/utils/patreon');
 
-/**
- * The Formamorph AI entitlement suite. Read-only against src/: every probe
- * drives the real route or the real helper and asserts what the server actually does.
- */
+/** The Formamorph AI entitlement suite: every probe drives the real route or the real helper. */
 
 const ROUTE = '/api/hosted-ai/chat/completions';
 const TURN = 'X-Formamorph-Turn';
@@ -238,10 +235,10 @@ describe('what a request can say about itself', () => {
     expect(received).toHaveLength(0);
   });
 
-  it('serves the route under a trailing slash and mixed case with protect still in front', async () => {
+  it('keeps protect in front of the route under a trailing slash and mixed case', async () => {
     for (const path of [ROUTE, `${ROUTE}/`, '/api/hosted-ai/CHAT/COMPLETIONS']) {
       const res = await request(app).post(path).send(chat());
-      expect([401, 404]).toContain(res.status);
+      expect(res.status).toBe(401);
       expect(res.body.code).toBeUndefined();
     }
     expect(received).toHaveLength(0);

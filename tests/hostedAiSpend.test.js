@@ -216,6 +216,20 @@ describe('a client that stockpiles turn ids', () => {
   });
 });
 
+describe('a refused continuation', () => {
+  it('does not count toward the turn call cap', async () => {
+    const { user } = supporter();
+    const [turn] = await stockpile(user, 1);
+    const tooLarge = { messages: [{ role: 'user', content: 'x'.repeat(2051 * 4) }], max_tokens: 1 };
+
+    for (let call = 0; call < CALL_CAP; call += 1) {
+      expect((await send(user, tooLarge, turn)).body.code).toBe('window_exceeded');
+    }
+
+    expect((await send(user, cheap, turn)).status).toBe(200);
+  });
+});
+
 describe('the level a continuation stops at', () => {
   // Budget plus turnCallCap × (window + margin at the prompt price + maxTokensCap at the completion price).
   it.each([

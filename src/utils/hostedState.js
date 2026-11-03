@@ -32,6 +32,9 @@ const linkOf = (userId) => {
   }
 };
 
+/** Whether a link holds a tier the proxy serves. */
+const holdsTier = (link) => link && rank(link.tier) >= 0;
+
 /** Whether Patreon confirmed the link within the cutoff. A null or unreadable `checked_at` is not confirmed. */
 const isConfirmed = (link, now) => {
   const checked = Date.parse(link.checked_at);
@@ -47,7 +50,7 @@ const isConfirmed = (link, now) => {
  */
 const unconfirmedTier = (userId, now = new Date()) => {
   const link = linkOf(userId);
-  return link && rank(link.tier) >= 0 && !isConfirmed(link, now) ? link.tier : null;
+  return holdsTier(link) && !isConfirmed(link, now) ? link.tier : null;
 };
 
 /**
@@ -64,7 +67,7 @@ const entitlement = (userId, now = new Date()) => {
   let best = null;
 
   const link = linkOf(userId);
-  if (link && rank(link.tier) >= 0 && isConfirmed(link, now)) {
+  if (holdsTier(link) && isConfirmed(link, now)) {
     best = { subject: link.patreon_user_id, tier: link.tier, source: 'pledge' };
   }
 

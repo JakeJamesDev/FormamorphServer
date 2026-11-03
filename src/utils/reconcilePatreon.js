@@ -5,13 +5,14 @@ const { alertAdmins } = require('./hostedAlerts');
 const PatreonLink = require('../models/PatreonLink');
 const Setting = require('../models/Setting');
 const { patreonConfigured, tierStateOf } = require('../config/patreon');
+const { PLEDGE_CONFIRMED_DAYS } = require('../config/hostedAi');
 const { PATREON_RECONCILE_FAILURES } = require('../config/settings');
 
 /** Consecutive failed hourly reconciles that raise the admin alert. */
 const ALERT_AFTER_FAILURES = 3;
 
 /** How long a webhook delivery waits before its read, so a burst shares one. The first delivery starts the wait. */
-const READ_DEBOUNCE_MS = 5000;
+const READ_WAIT_MS = 5000;
 
 let readInFlight = null;
 let readTimer = null;
@@ -20,7 +21,7 @@ let readAgain = false;
 const applyMemberList = async () => {
   const list = await listMembers();
   // A delivery landed during the fetch, so this list may be older than it: the read that follows decides.
-  if (readAgain) return 0;
+  if (readAgain) return null;
 
   const members = new Map(list.map((member) => [member.patreonUserId, member]));
   return PatreonLink.setAllTiers((id) => tierStateOf(members.get(id) || null), new Date().toISOString());
@@ -32,7 +33,7 @@ const applyMemberList = async () => {
  * The shared read: it neither counts failures nor alerts. A failed read throws and changes no link. A call
  * during a read joins that read.
  *
- * @returns {Promise<number>} How many links were set; 0 when a delivery during the read voids its list
+ * @returns {Promise<number|null>} How many links were set, or null when a delivery during the read voids its list
  */
 const refreshLinksFromMembers = () => {
   readInFlight ??= applyMemberList().finally(() => {
@@ -57,7 +58,7 @@ const requestMemberRead = () => {
   readTimer = setTimeout(() => {
     readTimer = null;
     refreshLinksFromMembers().catch((error) => console.error('Patreon webhook member read failed:', error));
-  }, READ_DEBOUNCE_MS);
+  }, READ_WAIT_MS);
   readTimer.unref();
 };
 
@@ -69,7 +70,7 @@ const recordFailure = async () => {
 
   await alertAdmins({
     subject: 'Patreon reconcile is failing',
-    body: `The hourly Patreon reconcile has failed ${ALERT_AFTER_FAILURES} times in a row. Supporters keep service until a pledge has gone 7 days unconfirmed. Check the creator token and Patreon's status.`
+    body: `The hourly Patreon reconcile has failed ${ALERT_AFTER_FAILURES} times in a row. Supporters keep service until a pledge has gone ${PLEDGE_CONFIRMED_DAYS} days unconfirmed. Check the creator token and Patreon's status.`
   });
 };
 
@@ -110,5 +111,5 @@ const reconcilePatreon = async () => {
 const startPatreonReconciler = () => hourly(reconcilePatreon);
 
 module.exports = {
-  READ_DEBOUNCE_MS, reconcilePatreon, refreshLinksFromMembers, requestMemberRead, startPatreonReconciler
+  READ_WAIT_MS, reconcilePatreon, refreshLinksFromMembers, requestMemberRead, startPatreonReconciler
 };

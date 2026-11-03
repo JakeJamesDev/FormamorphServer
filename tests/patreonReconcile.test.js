@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import { app, request } from './context.js';
-import { createUser, authHeader } from './helpers.js';
+import { createUser, authHeader, freshRequire } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const {
@@ -10,6 +10,7 @@ const {
 const { reconcilePatreon, refreshLinksFromMembers, startPatreonReconciler } = require('../src/utils/reconcilePatreon');
 const db = require('../src/config/db');
 const PatreonLink = require('../src/models/PatreonLink');
+const { entitlement } = require('../src/utils/hostedState');
 const Setting = require('../src/models/Setting');
 const { PATREON_CREATOR_TOKENS, PATREON_RECONCILE_FAILURES } = require('../src/config/settings');
 const { HOUR_MS, DAY_MS } = require('../src/config/time');
@@ -84,6 +85,21 @@ const linkedUser = async (patreonUserId, tier, pledgeStart = null) => {
 };
 
 describe('the Patreon reconcile', () => {
+  it('restores an unconfirmed pledge when a read confirms it, and a failed read does not', async () => {
+    const user = await linkedUser('p1', 'supporter');
+    const stale = new Date(Date.now() - 8 * DAY_MS).toISOString();
+    PatreonLink.link({ userId: user.id, patreonUserId: 'p1', tier: 'supporter', pledgeStart: null, checkedAt: stale });
+    members = [member('p1', ['tier-5'])];
+
+    membersFail = true;
+    await reconcilePatreon();
+    expect(entitlement(user.id)).toBeNull();
+
+    membersFail = false;
+    await reconcilePatreon();
+    expect(entitlement(user.id)).toMatchObject({ source: 'pledge', tier: 'supporter' });
+  });
+
   it('corrects a wrong tier and pledge start from the member list', async () => {
     const user = await linkedUser('p1', 'supporter', '2020-01-01T00:00:00.000+00:00');
     members = [member('p1', ['tier-10'], '2025-03-01T00:00:00.000+00:00')];
@@ -179,12 +195,6 @@ describe('the reconcile failure alert', () => {
   const alertsTo = (admin) => db
     .prepare('SELECT subject FROM messages WHERE recipient_id = ? AND subject = ?')
     .all(admin.id, 'Patreon reconcile is failing');
-
-  /** Load a module again, as a new process would, and keep the database it shares. */
-  const freshRequire = (path) => {
-    delete require.cache[require.resolve(path)];
-    return require(path);
-  };
 
   const failRuns = async (runs) => {
     membersFail = true;
