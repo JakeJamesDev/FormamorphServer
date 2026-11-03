@@ -1,6 +1,6 @@
 **Last updated: 3 November 2026**
 
-This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It does not cover your play. The game runs on your device, and nothing about a playthrough reaches us.
+This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It also covers Formamorph AI, if you choose to use it. The game runs on your device. Unless you use Formamorph AI, nothing about a playthrough reaches us.
 
 **Jake James** operates Formamorph. Write to **privacy@formamorph.ai** about anything in this policy.
 
@@ -74,6 +74,26 @@ When the app shows you the Formamorph AI offer, it adds one to a **daily total**
 
 **We store no address, no Install id, and no account with it.** Nothing in a total says who you are. We use the totals to learn whether the offer works.
 
+## Using Formamorph AI
+
+Formamorph AI is an optional AI service that we run. If you choose it in Settings, the app sends the text of each turn to our server, and our server passes it to **a third-party AI provider**. The text can include the world and your play so far.
+
+**We do not keep that text.** Our server passes it on and stores no copy.
+
+**The provider receives the text and an anonymous id.** The id stays the same across your turns, so the provider can tell that they came from one person. We do not send your username, your email address, or your network address.
+
+**We record each call to measure use and cost:** your account, your Patreon user id or staff grant, your tier, the model, the type of prompt, the number of tokens, the cost, the time, how long the call took, and how it ended. Staff can read these records. They hold no text from your play.
+
+**We delete these records after 30 days.** If you delete your account, we remove your account from them at once. Your Patreon user id stays on them until the 30 days end.
+
+## Linking Patreon
+
+Linking a Patreon account is optional. If you link one, we store **your Patreon user id, your tier, the date your pledge started, when we last checked it, and whether your Supporter flair is on**. We do not store your name, your email address, or your payment details from Patreon.
+
+We read our Patreon member list, and Patreon notifies us when a membership changes. We use these to keep your tier current.
+
+**While your flair is on, other people can see your tier and the date your pledge started**, beside your username and avatar. You can turn the flair off at any time.
+
 ## Who else handles your data
 
 **Hetzner** hosts the server in **Helsinki, Finland**. Your data lives there.
@@ -82,11 +102,15 @@ When the app shows you the Formamorph AI offer, it adds one to a **daily total**
 
 **Resend** delivers verification and password-reset email. When we send one, Resend receives your email address and the message.
 
+**Patreon** handles memberships and payments, under its own terms and privacy policy. If you link an account, Patreon tells us your Patreon user id and your membership details.
+
+**A third-party AI provider** writes the replies for Formamorph AI. It receives what the section above describes, and only if you use Formamorph AI.
+
 Except as described above, no one else receives your data. We do not sell it, and we do not use it for advertising.
 
-## The AI is not ours
+## Any other AI service
 
-Formamorph sends your play to the AI service you choose in Settings. **That text never reaches our server.** The app talks to the AI directly from your device. It ships pointing at a third-party service, and you can change it to your own machine or to any other provider. What that service does with your text is between you and them.
+Formamorph sends your play to the AI service you choose in Settings. **If you choose anything other than Formamorph AI, that text never reaches our server.** The app talks to that service directly from your device. It ships pointing at a third-party service, and you can change it to your own machine or to any other provider. What that service does with your text is between you and them.
 
 Your worlds, saves, and settings stay in your own browser or on your own disk. They reach us only when you publish one.
 
@@ -96,6 +120,8 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 - **Signals:** 90 days.
 - **The address hash and browser family beside a like you gave while signed out:** 90 days. The like itself stays.
 - **The kind of network beside a like:** 90 days. The like itself stays.
+- **Your Patreon link:** until you unlink it or delete your account.
+- **Records of Formamorph AI calls:** 30 days. We keep no text from your play.
 - **Nightly copies of the database:** up to 30 days.
 - **Published files:** mirrored to Cloudflare storage for as long as the listing exists.
 
