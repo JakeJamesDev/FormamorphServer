@@ -6,7 +6,7 @@ const PatreonPendingLink = require('../models/PatreonPendingLink');
 const { sameGeneration } = require('../middleware/auth');
 const { SITE_URL } = require('../config/mail');
 const { patreonConfigured, tierStateOf, LINK_STATE_TTL_MS, LINK_RESULTS } = require('../config/patreon');
-const { tierNames } = require('../utils/tierNames');
+const { tierNames, tierPrices } =require('../utils/tierNames');
 const { authorizeUrl, identifyMember, listMembers } = require('../utils/patreon');
 
 const STATE_PURPOSE = 'patreon-link';
@@ -219,13 +219,13 @@ exports.getSupporters = async (req, res, next) => {
 };
 
 /**
- * @desc    The Patreon title of each supporter tier, or null for a tier with no known title
+ * @desc    The Patreon title of each supporter tier, or null for a tier with no known title, and `prices` in cents
  * @route   GET /api/patreon/tier-names
  * @access  Public
  */
 exports.getTierNames = (req, res, next) => {
   try {
-    res.status(200).json({ success: true, data: tierNames() });
+    res.status(200).json({ success: true, data: { ...tierNames(), prices: tierPrices() } });
   } catch (error) {
     next(error);
   }

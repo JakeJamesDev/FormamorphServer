@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { setPatreonClient, resetPatreonClient, httpClient } = require('../src/utils/patreon');
 const { reconcilePatreon } = require('../src/utils/reconcilePatreon');
 const Setting = require('../src/models/Setting');
-const { PATREON_TIER_NAMES } = require('../src/config/settings');
+const { PATREON_TIER_NAMES, PATREON_TIER_PRICES } =require('../src/config/settings');
 
 /**
  * The Patreon title of each tier, stored by tier key and served on a public route.
@@ -16,11 +16,13 @@ const { PATREON_TIER_NAMES } = require('../src/config/settings');
  */
 
 let titles;
+let tierPrices;
 let titlesFail;
 let titleCalls;
 
 beforeEach(() => {
   titles = {};
+  tierPrices = {};
   titlesFail = false;
   titleCalls = 0;
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -32,9 +34,10 @@ beforeEach(() => {
     tierTitles: async () => {
       titleCalls += 1;
       if (titlesFail) throw new Error('Patreon is down');
-      return { via: 'campaign', titles };
+      return { via: 'campaign', titles, prices: tierPrices };
     }
   });
+  Setting.set(PATREON_TIER_PRICES, { supporter: null, supporter_plus: null, supporter_top: null });
 });
 
 afterEach(() => {
@@ -42,11 +45,101 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const names = async () => {
+const reply = async () => {
   const res = await request(app).get('/api/patreon/tier-names');
   expect(res.status).toBe(200);
   return res.body.data;
 };
+
+// The titles as a client that reads only the title keys sees them.
+const names = async () => {
+  const { supporter, supporter_plus, supporter_top } = await reply();
+  return { supporter, supporter_plus, supporter_top };
+};
+
+const prices = async () => (await reply()).prices;
+
+describe('the prices', () => {
+  const ALL_NULL = { supporter: null, supporter_plus: null, supporter_top: null };
+
+  it('are null before any price is known', async () => {
+    expect(await prices()).toEqual(ALL_NULL);
+  });
+
+  it('serve the stored cents beside the titles', async () => {
+    titles = { 'tier-5': 'Friend', 'tier-10': 'Patron' };
+    tierPrices = { 'tier-5': 500, 'tier-10': 1000 };
+    await reconcilePatreon();
+
+    expect(await reply()).toEqual({
+      supporter: 'Friend', supporter_plus: 'Patron', supporter_top: null,
+      prices: { supporter: 500, supporter_plus: 1000, supporter_top: null }
+    });
+  });
+
+  it('keep the title keys as plain strings for a client that reads only titles', async () => {
+    titles = { 'tier-5': 'Friend' };
+    tierPrices = { 'tier-5': 500 };
+    await reconcilePatreon();
+
+    expect((await reply()).supporter).toBe('Friend');
+  });
+
+  it('ignore an unmapped tier, a non-integer amount and a negative amount', async () => {
+    titles = { 'tier-5': 'Friend', 'tier-10': 'Patron', 'tier-top': 'Champion' };
+    tierPrices = { 'tier-other': 700, 'tier-5': '500', 'tier-10': -1, 'tier-top': 2500 };
+    await reconcilePatreon();
+
+    expect(await prices()).toEqual({ supporter: null, supporter_plus: null, supporter_top: 2500 });
+  });
+
+  it('keep the old prices when Patreon fails', async () => {
+    titles = { 'tier-5': 'Friend' };
+    tierPrices = { 'tier-5': 500 };
+    await reconcilePatreon();
+    titlesFail = true;
+
+    await reconcilePatreon();
+
+    expect(await prices()).toEqual({ supporter: 500, supporter_plus: null, supporter_top: null });
+  });
+
+  it('drop the price of a tier a full answer no longer lists', async () => {
+    titles = { 'tier-5': 'Friend', 'tier-10': 'Patron' };
+    tierPrices = { 'tier-5': 500, 'tier-10': 1000 };
+    await reconcilePatreon();
+    titles = { 'tier-5': 'Friend' };
+    tierPrices = { 'tier-5': 600 };
+    await reconcilePatreon();
+
+    expect(await prices()).toEqual({ supporter: 600, supporter_plus: null, supporter_top: null });
+  });
+
+  it('keep the prices of tiers the members fallback does not list', async () => {
+    titles = { 'tier-5': 'Friend', 'tier-10': 'Patron' };
+    tierPrices = { 'tier-5': 500, 'tier-10': 1000 };
+    await reconcilePatreon();
+    setPatreonClient({
+      members: async () => [],
+      tierTitles: async () => ({ via: 'members', titles: { 'tier-5': 'Friend' }, prices: { 'tier-5': 600 } })
+    });
+
+    await reconcilePatreon();
+
+    expect(await prices()).toEqual({ supporter: 600, supporter_plus: 1000, supporter_top: null });
+  });
+
+  it('are made without a Patreon call on a request', async () => {
+    titles = { 'tier-5': 'Friend' };
+    tierPrices = { 'tier-5': 500 };
+    await reconcilePatreon();
+    titleCalls = 0;
+
+    await prices();
+
+    expect(titleCalls).toBe(0);
+  });
+});
 
 describe('the route', () => {
   it('is empty before any title is known', async () => {
@@ -139,6 +232,16 @@ describe('the webhook', () => {
     included
   });
 
+  it('updates the price of only the tiers it carries', async () => {
+    titles = { 'tier-5': 'Friend', 'tier-10': 'Patron' };
+    tierPrices = { 'tier-5': 500, 'tier-10': 1000 };
+    await reconcilePatreon();
+
+    await deliver(payload([{ id: 'tier-10', type: 'tier', attributes: { title: 'Patron', amount_cents: 1200 } }]));
+
+    expect(await prices()).toEqual({ supporter: 500, supporter_plus: 1200, supporter_top: null });
+  });
+
   it('renames only the tiers it carries', async () => {
     titles = { 'tier-5': 'Friend', 'tier-10': 'Patron' };
     await reconcilePatreon();
@@ -178,23 +281,27 @@ describe('the Patreon calls', () => {
 
   it('reads titles from the campaign call first', async () => {
     const fetchMock = vi.fn(async () => reply({
-      included: [{ id: 'tier-5', type: 'tier', attributes: { title: 'Friend' } }]
+      included: [{ id: 'tier-5', type: 'tier', attributes: { title: 'Friend', amount_cents: 500 } }]
     }));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await httpClient.tierTitles('token')).toEqual({ via: 'campaign', titles: { 'tier-5': 'Friend' } });
+    expect(await httpClient.tierTitles('token')).toEqual({
+      via: 'campaign', titles: { 'tier-5': 'Friend' }, prices: { 'tier-5': 500 }
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(decodeURIComponent(fetchMock.mock.calls[0][0])).toContain('campaigns/test-campaign?include=tiers&fields[tier]=title');
+    expect(decodeURIComponent(fetchMock.mock.calls[0][0])).toContain('campaigns/test-campaign?include=tiers&fields[tier]=title,amount_cents');
   });
 
   it('falls back to the members call when the campaign call refuses', async () => {
     const fetchMock = vi.fn(async (url) => (String(url).includes('/members')
-      ? reply({ data: [], included: [{ id: 'tier-10', type: 'tier', attributes: { title: 'Patron' } }] })
+      ? reply({ data: [], included: [{ id: 'tier-10', type: 'tier', attributes: { title: 'Patron', amount_cents: 1000 } }] })
       : reply({}, 400)));
     vi.stubGlobal('fetch', fetchMock);
 
-    expect(await httpClient.tierTitles('token')).toEqual({ via: 'members', titles: { 'tier-10': 'Patron' } });
-    expect(decodeURIComponent(fetchMock.mock.calls[1][0])).toContain('fields[tier]=title');
+    expect(await httpClient.tierTitles('token')).toEqual({
+      via: 'members', titles: { 'tier-10': 'Patron' }, prices: { 'tier-10': 1000 }
+    });
+    expect(decodeURIComponent(fetchMock.mock.calls[1][0])).toContain('fields[tier]=title,amount_cents');
   });
 
   it('falls back when the campaign reply carries no title', async () => {

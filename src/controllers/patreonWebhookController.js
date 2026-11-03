@@ -3,7 +3,7 @@ const PatreonLink = require('../models/PatreonLink');
 const {
   tierStateOf, patreonWebhookSecret, WEBHOOK_TIER_TRIGGERS, WEBHOOK_ENDING_TRIGGERS
 } = require('../config/patreon');
-const { memberFrom, tierTitlesFrom } = require('../utils/patreon');
+const { memberFrom, tierTitlesFrom, tierPricesFrom } = require('../utils/patreon');
 const { storeTierTitles } = require('../utils/tierNames');
 
 /**
@@ -55,7 +55,7 @@ exports.patreonWebhook = (req, res, next) => {
     // A delivery that carries tier resources renames those tiers; the other tiers keep their names.
     const titles = tierTitlesFrom(payload);
     try {
-      if (Object.keys(titles).length) storeTierTitles(titles, false);
+      if (Object.keys(titles).length) storeTierTitles(titles, false, tierPricesFrom(payload));
     } catch (error) {
       console.error('Patreon webhook tier name write failed:', error);
     }

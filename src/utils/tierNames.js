@@ -1,5 +1,5 @@
 const Setting = require('../models/Setting');
-const { PATREON_TIER_NAMES } = require('../config/settings');
+const { PATREON_TIER_NAMES, PATREON_TIER_PRICES } =require('../config/settings');
 const { TIER_KEYS, tierKeyOf } = require('../config/patreon');
 const { listTierTitles } = require('./patreon');
 
@@ -34,20 +34,43 @@ const tierNames = () => {
 };
 
 /**
- * Store the titles a Patreon reply gave. Only mapped tier IDs count.
+ * A price as stored.
+ *
+ * @param {*} raw - An amount from Patreon
+ * @returns {number|null} The price in cents, or null when it is not a whole non-negative number
+ */
+const cleanPrice = (raw) => (Number.isInteger(raw) && raw >= 0 ? raw : null);
+
+/** @returns {Object<string, number|null>} The stored price in cents of every tier key */
+const tierPrices = () => {
+  const stored = Setting.get(PATREON_TIER_PRICES) || {};
+
+  return Object.fromEntries(TIER_KEYS.map((key) => [key, cleanPrice(stored[key])]));
+};
+
+/**
+ * Store the titles and prices a Patreon reply gave. Only mapped tier IDs count.
  *
  * @param {Object<string, string>} titlesById - Patreon tier ID to title
- * @param {boolean} complete - Whether the reply lists every tier; a tier it omits then loses its name
+ * @param {boolean} complete - Whether the reply lists every tier; a tier it omits then loses its name and price
+ * @param {Object<string, number>} [pricesById] - Patreon tier ID to price in cents
  */
-const storeTierTitles = (titlesById, complete) => {
-  const next = complete ? Object.fromEntries(TIER_KEYS.map((key) => [key, null])) : tierNames();
+const storeTierTitles = (titlesById, complete, pricesById = {}) => {
+  const blank = () => Object.fromEntries(TIER_KEYS.map((key) => [key, null]));
+  const names = complete ? blank() : tierNames();
+  const prices = complete ? blank() : tierPrices();
 
   for (const [id, title] of Object.entries(titlesById)) {
     const key = tierKeyOf(id);
-    if (key) next[key] = cleanTitle(title);
+    if (key) names[key] = cleanTitle(title);
+  }
+  for (const [id, amount] of Object.entries(pricesById)) {
+    const key = tierKeyOf(id);
+    if (key) prices[key] = cleanPrice(amount);
   }
 
-  Setting.set(PATREON_TIER_NAMES, next);
+  Setting.set(PATREON_TIER_NAMES, names);
+  Setting.set(PATREON_TIER_PRICES, prices);
 };
 
 /**
@@ -59,9 +82,9 @@ const storeTierTitles = (titlesById, complete) => {
  */
 const refreshTierNames = async () => {
   try {
-    const { via, titles } = await listTierTitles();
+    const { via, titles, prices } = await listTierTitles();
     // Only the campaign call lists tiers with no members, so only its answer is complete.
-    storeTierTitles(titles, via === 'campaign');
+    storeTierTitles(titles, via === 'campaign', prices);
     console.log(`Patreon tier names refreshed via ${via}`);
 
     return true;
@@ -71,4 +94,4 @@ const refreshTierNames = async () => {
   }
 };
 
-module.exports = { tierNames, storeTierTitles, refreshTierNames };
+module.exports = { tierNames, tierPrices, storeTierTitles, refreshTierNames };

@@ -89,7 +89,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Pledge start** | Patreon's `pledge_relationship_start` for a member with a tier. It can be null. |
 | **Patreon webhook** | Patreon's signed call when a membership changes. It sets the tier of the account that links the member; a delete trigger clears it. A call for a Patreon user with no link changes nothing. |
 | **Patreon reconcile** | The job that reads the full campaign member list at boot and every hour, and sets every link's tier from it. It repairs a missed webhook. A failed read changes no link. It also refreshes the Tier names. |
-| **Tier name** | The Patreon title of a tier, kept by tier key and served at `GET /api/patreon/tier-names`. Null for an unknown or empty title; the client shows its own fallback. A failed refresh keeps the old names, and a request never calls Patreon. |
+| **Tier name** | The Patreon title of a tier, kept by tier key and served at `GET /api/patreon/tier-names`. Null for an unknown or empty title; the client shows its own fallback. The same reply carries each tier's price in cents under `prices`, from Patreon's `amount_cents`, null when unknown. A failed refresh keeps the old names and prices, and a request never calls Patreon. |
 | **Creator token** | The token pair that reads the member list. It starts from the environment. After its first refresh, the server's settings store holds it, and staff cannot read it. |
 | **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
 | **Mark number** | A random 32-bit number, one per account for good, made the first time the account gets a watermarked copy. Erasure deletes it. |

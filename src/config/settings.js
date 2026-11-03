@@ -35,6 +35,7 @@ const PATREON_CREATOR_TOKENS = 'patreon_creator_tokens';
 
 /** The Patreon title of each tier, by tier key: `{ supporter, supporter_plus, supporter_top }`, each a string or null. */
 const PATREON_TIER_NAMES = 'patreon_tier_names';
+const PATREON_TIER_PRICES = 'patreon_tier_prices';
 
 /** Every setting there is, by key. */
 const SETTINGS = {
@@ -57,6 +58,11 @@ const SETTINGS = {
   [HOSTED_AI]: { default: HOSTED_AI_DEFAULT, validate: validateHostedAi, adminOnly: true, adminRead: true },
   // Written only by `utils/patreon`. Internal, so the staff routes never show or take a token.
   [PATREON_CREATOR_TOKENS]: { default: null, internal: true },
+  // Written only by `utils/tierNames`. Internal: the prices come from Patreon, in cents.
+  [PATREON_TIER_PRICES]: {
+    default: { supporter: null, supporter_plus: null, supporter_top: null },
+    internal: true
+  },
   // Written only by `utils/tierNames`. Internal: the names come from Patreon, never from staff.
   [PATREON_TIER_NAMES]: {
     default: { supporter: null, supporter_plus: null, supporter_top: null },
@@ -94,6 +100,7 @@ module.exports = {
   CLIENT_MINIMUMS,
   PATREON_CREATOR_TOKENS,
   PATREON_TIER_NAMES,
+  PATREON_TIER_PRICES,
   SETTINGS_PATH,
   SETTINGS,
   isSetting,

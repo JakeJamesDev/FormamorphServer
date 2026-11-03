@@ -102,6 +102,18 @@ const tierTitlesFrom = (page) => Object.fromEntries(
 );
 
 /**
+ * Tier ID to price in cents from the tier resources of a reply's `included` list. A resource with no whole price is left out.
+ *
+ * @param {Object} page - A JSON:API reply
+ * @returns {Object<string, number>} Prices in cents by Patreon tier ID
+ */
+const tierPricesFrom = (page) => Object.fromEntries(
+  (page?.included || [])
+    .filter((resource) => resource?.type === 'tier' && Number.isInteger(resource.attributes?.amount_cents))
+    .map((resource) => [String(resource.id), resource.attributes.amount_cents])
+);
+
+/**
  * Read the whole member list one page at a time.
  *
  * @param {string} accessToken - The creator token
@@ -173,21 +185,25 @@ const httpClient = {
   // or a reply with no title falls back to the tiers the members call includes.
   tierTitles: async (accessToken) => {
     try {
-      const query = new URLSearchParams({ include: 'tiers', 'fields[tier]': 'title' });
+      const query = new URLSearchParams({ include: 'tiers', 'fields[tier]': 'title,amount_cents' });
       const campaign = await request(`${API_BASE}/campaigns/${PATREON_CAMPAIGN_ID}?${query}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
 
       const titles = tierTitlesFrom(campaign);
-      if (Object.keys(titles).length) return { via: 'campaign', titles };
+      if (Object.keys(titles).length) return { via: 'campaign', titles, prices: tierPricesFrom(campaign) };
     } catch (error) {
       if (error instanceof PatreonAuthError) throw error;
     }
 
     const titles = {};
-    await eachMemberPage(accessToken, { 'fields[tier]': 'title' }, (page) => Object.assign(titles, tierTitlesFrom(page)));
+    const prices = {};
+    await eachMemberPage(accessToken, { 'fields[tier]': 'title,amount_cents' }, (page) => {
+      Object.assign(titles, tierTitlesFrom(page));
+      Object.assign(prices, tierPricesFrom(page));
+    });
 
-    return { via: 'members', titles };
+    return { via: 'members', titles, prices };
   },
 
   refresh: async (refreshToken) => {
@@ -329,6 +345,7 @@ module.exports = {
   listTierTitles,
   memberFrom,
   tierTitlesFrom,
+  tierPricesFrom,
   setPatreonClient,
   resetPatreonClient,
   httpClient,

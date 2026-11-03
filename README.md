@@ -501,7 +501,7 @@ Node's own `require` for that reason; take `app` and `db` from there.
 - `PUT /api/users/:id/status` - Update user status and account type (admin only)
 
 ### Patreon
-- `GET /api/patreon/tier-names` - Public. The Patreon title of each supporter tier: `{ supporter, supporter_plus, supporter_top }`, each a string or `null` when no title is known. The hourly reconcile and a webhook that carries tier resources refresh the stored names; a request never calls Patreon, and a failed refresh keeps the old names
+- `GET /api/patreon/tier-names` - Public. The Patreon title of each supporter tier: `{ supporter, supporter_plus, supporter_top, prices }`, each title a string or `null` when no title is known. `prices` has the same three keys, each the monthly price in US cents (an integer) or `null` when no price is known. The hourly reconcile and a webhook that carries tier resources refresh the stored names and prices; a request never calls Patreon, and a failed refresh keeps the old names
 
 ### Policies
 
