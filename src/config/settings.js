@@ -35,6 +35,9 @@ const PATREON_CREATOR_TOKENS = 'patreon_creator_tokens';
 
 /** The Patreon title of each tier, by tier key: `{ supporter, supporter_plus, supporter_top }`, each a string or null. */
 const PATREON_TIER_NAMES = 'patreon_tier_names';
+
+/** Internal: how many hourly Patreon reconciles in a row have failed. */
+const PATREON_RECONCILE_FAILURES = 'patreon_reconcile_failures';
 const PATREON_TIER_PRICES = 'patreon_tier_prices';
 
 /** Every setting there is, by key. */
@@ -69,7 +72,9 @@ const SETTINGS = {
     internal: true
   },
   // Written only by `utils/hostedProvider`: whether the low-balance alert went out since the last good reading.
-  [HOSTED_BALANCE_ALERTED]: { default: false, internal: true }
+  [HOSTED_BALANCE_ALERTED]: { default: false, internal: true },
+  // Written only by `utils/reconcilePatreon`: the run of failed hourly reconciles, so a restart keeps the count.
+  [PATREON_RECONCILE_FAILURES]: { default: 0, internal: true }
 };
 
 /**
@@ -99,6 +104,7 @@ const defaultFor = (key) => JSON.parse(JSON.stringify(SETTINGS[key].default));
 module.exports = {
   CLIENT_MINIMUMS,
   PATREON_CREATOR_TOKENS,
+  PATREON_RECONCILE_FAILURES,
   PATREON_TIER_NAMES,
   PATREON_TIER_PRICES,
   SETTINGS_PATH,

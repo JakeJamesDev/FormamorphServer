@@ -172,7 +172,7 @@ The values live in the local hosted-tier note.
 | `HOSTED_AI_USER_SECRET` | Signs the anonymous `user` id. Generate once, never rotate |
 | `HOSTED_AI_BALANCE_URL` | Provider balance read. Unset skips the read |
 | `HOSTED_AI_USAGE_URL` | Provider per-day usage read. Unset skips the read |
-| `STAFF_ALERT_EMAIL` | Where pause and low-balance alerts are mailed |
+| `STAFF_ALERT_EMAIL` | Where pause, low-balance and Patreon reconcile alerts are mailed |
 | `PATREON_SUPPORTER_TOP_TIER_ID` | Patreon tier ID for the top tier |
 
 Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the

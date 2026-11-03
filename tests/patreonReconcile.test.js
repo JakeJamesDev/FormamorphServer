@@ -7,10 +7,11 @@ const require = createRequire(import.meta.url);
 const {
   setPatreonClient, resetPatreonClient, listMembers, PatreonAuthError
 } = require('../src/utils/patreon');
-const { reconcilePatreon, startPatreonReconciler } = require('../src/utils/reconcilePatreon');
+const { reconcilePatreon, refreshLinksFromMembers, startPatreonReconciler } = require('../src/utils/reconcilePatreon');
+const db = require('../src/config/db');
 const PatreonLink = require('../src/models/PatreonLink');
 const Setting = require('../src/models/Setting');
-const { PATREON_CREATOR_TOKENS } = require('../src/config/settings');
+const { PATREON_CREATOR_TOKENS, PATREON_RECONCILE_FAILURES } = require('../src/config/settings');
 const { HOUR_MS, DAY_MS } = require('../src/config/time');
 
 /**
@@ -171,6 +172,101 @@ describe('the Patreon reconcile', () => {
     } finally {
       clearInterval(timer);
     }
+  });
+});
+
+describe('the reconcile failure alert', () => {
+  const alertsTo = (admin) => db
+    .prepare('SELECT subject FROM messages WHERE recipient_id = ? AND subject = ?')
+    .all(admin.id, 'Patreon reconcile is failing');
+
+  /** Load a module again, as a new process would, and keep the database it shares. */
+  const freshRequire = (path) => {
+    delete require.cache[require.resolve(path)];
+    return require(path);
+  };
+
+  const failRuns = async (runs) => {
+    membersFail = true;
+    for (let run = 0; run < runs; run += 1) await reconcilePatreon();
+  };
+
+  it('sends no alert for one or two failed runs and exactly one on the third', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+
+    await failRuns(2);
+    expect(await alertsTo(admin)).toHaveLength(0);
+
+    await failRuns(1);
+    expect(await alertsTo(admin)).toHaveLength(1);
+  });
+
+  it('sends nothing more for later failures in the same outage', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+
+    await failRuns(6);
+
+    expect(await alertsTo(admin)).toHaveLength(1);
+  });
+
+  it('clears the count on a success, so a later outage alerts again', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+    await failRuns(2);
+    membersFail = false;
+    await reconcilePatreon();
+
+    await failRuns(2);
+    expect(await alertsTo(admin)).toHaveLength(0);
+
+    await failRuns(1);
+    expect(await alertsTo(admin)).toHaveLength(1);
+
+    membersFail = false;
+    await reconcilePatreon();
+    await failRuns(3);
+    expect(await alertsTo(admin)).toHaveLength(2);
+  });
+
+  it('keeps the count across a restart', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+    await failRuns(2);
+
+    // A restart keeps the database and loses the process: the count must come from the stored setting.
+    const restarted = freshRequire('../src/utils/reconcilePatreon');
+    expect(restarted.reconcilePatreon).not.toBe(reconcilePatreon);
+    await restarted.reconcilePatreon();
+
+    expect(await alertsTo(admin)).toHaveLength(1);
+  });
+
+  it('counts a failed run of the shared read nowhere', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+    membersFail = true;
+
+    for (let run = 0; run < 5; run += 1) await expect(refreshLinksFromMembers()).rejects.toThrow('Patreon is down');
+
+    expect(Setting.get(PATREON_RECONCILE_FAILURES)).toBe(0);
+    expect(await alertsTo(admin)).toHaveLength(0);
+  });
+
+  it('counts nothing on a server without Patreon configured', async () => {
+    const admin = await createUser({ accountType: 'admin' });
+    vi.stubEnv('PATREON_CAMPAIGN_ID', '');
+    freshRequire('../src/config/patreon');
+    const unconfigured = freshRequire('../src/utils/reconcilePatreon');
+    membersFail = true;
+
+    try {
+      for (let run = 0; run < 4; run += 1) await expect(unconfigured.reconcilePatreon()).resolves.toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      freshRequire('../src/config/patreon');
+      freshRequire('../src/utils/reconcilePatreon');
+    }
+
+    expect(Setting.get(PATREON_RECONCILE_FAILURES)).toBe(0);
+    expect(memberCalls).toHaveLength(0);
+    expect(await alertsTo(admin)).toHaveLength(0);
   });
 });
 
