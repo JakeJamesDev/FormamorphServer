@@ -57,7 +57,7 @@ describe('resolving unposted text', () => {
     const at = await resolve(reader, { text: 'a'.repeat(4000) });
 
     expect(over.status).toBe(400);
-    expect(over.body.error).toBe('A description is limited to 4000 characters');
+    expect(over.body.error).toBe('Text is limited to 4000 characters');
     expect(at.status).toBe(200);
   });
 

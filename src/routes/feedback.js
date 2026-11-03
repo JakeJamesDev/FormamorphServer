@@ -18,49 +18,36 @@ const {
   searchUsers,
   searchThreads,
   resolveLinks
-} =require('../controllers/feedbackController');
+} = require('../controllers/feedbackController');
 const { protect, protectWhenSent, staff } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
 const router = express.Router();
+
+// Keyed on the account, not the address: these routes need a sign-in, so the account is the meaningful unit,
+// and an IP key would throttle a whole household or campus as one. The IP is only the fallback for a
+// request that somehow reaches here unauthenticated, which `protect` should already have refused.
+const accountLimiter = (windowMs, limit, error) => rateLimit({
+  windowMs,
+  limit,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
+  message: { success: false, error }
+});
 
 // Filing is the one route here a user can spam, and everything filed costs someone's attention to read.
 // Reading, voting and commenting are left to the global limit — those are normal traffic on a thread.
 //
 // One budget across every branch: the cap is about attention, and each kind of thread costs the same
 // amount of it.
-//
-// Keyed on the account, not the address: filing needs a sign-in, so the account is the meaningful unit,
-// and an IP key would throttle a whole household or campus as one. The IP is only the fallback for a
-// request that somehow reaches here unauthenticated, which `protect` should already have refused.
-const fileLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  limit: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
-  message: { success: false, error: 'Too much filed at once. Try again later.' }
-});
+const fileLimiter = accountLimiter(60 * 60 * 1000, 10, 'Too much filed at once. Try again later.');
 
 // The editor asks on every keystroke it debounces, so these get their own budget, per account.
-const searchLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
-  message: { success: false, error: 'Too many searches. Try again shortly.' }
-});
+const searchLimiter = accountLimiter(60 * 1000, 120, 'Too many searches. Try again shortly.');
 
 // Preview asks once each time it opens, so this budget is apart from the autocomplete's.
-const resolveLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
-  message: { success: false, error: 'Too many previews. Try again shortly.' }
-});
+const resolveLimiter = accountLimiter(60 * 1000, 60, 'Too many previews. Try again shortly.');
 
 // Literal paths first, so none is read as a thread ID.
 

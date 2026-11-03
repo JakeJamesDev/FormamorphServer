@@ -304,7 +304,7 @@ exports.resolveLinks = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Text is required' });
     }
     if (text.length > Feedback.BODY_MAX) {
-      return res.status(400).json({ success: false, error: `A description is limited to ${Feedback.BODY_MAX} characters` });
+      return res.status(400).json({ success: false, error: `Text is limited to ${Feedback.BODY_MAX} characters` });
     }
     res.status(200).json({ success: true, data: { targets: resolverFor([text], req.user)(text) } });
   } catch (error) {
