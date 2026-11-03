@@ -88,7 +88,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Tier** | `supporter` ($5), `supporter_plus` ($10), or `supporter_top`. The highest mapped tier in the member's `currently_entitled_tiers`, mapped by Patreon tier ID in the environment. An unmapped tier, or no membership, is no tier; the link stays. |
 | **Pledge start** | Patreon's `pledge_relationship_start` for a member with a tier. It can be null. |
 | **Patreon webhook** | Patreon's signed call when a membership changes. It sets the tier of the account that links the member; a delete trigger clears it. A call for a Patreon user with no link changes nothing. |
-| **Patreon reconcile** | The job that reads the full campaign member list at boot and every hour, and sets every link's tier from it. It repairs a missed webhook. A failed read changes no link. It also refreshes the Tier names. |
+| **Patreon reconcile** | The job that reads the full campaign member list at boot and every hour, and sets every link's tier from it. It repairs a missed webhook. A failed read changes no link. It also refreshes the Tier names. A successful read stamps each link's `checked_at`; a pledge unconfirmed for 7 days stops serving Formamorph AI (`pledge_unconfirmed`). |
 | **Tier name** | The Patreon title of a tier, kept by tier key and served at `GET /api/patreon/tier-names`. Null for an unknown or empty title; the client shows its own fallback. The same reply carries each tier's price in cents under `prices`, from Patreon's `amount_cents`, null when unknown. A failed refresh keeps the old names and prices, and a request never calls Patreon. |
 | **Creator token** | The token pair that reads the member list. It starts from the environment. After its first refresh, the server's settings store holds it, and staff cannot read it. |
 | **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
@@ -107,7 +107,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Turn** | The calls one player action makes, named by a turn id the server issues on the first call and the client sends back on the rest. Only a first call is checked against the budget, so a started turn finishes. A turn ends at its time limit or call cap. |
 | **Reservation** | The worst-case cost an admitted call records as an `open` usage row before it is forwarded: the estimated prompt plus the capped `max_tokens`. Budget sums count it, so parallel calls cannot all pass the same sum. The call then settles to its real cost. |
 | **Pause** | The stop on new Formamorph AI turns once the UTC day's spend, open rows included, reaches the daily ceiling. Admins are alerted once. Started turns finish. An admin can lift it until 00:00 UTC; the next day starts unpaused. |
-| **Refusal code** | The `code` a refused Formamorph AI call answers with, such as `budget_exhausted` or `turn_expired`, each with its own status. The list lives in `config/hostedAi` and the client mirrors it. |
+| **Refusal code** | The `code` a refused Formamorph AI call answers with, such as `budget_exhausted`, `turn_expired` or `pledge_unconfirmed` (a pledge Patreon has not confirmed for 7 days), each with its own status. The list lives in `config/hostedAi` and the client mirrors it. |
 
 ## Clients
 

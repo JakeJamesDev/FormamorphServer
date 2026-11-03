@@ -19,6 +19,9 @@ const HOSTED_BALANCE_ALERTED = 'hosted_ai_balance_alerted';
 /** Above the largest window with JSON escaping and tool schemas on top. Caddy's cap must allow it. */
 const HOSTED_BODY_LIMIT = '8mb';
 
+/** How long a pledge stays entitled after Patreon last confirmed it. */
+const PLEDGE_CONFIRMED_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * Every refusal the proxy answers with, by code. The client mirrors this list.
  *
@@ -28,6 +31,7 @@ const REFUSALS = Object.freeze({
   invalid_request: { status: 400, error: 'The request is not a chat completion this server can send.' },
   age_gate_required: { status: 403, error: 'Confirm you are 18 or older to use Formamorph AI.' },
   not_entitled: { status: 403, error: 'Formamorph AI is part of a Supporter pledge on Patreon.' },
+  pledge_unconfirmed: { status: 403, error: 'We could not confirm your Patreon pledge. Formamorph AI resumes once we can.' },
   service_paused: { status: 503, error: 'Formamorph AI is paused. Try again later.' },
   rate_limited: { status: 429, error: 'Too many requests. Wait a moment and try again.' },
   turn_expired: { status: 409, error: 'This turn has ended. Start a new turn.' },
@@ -262,6 +266,7 @@ module.exports = {
   HOSTED_AI_DEFAULT,
   HOSTED_BALANCE_ALERTED,
   HOSTED_BODY_LIMIT,
+  PLEDGE_CONFIRMED_MS,
   DEFAULT_WARN_THRESHOLDS,
   warnThresholdsOf,
   PROMPT_TYPE_HEADER,

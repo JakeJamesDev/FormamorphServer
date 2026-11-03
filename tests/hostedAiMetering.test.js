@@ -511,9 +511,9 @@ describe('the weekly budget', () => {
     const user = supporter('supporter', 'p-tiers');
     await exhaust(user);
 
-    PatreonLink.setTier({ patreonUserId: 'p-tiers', tier: 'supporter_plus', pledgeStart: null, checkedAt: null });
+    PatreonLink.setTier({ patreonUserId: 'p-tiers', tier: 'supporter_plus', pledgeStart: null, checkedAt: new Date().toISOString() });
     const upgraded = await send(user);
-    PatreonLink.setTier({ patreonUserId: 'p-tiers', tier: 'supporter', pledgeStart: null, checkedAt: null });
+    PatreonLink.setTier({ patreonUserId: 'p-tiers', tier: 'supporter', pledgeStart: null, checkedAt: new Date().toISOString() });
     const downgraded = await send(user);
 
     expect(upgraded.status).toBe(200);

@@ -2,7 +2,7 @@ const Policy = require('../models/Policy');
 const PatreonLink = require('../models/PatreonLink');
 const HostedGrant = require('../models/HostedGrant');
 const HostedUsage = require('../models/HostedUsage');
-const { TIER_KEYS, MICROS_PER_DOLLAR, PROMPT_TYPES } = require('../config/hostedAi');
+const { TIER_KEYS, MICROS_PER_DOLLAR, PROMPT_TYPES, PLEDGE_CONFIRMED_MS } = require('../config/hostedAi');
 const { weekStart, resetAt } = require('./hostedMeter');
 const { pauseState } = require('./hostedPause');
 
@@ -24,11 +24,37 @@ const ageConfirmed = (userId) => {
   }
 };
 
+const linkOf = (userId) => {
+  try {
+    return PatreonLink.findByUser(userId);
+  } catch {
+    return null;
+  }
+};
+
+/** Whether Patreon confirmed the link within the cutoff. A null or unreadable `checked_at` is not confirmed. */
+const isConfirmed = (link, now) => {
+  const checked = Date.parse(link.checked_at);
+  return Number.isFinite(checked) && now.getTime() - checked <= PLEDGE_CONFIRMED_MS;
+};
+
+/**
+ * The tier of a pledge that holds one but that Patreon has not confirmed within the cutoff, or null.
+ *
+ * @param {string} userId - The account
+ * @param {Date} [now] - The instant, for tests
+ * @returns {string|null}
+ */
+const unconfirmedTier = (userId, now = new Date()) => {
+  const link = linkOf(userId);
+  return link && rank(link.tier) >= 0 && !isConfirmed(link, now) ? link.tier : null;
+};
+
 /**
  * The tier an account is entitled to and the spend subject that pays for it, or null.
  *
- * A live pledge and live grants all count and the highest tier wins. On a tie the pledge wins, so a grant
- * that only repeats the pledge never moves the week's spend to another subject.
+ * A confirmed pledge and live grants all count and the highest tier wins. On a tie the pledge wins, so a
+ * grant that only repeats the pledge never moves the week's spend to another subject.
  *
  * @param {string} userId - The account
  * @param {Date} [now] - The instant, for tests
@@ -37,13 +63,10 @@ const ageConfirmed = (userId) => {
 const entitlement = (userId, now = new Date()) => {
   let best = null;
 
-  let link = null;
-  try {
-    link = PatreonLink.findByUser(userId);
-  } catch {
-    link = null;
+  const link = linkOf(userId);
+  if (link && rank(link.tier) >= 0 && isConfirmed(link, now)) {
+    best = { subject: link.patreon_user_id, tier: link.tier, source: 'pledge' };
   }
-  if (link && rank(link.tier) >= 0) best = { subject: link.patreon_user_id, tier: link.tier, source: 'pledge' };
 
   for (const grant of HostedGrant.liveFor(userId, now)) {
     if (!best || rank(grant.tier) > rank(best.tier)) {
@@ -133,7 +156,10 @@ const hostedState = (user, config, owned, now) => {
     percentUsed: null, turnsLeft: null, resetAt: null, warnThresholds: null, breakdown: null, breakdownThreshold: null, acknowledged: []
   };
   if (!ageConfirmed(user.id)) return { ...empty, state: 'age-gate' };
-  if (!owned) return { ...empty, state: 'locked' };
+  if (!owned) {
+    const held = unconfirmedTier(user.id, now);
+    return held ? { ...empty, tier: held, state: 'unconfirmed' } : { ...empty, state: 'locked' };
+  }
   if (!config) return { ...empty, state: 'paused' };
 
   const usage = usageOf(owned.subject, config, now);
@@ -161,4 +187,4 @@ const hostedState = (user, config, owned, now) => {
   };
 };
 
-module.exports = { ageConfirmed, entitlement, usageOf, breakdownOf, hostedState, weekKey };
+module.exports = { ageConfirmed, entitlement, unconfirmedTier, usageOf, breakdownOf, hostedState, weekKey };

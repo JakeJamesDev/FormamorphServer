@@ -126,6 +126,14 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL`, `API_HOSTNAME`, `SSH_KEY_NAME`, `SERVER_IP`, `SSH_USER`,
 `PORT`, `NODE_ENV`, `JWT_SECRET`, `JWT_EXPIRE`, `DATA_DIR`, `DB_PATH`, `STORAGE_ROOT`, `SIGNAL_SALT`.
 
+## Formamorph AI pledge freshness
+
+- A pledge counts only while its `checked_at` is at most 7 days old (`PLEDGE_CONFIRMED_MS`).
+- A held tier with a null `checked_at` counts as unconfirmed.
+- The proxy refuses it with `pledge_unconfirmed`, and the Hosted state reads `unconfirmed`.
+- A live grant still serves. Flair and the Supporters wall do not change.
+- The next successful Patreon read restores service with no action.
+
 ## Formamorph AI launch checklist
 
 Work top to bottom. Each step needs the one before it.

@@ -6,7 +6,7 @@ const {
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
 const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
-const { ageConfirmed, entitlement, usageOf } = require('../utils/hostedState');
+const { ageConfirmed, entitlement, unconfirmedTier, usageOf } = require('../utils/hostedState');
 const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
 const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
 const AuditLog = require('../models/AuditLog');
@@ -28,7 +28,7 @@ exports.admit = (req, res, next) => {
   if (!ageConfirmed(req.user.id)) return refuse(res, 'age_gate_required');
 
   const owned = entitlement(req.user.id);
-  if (!owned) return refuse(res, 'not_entitled');
+  if (!owned) return refuse(res, unconfirmedTier(req.user.id) ? 'pledge_unconfirmed' : 'not_entitled');
 
   req.hosted = { subject: owned.subject, tier: owned.tier };
   return next();

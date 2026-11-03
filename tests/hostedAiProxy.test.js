@@ -134,13 +134,14 @@ afterEach(() => {
 describe('the refusal code list', () => {
   it('is pinned, with the status each code answers', () => {
     expect(REFUSAL_CODES).toEqual([
-      'invalid_request', 'age_gate_required', 'not_entitled', 'service_paused', 'rate_limited',
+      'invalid_request', 'age_gate_required', 'not_entitled', 'pledge_unconfirmed', 'service_paused', 'rate_limited',
       'turn_expired', 'budget_exhausted', 'window_exceeded', 'image_not_supported', 'upstream_error'
     ]);
     expect(Object.fromEntries(REFUSAL_CODES.map((code) => [code, REFUSALS[code].status]))).toEqual({
       invalid_request: 400,
       age_gate_required: 403,
       not_entitled: 403,
+      pledge_unconfirmed: 403,
       service_paused: 503,
       rate_limited: 429,
       turn_expired: 409,

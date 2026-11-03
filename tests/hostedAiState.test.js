@@ -14,7 +14,8 @@ const HostedGrant = require('../src/models/HostedGrant');
 const HostedProviderSpend = require('../src/models/HostedProviderSpend');
 const { checkPause } = require('../src/utils/hostedPause');
 const { eraseUser } = require('../src/utils/eraseUser');
-const { HOSTED_AI } = require('../src/config/hostedAi');
+const { HOSTED_AI, REFUSALS, PLEDGE_CONFIRMED_MS } = require('../src/config/hostedAi');
+const { entitlement } = require('../src/utils/hostedState');
 
 /**
  * Formamorph AI hosted state, warnings, grants and the admin routes, over HTTP.
@@ -177,7 +178,7 @@ describe('the hosted state route', () => {
   it('says locked without an entitlement and age-gate without the age gate', async () => {
     const plain = account();
     const unconfirmed = createUser({ username: `young-${rnd()}` });
-    PatreonLink.link({ userId: unconfirmed.id, patreonUserId: `p-${rnd()}`, tier: 'supporter', pledgeStart: null, checkedAt: null });
+    PatreonLink.link({ userId: unconfirmed.id, patreonUserId: `p-${rnd()}`, tier: 'supporter', pledgeStart: null, checkedAt: new Date().toISOString() });
 
     expect((await state(plain)).body.data).toMatchObject({ tier: null, state: 'locked', window: null, percentUsed: null });
     expect((await state(unconfirmed)).body.data).toMatchObject({ tier: 'supporter', state: 'age-gate', window: null });
@@ -598,5 +599,95 @@ describe('switching the model', () => {
 
     expect(res.status).toBe(200);
     expect(received[1].body.model).toBe('vendor/model-b');
+  });
+});
+
+describe('an unconfirmed pledge', () => {
+  const DAY = 24 * 3_600_000;
+  const MINUTE = 60_000;
+  const confirmedAgo = (ms) => new Date(Date.now() - ms).toISOString();
+  const pledged = (checkedAt, tier = 'supporter', patreonUserId = `p-${rnd()}`) => {
+    const user = account();
+    PatreonLink.link({ userId: user.id, patreonUserId, tier, pledgeStart: null, checkedAt });
+    return { user, patreonUserId };
+  };
+
+  it('serves just inside 7 days and refuses just past it with pledge_unconfirmed', async () => {
+    const inside = pledged(confirmedAgo(PLEDGE_CONFIRMED_MS - MINUTE)).user;
+    const past = pledged(confirmedAgo(PLEDGE_CONFIRMED_MS + MINUTE)).user;
+
+    expect((await send(inside)).status).toBe(200);
+    const refused = await send(past);
+
+    expect(refused.status).toBe(403);
+    expect(refused.body).toEqual({ success: false, code: 'pledge_unconfirmed', error: REFUSALS.pledge_unconfirmed.error });
+    expect(received).toHaveLength(1);
+  });
+
+  it('entitles at exactly 7 days and not one millisecond later', () => {
+    const checkedAt = '2026-01-01T00:00:00.000Z';
+    const { user } = pledged(checkedAt);
+    const exact = new Date(Date.parse(checkedAt) + PLEDGE_CONFIRMED_MS);
+
+    expect(entitlement(user.id, exact)).toMatchObject({ source: 'pledge' });
+    expect(entitlement(user.id, new Date(exact.getTime() + 1))).toBeNull();
+  });
+
+  it('counts a held tier with a null or unreadable checked_at as unconfirmed', async () => {
+    for (const checkedAt of [null, 'not a date']) {
+      const { user } = pledged(checkedAt);
+
+      expect((await send(user)).body.code).toBe('pledge_unconfirmed');
+    }
+    expect(received).toHaveLength(0);
+  });
+
+  it('keeps answering not_entitled for a link that holds no tier', async () => {
+    const { user } = pledged(null, null);
+
+    expect((await send(user)).body.code).toBe('not_entitled');
+  });
+
+  it('reports the unconfirmed state with the held tier and nothing else', async () => {
+    const { user } = pledged(null, 'supporter_plus');
+
+    expect((await state(user)).body.data).toMatchObject({
+      tier: 'supporter_plus', state: 'unconfirmed', window: null, model: null, percentUsed: null, turnsLeft: null
+    });
+  });
+
+  it('puts the age gate ahead of the unconfirmed state', async () => {
+    const minor = createUser({ username: `minor-${rnd()}` });
+    PatreonLink.link({ userId: minor.id, patreonUserId: `p-${rnd()}`, tier: 'supporter', pledgeStart: null, checkedAt: null });
+
+    expect((await state(minor)).body.data.state).toBe('age-gate');
+  });
+
+  it('still serves on a live grant, on the grant spend subject, and reports the normal state', async () => {
+    const { user } = pledged(null, 'supporter');
+    const grant = HostedGrant.create({ userId: user.id, tier: 'supporter_plus', endsAt: futureIso(), createdBy: null });
+
+    const res = await send(user);
+
+    expect(res.status).toBe(200);
+    expect(db.prepare('SELECT subject FROM hosted_usage').all()).toEqual([{ subject: `grant:${grant.id}` }]);
+    expect((await state(user)).body.data).toMatchObject({ tier: 'supporter_plus', state: 'ready' });
+  });
+
+  it('leaves flair and the Supporters wall showing the tier', () => {
+    const { user } = pledged(null, 'supporter_top');
+
+    expect(PatreonLink.flairOf(user.id)).toMatchObject({ tier: 'supporter_top' });
+    expect(PatreonLink.wall().map((entry) => entry.id)).toContain(user.id);
+  });
+
+  it('resumes on the next call after a successful read refreshes checked_at', async () => {
+    const { user, patreonUserId } = pledged(confirmedAgo(8 * DAY));
+    expect((await send(user)).body.code).toBe('pledge_unconfirmed');
+
+    PatreonLink.setTier({ patreonUserId, tier: 'supporter', pledgeStart: null, checkedAt: new Date().toISOString() });
+
+    expect((await send(user)).status).toBe(200);
+    expect((await state(user)).body.data.state).toBe('ready');
   });
 });
