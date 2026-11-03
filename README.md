@@ -376,6 +376,7 @@ signed-in account. None returns a dollar amount to a player.
 | `tier` | The tier key the account is entitled to, or `null`. A live pledge and live grants all count; the highest tier wins, and a tie keeps the pledge. |
 | `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to, or the day's spend reached the daily ceiling), `locked` (no entitlement) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
 | `window` | The tier's context window, in tokens. |
+| `turnLimitSeconds` | Seconds a turn id stays valid after its first call: the `turnLimitSeconds` setting. |
 | `maxTokens` | The cap on a call's `max_tokens`. |
 | `tokenMargin` | Tokens added to the window before `window_exceeded`. |
 | `model` | `{ id, capabilities }` of the active model. `id` changes when the admin switches model, so a client caches capability by it. |

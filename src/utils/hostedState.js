@@ -152,7 +152,7 @@ const weekKey = (now) => weekStart(now).slice(0, 10);
  */
 const hostedState = (user, config, owned, now) => {
   const empty = {
-    tier: owned ? owned.tier : null, state: null, window: null, maxTokens: null, tokenMargin: null, model: null,
+    tier: owned ? owned.tier : null, state: null, window: null, turnLimitSeconds: null, maxTokens: null, tokenMargin: null, model: null,
     percentUsed: null, turnsLeft: null, resetAt: null, warnThresholds: null, breakdown: null, breakdownThreshold: null, acknowledged: []
   };
   if (!ageConfirmed(user.id)) return { ...empty, state: 'age-gate' };
@@ -174,6 +174,7 @@ const hostedState = (user, config, owned, now) => {
     ...empty,
     state,
     window: config.limits.window,
+    turnLimitSeconds: config.turnLimitSeconds,
     maxTokens: config.maxTokensCap,
     tokenMargin: config.margin,
     model: { id: config.entry.id, capabilities: config.entry.capabilities || {} },

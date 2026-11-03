@@ -158,6 +158,7 @@ describe('the hosted state route', () => {
       tier: 'supporter_plus',
       state: 'ready',
       window: 4000,
+      turnLimitSeconds: 600,
       maxTokens: 1000,
       tokenMargin: 50,
       model: { id: 'first', capabilities: { tools: true, reasoning: 'a' } },
@@ -180,14 +181,14 @@ describe('the hosted state route', () => {
     const unconfirmed = createUser({ username: `young-${rnd()}` });
     PatreonLink.link({ userId: unconfirmed.id, patreonUserId: `p-${rnd()}`, tier: 'supporter', pledgeStart: null, checkedAt: new Date().toISOString() });
 
-    expect((await state(plain)).body.data).toMatchObject({ tier: null, state: 'locked', window: null, percentUsed: null });
-    expect((await state(unconfirmed)).body.data).toMatchObject({ tier: 'supporter', state: 'age-gate', window: null });
+    expect((await state(plain)).body.data).toMatchObject({ tier: null, state: 'locked', window: null, turnLimitSeconds: null, percentUsed: null });
+    expect((await state(unconfirmed)).body.data).toMatchObject({ tier: 'supporter', state: 'age-gate', window: null, turnLimitSeconds: null });
   });
 
   it('says paused when the proxy has no active model to send to', async () => {
     Setting.set(HOSTED_AI, { ...SETTINGS, models: [], activeModel: null });
 
-    expect((await state(supporter())).body.data).toMatchObject({ state: 'paused', window: null, model: null });
+    expect((await state(supporter())).body.data).toMatchObject({ state: 'paused', window: null, turnLimitSeconds: null, model: null });
   });
 
   it('says paused while the day is paused, ahead of exhausted, and not once an admin lifts it', async () => {
@@ -200,7 +201,7 @@ describe('the hosted state route', () => {
     await request(app).post(`${BASE}/pause/lift`).set(authHeader(account('admin')));
     const lifted = await state(user);
 
-    expect(paused.body.data).toMatchObject({ state: 'paused', window: 2000, percentUsed: 100 });
+    expect(paused.body.data).toMatchObject({ state: 'paused', window: 2000, turnLimitSeconds: 600, percentUsed: 100 });
     expect(lifted.body.data.state).toBe('exhausted');
   });
 

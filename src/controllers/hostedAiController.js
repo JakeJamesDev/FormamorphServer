@@ -77,6 +77,7 @@ const activeConfig = (tier, turnModel = null) => {
     idleMs: settings.idleLimitSeconds * 1000,
     ratio: settings.tokenRatio,
     margin: settings.tokenMargin,
+    turnLimitSeconds: settings.turnLimitSeconds,
     turnLimitMs: settings.turnLimitSeconds * 1000,
     turnCallCap: settings.turnCallCap,
     warnThresholds: warnThresholdsOf(settings),

@@ -101,7 +101,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | Term | Meaning |
 |---|---|
 | **Formamorph AI** | The hosted AI a Tier includes: a chat-completions proxy at `/api/hosted-ai` that forwards a turn upstream with the server's key. Players never see the key or pick the model. |
-| **Hosted state** | What `GET /api/hosted-ai/state` tells an account: tier, state, window, active model, percent used, turns left and acknowledged warnings. Percent and turns only, never a dollar amount. |
+| **Hosted state** | What `GET /api/hosted-ai/state` tells an account: tier, state, window, turn limit in seconds, active model, percent used, turns left and acknowledged warnings. Percent and turns only, never a dollar amount. |
 | **Grant** | A staff gift of a Tier to an account until an end date. The highest of the pledge and live grants wins; a grant's spend subject is `grant:<id>`. |
 | **Spend subject** | Who a call's cost is summed under: the Patreon user ID for a pledge, or `grant:<id>` for a grant. Relinking the membership or erasing and remaking the account keeps the subject and its week. Usage rows have no foreign key to the account; erasure nulls their account and keeps them. |
 | **Turn** | The calls one player action makes, named by a turn id the server issues on the first call and the client sends back on the rest. A first call is refused once the week's spend reaches the budget. A continuation, any later call, is refused once the week's spend, minus this turn's own, reaches the budget plus a grace of one whole turn's maximum cost, so a turn started under budget can finish and held turn ids buy no extra spend. A turn ends at its time limit or call cap, and a Pause can stop it sooner. |
