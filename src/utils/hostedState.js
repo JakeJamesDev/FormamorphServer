@@ -80,8 +80,8 @@ const entitlement = (userId, now = new Date()) => {
 /**
  * Percent of the week used and about how many turns are left.
  *
- * Turns left divides what remains by the subject's average cost per recent turn, grouped by turn id. With
- * fewer settled turns than the minimum it uses the tier's fallback cost, and with neither it is null.
+ * Turns left divides what remains by the subject's average cost per recent turn, grouped by turn id, over turns
+ * with a narration call. With fewer settled turns than the minimum it uses the tier's fallback cost, and with neither it is null.
  *
  * @param {string} subject - The spend subject
  * @param {Object} config - `{ limits, turnSample }` from the active config

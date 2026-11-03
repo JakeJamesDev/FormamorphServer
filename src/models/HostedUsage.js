@@ -82,6 +82,7 @@ const HostedUsage = {
    * What the subject's most recent turns cost, one total per turn, newest first.
    *
    * Turns with a call still open are left out: their cost is a reservation, not what the turn cost.
+   * Turns with no narration call are left out too; a turn's cost sums all its calls.
    *
    * @param {string} subject - The spend subject
    * @param {number} limit - How many turns
@@ -89,8 +90,7 @@ const HostedUsage = {
    */
   recentTurnCosts: (subject, limit) => db.prepare(`
     SELECT SUM(cost_micros) AS cost FROM hosted_usage WHERE subject = ?
-    GROUP BY turn_id HAVING SUM(status = 'open') = 0
-    ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
+    GROUP BY turn_id HAVING SUM(status = 'open') = 0 AND SUM(prompt_type = 'narration') > 0    ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
   `).all(subject, limit).map((row) => row.cost),
 
   /**

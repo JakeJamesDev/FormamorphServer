@@ -380,7 +380,7 @@ signed-in account. None returns a dollar amount to a player.
 | `tokenMargin` | Tokens added to the window before `window_exceeded`. |
 | `model` | `{ id, capabilities }` of the active model. `id` changes when the admin switches model, so a client caches capability by it. |
 | `percentUsed` | Whole percent of this UTC week's allowance (the week starts Monday 00:00 UTC), 0 to 100. |
-| `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. With fewer settled turns than `turnSample.min` it uses the tier's `turnCost`. |
+| `turnsLeft` | About how many turns the allowance still buys, or `null`. It divides what remains by the average cost of the subject's recent turns, summed by turn id. Only turns with a narration call count. With fewer settled narration turns than `turnSample.min` it uses the tier's `turnCost`. |
 | `resetAt` | 00:00 UTC on the next Monday. |
 | `warnThresholds` | Rising whole percents at which a warning shows: the `warnThresholds` setting, or the server default `[75, 90]` while it is unset. The ack route accepts exactly these values. |
 | `breakdown` | Each prompt type's share of this week's use, as a percent with one decimal: `{ "narration": 61.2, "other": 0.4 }`. Only types with a share are listed, a call with no known type counts as `other`, and `{}` means nothing is spent yet. Shares follow cost, not tokens, and need not total 100. No dollar amount. |

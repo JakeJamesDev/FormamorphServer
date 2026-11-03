@@ -105,13 +105,13 @@ const send = (user, body = chat(), turn = undefined) => {
 };
 
 /** Insert settled rows directly, one per entry of `turns`: each entry lists that turn's call costs. */
-const settledTurns = (subject, turns) => {
+const settledTurns = (subject, turns, promptType = 'narration') => {
   const insert = db.prepare(`
-    INSERT INTO hosted_usage (subject, turn_id, tier, estimated_prompt_tokens, cost_micros, started_at, status, cost_source)
-    VALUES (?, ?, 'supporter', 1, ?, ?, 'ok', 'upstream')
+    INSERT INTO hosted_usage (subject, turn_id, tier, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status, cost_source)
+    VALUES (?, ?, 'supporter', ?, 1, ?, ?, 'ok', 'upstream')
   `);
   const batch = rnd();
-  turns.forEach((costs, i) => costs.forEach((cost) => insert.run(subject, `turn-${batch}-${i}`, cost, new Date().toISOString())));
+  turns.forEach((costs, i) => costs.forEach((cost) => insert.run(subject, `turn-${batch}-${i}`, promptType, cost, new Date().toISOString())));
 };
 
 beforeAll(async () => {
@@ -237,12 +237,46 @@ describe('the hosted state route', () => {
     const user = supporter('supporter', 'p-open');
     settledTurns('p-open', [[1000], [1000], [1000]]);
     db.prepare(`
-      INSERT INTO hosted_usage (subject, turn_id, tier, estimated_prompt_tokens, cost_micros, started_at, status)
-      VALUES ('p-open', 'still-going', 'supporter', 1, 5000, ?, 'open')
+      INSERT INTO hosted_usage (subject, turn_id, tier, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status)
+      VALUES ('p-open', 'still-going', 'supporter', 'narration', 1, 5000, ?, 'open')
     `).run(new Date().toISOString());
 
     // The open turn's 5,000 reservation counts against the budget but not toward the average.
     expect((await state(user)).body.data).toMatchObject({ percentUsed: 80, turnsLeft: 2 });
+  });
+
+  it('leaves out a turn whose only open call is not narration', async () => {
+    const user = supporter('supporter', 'p-open-bg');
+    settledTurns('p-open-bg', [[1000], [1000], [1000]]);
+    const insert = db.prepare(`
+      INSERT INTO hosted_usage (subject, turn_id, tier, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status)
+      VALUES ('p-open-bg', 'mixed', 'supporter', ?, 1, 100, ?, ?)
+    `);
+    insert.run('narration', new Date().toISOString(), 'ok');
+    insert.run('summary', new Date().toISOString(), 'open');
+
+    // 3,100 spent; the mixed turn is out of the sample, so the average stays 1,000.
+    expect((await state(user)).body.data).toMatchObject({ turnsLeft: 6 });
+  });
+
+  it('averages only turns that hold a narration call, summing all their calls', async () => {
+    const user = supporter('supporter', 'p-narr');
+    settledTurns('p-narr', [[400, 600], [400, 600], [400, 600]]);
+    // Cheap background turns, one with no type recorded, must not pull the average down.
+    settledTurns('p-narr', [[10], [10], [10]], 'summary');
+    settledTurns('p-narr', [[10], [10]], null);
+
+    // 3,050 spent; 6,950 left at 1,000 a turn.
+    expect((await state(user)).body.data).toMatchObject({ turnsLeft: 6 });
+  });
+
+  it('falls back to the tier figure when only non-narration turns exist', async () => {
+    const user = supporter('supporter', 'p-nonarr');
+    settledTurns('p-nonarr', [[100], [100], [100], [100]], 'summary');
+    settledTurns('p-nonarr', [[100], [100], [100]], null);
+
+    // 700 spent; 9,300 left at the 2,000 fallback.
+    expect((await state(user)).body.data).toMatchObject({ turnsLeft: 4 });
   });
 });
 
