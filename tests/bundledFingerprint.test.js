@@ -57,7 +57,7 @@ describe('the shipped default Avatar list', () => {
   // Sei, Aki, and Praline.
   const CURRENT = [
     '5cce5f17db28bb4199477b46984edcfc1f07e23e99130ce0bdcd0c9ba50db2c5',
-    'c9a6e90adc29f2a0067bf43cee8b4758e217e34ad05ec14363fa608688d5323a',
+    'd4949e9520dad6b273d18a57aaabaa4afe3bd518ff82512270845da81328362a',
     '04da10f7713aea1abd7f8903017ba9420c925b8980a25817b6a80bb9285a22f4',
   ];
   // Every hash the list held before the replacement, Elaina's among them. Releases already out ship these files.
