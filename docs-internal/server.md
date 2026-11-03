@@ -188,8 +188,8 @@ The values live in the local hosted-tier note.
 Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the
 proxy answers `service_paused`.
 
-A day that reaches `dailyCeiling` also answers `service_paused`, until 00:00 UTC or an admin lift. New turns
-stop at once. Each started turn gets one more call, then stops too.
+A day that reaches `dailyCeiling` also answers `service_paused`, until 00:00 UTC or an admin lift. Every call
+stops at once, started turns included. A call already streaming finishes.
 
 ### 4. Run one process
 

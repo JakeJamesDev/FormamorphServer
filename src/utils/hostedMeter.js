@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const HostedUsage = require('../models/HostedUsage');
 const { MICROS_PER_DOLLAR, isPlainObject } = require('../config/hostedAi');
-const { checkPause, pausedCallUsed } = require('./hostedPause');
+const { checkPause } = require('./hostedPause');
 
 /**
  * Formamorph AI metering: admit a call against its turn, budget and window, then settle what it cost.
@@ -47,8 +47,8 @@ const turnGrace = ({ turnCallCap, limits, margin, maxTokensCap }, prices) => tur
  * A first call stops at the budget. A continuation stops when the week's other spend reaches the budget plus
  * `graceMicros`, so one subject's week ends within `budget + 2 × grace`.
  *
- * A reservation that reaches the ceiling starts the pause. A first call is then refused and keeps no row. A
- * continuation is admitted as its turn's one call on the paused day.
+ * A reservation that reaches the ceiling starts the pause. The call is then refused and keeps no row, first
+ * call or continuation.
  *
  * @param {Object} call - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
  *   graceMicros, ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
@@ -66,7 +66,6 @@ const admitCall = db.transaction((call) => {
       || now.getTime() - Date.parse(turn.first) >= call.turnLimitMs
       || turn.calls >= call.turnCallCap;
     if (expired) return { refusal: 'turn_expired' };
-    if (pausedCallUsed(now, call.ceilingMicros, subject, turnId)) return { refusal: 'service_paused' };
     counted -= HostedUsage.turnSpendSince(subject, turnId, week);
     level += call.graceMicros;
   }
@@ -76,8 +75,8 @@ const admitCall = db.transaction((call) => {
     return { refusal: 'window_exceeded', extra: { window: call.window } };
   }
 
-  // The check runs first because it can start the pause, for a continuation too.
-  if (checkPause(now, call.ceilingMicros, call.reserveMicros) && !turnId) return { refusal: 'service_paused' };
+  // The check runs here because a reservation that reaches the ceiling starts the pause.
+  if (checkPause(now, call.ceilingMicros, call.reserveMicros)) return { refusal: 'service_paused' };
 
   const admittedTurn = turnId || crypto.randomUUID();
   const rowId = HostedUsage.open({

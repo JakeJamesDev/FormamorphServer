@@ -54,12 +54,15 @@ const SETTINGS = {
 
 // Answers with every token it was allowed and no usage block, so each call settles at its reservation.
 let received;
+// While set, a call waits here before the upstream answers it.
+let hold = null;
 const upstream = http.createServer((req, res) => {
   let raw = '';
   req.on('data', (chunk) => { raw += chunk; });
-  req.on('end', () => {
+  req.on('end', async () => {
     const body = JSON.parse(raw);
     received += 1;
+    if (hold) await hold;
     res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
       choices: [{ message: { role: 'assistant', content: 'x'.repeat(body.max_tokens * 4) } }]
     }));
@@ -151,6 +154,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  hold = null;
   db.prepare('DELETE FROM patreon_links').run();
   db.prepare('DELETE FROM hosted_usage').run();
   db.prepare('DELETE FROM hosted_pause').run();
@@ -321,48 +325,46 @@ describe('a paused day', () => {
   });
 
   describe('a turn that runs into the pause', () => {
-    it('gets one more call, then service_paused, and the refusal reaches no upstream', async () => {
+    it('is refused with service_paused at once, and the refusal reaches no upstream', async () => {
       const { user, subject } = supporter();
       const [turn] = await stockpile(user, 1);
       dayReaches();
-
-      const grace = await send(user, largest, turn);
-      later();
       const before = received;
+
       const refused = await send(user, cheap, turn);
 
-      expect(grace.status).toBe(200);
       expect(refused.status).toBe(503);
       expect(refused.body.code).toBe('service_paused');
       expect(received).toBe(before);
-      expect(rows(subject)).toBe(2);
+      expect(rows(subject)).toBe(1);
     });
 
-    it('counts a call of the turn from after the pause began, not one from before it', async () => {
-      const { user } = supporter();
-      const [turn] = await stockpile(user, 1);
-      later();
-      expect((await send(user, cheap, turn)).status).toBe(200);
-      dayReaches();
-
-      expect((await send(user, cheap, turn)).status).toBe(200);
-      later();
-      expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
-    });
-
-    it('still answers turn_expired for an unknown, foreign or expired turn id', async () => {
+    it('answers service_paused to an unknown, foreign or expired turn id too', async () => {
       const { user } = supporter();
       const stranger = supporter();
       const [foreign] = await stockpile(stranger.user, 1);
       const [turn] = await stockpile(user, 1);
       dayReaches();
+      const before = received;
 
       const unknown = await send(user, cheap, 'no-such-turn');
       const theirs = await send(user, cheap, foreign);
       vi.setSystemTime(new Date('2026-11-03T12:10:00Z'));
       const expired = await send(user, cheap, turn);
 
-      expect([unknown.body.code, theirs.body.code, expired.body.code]).toEqual(['turn_expired', 'turn_expired', 'turn_expired']);
+      expect([unknown.body.code, theirs.body.code, expired.body.code]).toEqual(['service_paused', 'service_paused', 'service_paused']);
+      expect(received).toBe(before);
+    });
+
+    it('answers turn_expired for an unknown or foreign turn id on an unpaused day', async () => {
+      const { user } = supporter();
+      const stranger = supporter();
+      const [foreign] = await stockpile(stranger.user, 1);
+
+      const unknown = await send(user, cheap, 'no-such-turn');
+      const theirs = await send(user, cheap, foreign);
+
+      expect([unknown.body.code, theirs.body.code]).toEqual(['turn_expired', 'turn_expired']);
     });
 
     it('runs on when the next UTC day starts unpaused', async () => {
@@ -370,8 +372,6 @@ describe('a paused day', () => {
       const { user } = supporter();
       const [turn] = await stockpile(user, 1);
       dayReaches();
-      expect((await send(user, cheap, turn)).status).toBe(200);
-      later();
       expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
 
       vi.setSystemTime(new Date('2026-11-04T00:00:00Z'));
@@ -381,7 +381,7 @@ describe('a paused day', () => {
   });
 
   describe('a held stockpile', () => {
-    it('gets one call per turn after the pause', async () => {
+    it('gets no call after the pause', async () => {
       const { user } = supporter();
       const turns = await stockpile(user, 4);
       dayReaches();
@@ -389,30 +389,50 @@ describe('a paused day', () => {
 
       const statuses = [];
       for (const turn of turns) {
-        const perTurn = [];
         for (let i = 1; i < CALL_CAP; i += 1) {
-          perTurn.push((await send(user, largest, turn)).status);
+          statuses.push((await send(user, largest, turn)).status);
           later();
         }
-        statuses.push(perTurn);
       }
 
-      expect(statuses).toEqual(turns.map(() => [200, 503, 503]));
-      expect(received - before).toBe(turns.length);
+      expect(statuses).toEqual(Array(turns.length * (CALL_CAP - 1)).fill(503));
+      expect(received).toBe(before);
     });
 
-    it('gets one call per turn when every held turn redeems at once', async () => {
+    it('gets no call when every held turn redeems at once', async () => {
       const { user } = supporter();
       const turns = await stockpile(user, 4);
       dayReaches();
       const before = received;
 
       const calls = turns.flatMap((turn) => Array.from({ length: CALL_CAP - 1 }, () => send(user, largest, turn)));
-      const statuses = (await Promise.all(calls)).map((res) => res.status);
+      const codes = (await Promise.all(calls)).map((res) => res.body.code);
 
-      expect(statuses.filter((status) => status === 200)).toHaveLength(turns.length);
-      expect(statuses.filter((status) => status === 503)).toHaveLength(turns.length * (CALL_CAP - 2));
-      expect(received - before).toBe(turns.length);
+      expect(codes).toEqual(Array(calls.length).fill('service_paused'));
+      expect(received).toBe(before);
+    });
+  });
+
+  describe('a call already streaming when the pause starts', () => {
+    it('finishes and settles, and the next call is refused', async () => {
+      const { user, subject } = supporter();
+      const [turn] = await stockpile(user, 1);
+      let release;
+      hold = new Promise((resolve) => { release = resolve; });
+      const before = received;
+      // The `then` starts the request now; supertest sends only when awaited.
+      const streaming = send(user, largest, turn).then((res) => res);
+      while (received === before) await new Promise((resolve) => { setTimeout(resolve, 5); });
+
+      dayReaches();
+      const refused = await send(user, cheap, turn);
+      release();
+      const finished = await streaming;
+
+      expect(refused.body.code).toBe('service_paused');
+      expect(finished.status).toBe(200);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM hosted_usage WHERE subject = ? AND status = 'open'").get(subject).n).toBe(0);
+      expect(rows(subject)).toBe(2);
     });
   });
 
@@ -473,7 +493,7 @@ describe('a paused day', () => {
   });
 
   describe('a continuation that reaches the ceiling', () => {
-    it('starts the pause, runs as its one call, and the turn stops after it', async () => {
+    it('starts the pause, is refused, keeps no row, and sends one alert', async () => {
       const staff = admin();
       const { user, subject } = supporter();
       const held = supporter();
@@ -484,29 +504,30 @@ describe('a paused day', () => {
 
       const crossing = await send(user, largest, turn);
 
-      expect(crossing.status).toBe(200);
-      expect(received).toBe(before + 1);
-      expect(rows(subject)).toBe(2);
+      expect(crossing.status).toBe(503);
+      expect(crossing.body.code).toBe('service_paused');
+      expect(received).toBe(before);
+      expect(rows(subject)).toBe(1);
       expect((await pauseOf(staff)).paused).toBe(true);
       expect(alerts(staff)).toHaveLength(1);
 
       later();
       expect((await send(user, cheap, turn)).body.code).toBe('service_paused');
       expect((await send(user, cheap)).body.code).toBe('service_paused');
-      expect((await send(held.user, cheap, heldTurn)).status).toBe(200);
+      expect((await send(held.user, cheap, heldTurn)).body.code).toBe('service_paused');
+      expect(received).toBe(before);
       expect(alerts(staff)).toHaveLength(1);
     });
   });
 
   describe('after an admin lift', () => {
-    it('admits continuations, spent grace or not, and first calls', async () => {
+    it('admits continuations and first calls again', async () => {
       const staff = admin();
       const { user } = supporter();
       const [spentTurn, freshTurn] = await stockpile(user, 2);
       dayReaches();
-      expect((await send(user, cheap, spentTurn)).status).toBe(200);
-      later();
       expect((await send(user, cheap, spentTurn)).body.code).toBe('service_paused');
+      later();
       expect((await send(user, cheap)).body.code).toBe('service_paused');
 
       const lift = await request(app).post(`${PAUSE}/lift`).set(authHeader(staff));

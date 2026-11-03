@@ -7,7 +7,7 @@ const {
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
 const { estimateTokens, worstCase, turnGrace, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
 const { ageConfirmed, entitlement, unconfirmedTier, usageOf } = require('../utils/hostedState');
-const { checkPause, pausedCallUsed, pauseState, liftPause } = require('../utils/hostedPause');
+const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
 const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
 const AuditLog = require('../models/AuditLog');
 
@@ -214,10 +214,7 @@ exports.proxy = async (req, res) => {
 
     const started = new Date();
     // Before the rate limits, so a paused call spends no slot and answers as paused.
-    const paused = turnId
-      ? pausedCallUsed(started, config.ceilingMicros, req.hosted.subject, turnId)
-      : checkPause(started, config.ceilingMicros);
-    if (paused) return refuse(res, 'service_paused');
+    if (checkPause(started, config.ceilingMicros)) return refuse(res, 'service_paused');
     release = acquireSlot(req.user.id, config.parallelLimit);
     if (!release) return refuse(res, 'rate_limited');
     if (!takeMinute(req.user.id, config.perMinuteLimit, started.getTime())) return refuse(res, 'rate_limited');

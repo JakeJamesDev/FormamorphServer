@@ -105,9 +105,9 @@ describe('the turn header as an admission input', () => {
     // No header: the pause refuses the call.
     expect((await send(user, chat())).body.code).toBe('service_paused');
 
-    // An invented turn id skips the pause check but cannot pass `admitCall`'s turn lookup.
+    // An invented turn id gets the same answer, so the refusal tells nothing about which ids exist.
     const forged = await send(user, chat(), { [TURN]: 'ffffffff-ffff-4fff-8fff-ffffffffffff' });
-    expect(forged.body.code).toBe('turn_expired');
+    expect(forged.body.code).toBe('service_paused');
     expect(received).toHaveLength(0);
   });
 
