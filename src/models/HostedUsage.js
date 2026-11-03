@@ -18,6 +18,18 @@ const HostedUsage = {
     .get(subject, since).total,
 
   /**
+   * One turn's cost since an instant, open rows included.
+   *
+   * @param {string} subject - The spend subject
+   * @param {string} turnId - The turn
+   * @param {string} since - ISO instant
+   * @returns {number} Micro-dollars
+   */
+  turnSpendSince: (subject, turnId, since) => db
+    .prepare('SELECT COALESCE(SUM(cost_micros), 0) AS total FROM hosted_usage WHERE subject = ? AND turn_id = ? AND started_at >= ?')
+    .get(subject, turnId, since).total,
+
+  /**
    * Every subject's cost in a time range, open rows included.
    *
    * @param {string} from - ISO instant, inclusive

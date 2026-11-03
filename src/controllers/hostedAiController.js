@@ -5,7 +5,7 @@ const {
   warnThresholdsOf, breakdownThresholdOf, PROMPT_TYPE_HEADER, promptTypeOf
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
-const { estimateTokens, worstCase, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
+const { estimateTokens, worstCase, turnGrace, admitCall, settlement, generatedChars } = require('../utils/hostedMeter');
 const { ageConfirmed, entitlement, unconfirmedTier, usageOf } = require('../utils/hostedState');
 const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
 const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
@@ -237,6 +237,7 @@ exports.proxy = async (req, res) => {
       turnLimitMs: config.turnLimitMs,
       turnCallCap: config.turnCallCap,
       budgetMicros: Math.round(config.limits.budget * MICROS_PER_DOLLAR),
+      graceMicros: turnGrace(config, prices),
       ceilingMicros: config.ceilingMicros,
       window: config.limits.window,
       margin: config.margin,

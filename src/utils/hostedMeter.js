@@ -35,18 +35,27 @@ const promptAndOutput = (promptTokens, outputTokens, prices) => Math.round(
 /** What a call can cost at most: its whole estimated prompt and every token `max_tokens` allows. */
 const worstCase = (estimatedPromptTokens, maxTokens, prices) => promptAndOutput(estimatedPromptTokens, maxTokens, prices);
 
+/** What a continuation may run past the budget: one whole turn's maximum cost, at window plus margin and the output cap. */
+const turnGrace = ({ turnCallCap, limits, margin, maxTokensCap }, prices) => turnCallCap * worstCase(limits.window + margin, maxTokensCap, prices);
+
 /**
  * Admit one call and reserve its worst case, or say why not.
  *
  * Turn, then budget, then window. The checks and the insert share one synchronous transaction, so
- * parallel first calls each see the reservations before them. The reservation then checks the daily ceiling.
+ * parallel calls each see the reservations before them. The reservation then checks the daily ceiling.
+ *
+ * A first call stops at the budget. A continuation stops when the week's other spend reaches the budget plus
+ * `graceMicros`, so one subject's week ends within `budget + 2 × grace`.
  *
  * @param {Object} call - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
- *   ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
+ *   graceMicros, ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
  * @returns {{ refusal: string, extra?: Object }|{ rowId: number, turnId: string }}
  */
 const admitCall = db.transaction((call) => {
   const { subject, turnId, now } = call;
+  const week = weekStart(now);
+  let counted = HostedUsage.spendSince(subject, week);
+  let level = call.budgetMicros;
 
   if (turnId) {
     const turn = HostedUsage.turn(subject, turnId);
@@ -54,9 +63,10 @@ const admitCall = db.transaction((call) => {
       || now.getTime() - Date.parse(turn.first) >= call.turnLimitMs
       || turn.calls >= call.turnCallCap;
     if (expired) return { refusal: 'turn_expired' };
-  } else if (HostedUsage.spendSince(subject, weekStart(now)) >= call.budgetMicros) {
-    return { refusal: 'budget_exhausted', extra: { resetAt: resetAt(now) } };
+    counted -= HostedUsage.turnSpendSince(subject, turnId, week);
+    level += call.graceMicros;
   }
+  if (counted >= level) return { refusal: 'budget_exhausted', extra: { resetAt: resetAt(now) } };
 
   if (call.estimatedPromptTokens > call.window + call.margin) {
     return { refusal: 'window_exceeded', extra: { window: call.window } };
@@ -157,4 +167,4 @@ const generatedChars = (chunk) => {
   return chars;
 };
 
-module.exports = { weekStart, resetAt, estimateTokens, worstCase, admitCall, settlement, generatedChars };
+module.exports = { weekStart, resetAt, estimateTokens, worstCase, turnGrace, admitCall, settlement, generatedChars };
