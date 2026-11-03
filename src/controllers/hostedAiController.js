@@ -1,7 +1,7 @@
 const Setting = require('../models/Setting');
 const HostedUsage = require('../models/HostedUsage');
 const {
-  HOSTED_AI, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject,
+  HOSTED_AI, TIER_KEYS, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject,
   warnThresholdsOf, breakdownThresholdOf, PROMPT_TYPE_HEADER, promptTypeOf
 } = require('../config/hostedAi');
 const { HostedRequestError, anonymousUser, buildUpstreamBody } = require('../utils/hostedRequest');
@@ -55,6 +55,7 @@ const isPrice = (value) => typeof value === 'number' && value >= 0;
  * A model without prompt and completion prices counts as unconfigured: no reservation, no budget.
  */
 const activeConfig = (tier, turnModel = null) => {
+  if (!TIER_KEYS.includes(tier)) return null;
   const settings = Setting.get(HOSTED_AI);
   if (!settings || !Array.isArray(settings.models)) return null;
 
@@ -65,7 +66,7 @@ const activeConfig = (tier, turnModel = null) => {
   if (!settings.tokenRatio || !Number.isInteger(settings.tokenMargin)) return null;
   if (!settings.turnLimitSeconds || !settings.turnCallCap) return null;
   if (!settings.parallelLimit || !settings.perMinuteLimit || !(settings.dailyCeiling > 0)) return null;
-  const limits = isPlainObject(settings.tiers) ? settings.tiers[tier] : null;
+  const limits = isPlainObject(settings.tiers) && Object.hasOwn(settings.tiers, tier) ? settings.tiers[tier] : null;
   if (!isPlainObject(limits)) return null;
   if (!upstreamUrl() || !upstreamKey() || !userSecret()) return null;
 
