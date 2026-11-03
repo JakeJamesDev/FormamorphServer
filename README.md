@@ -374,9 +374,9 @@ signed-in account. None returns a dollar amount to a player.
 | Field | Meaning |
 |---|---|
 | `tier` | The tier key the account is entitled to, or `null`. A live pledge and live grants all count; the highest tier wins, and a tie keeps the pledge. |
-| `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to, or the day's spend reached the daily ceiling), `locked` (no entitlement) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
+| `state` | `ready`, `warned` (at or past the first warning threshold), `exhausted`, `paused` (the proxy has nothing to send to, or the day's spend reached the daily ceiling), `locked` (no entitlement), `unconfirmed` (a pledge Patreon has not confirmed for 7 days) or `age-gate`. The client adds `signed-out`, `privacy-required`, `suspended`, `outdated` and `unavailable` itself. |
 | `window` | The tier's context window, in tokens. |
-| `turnLimitSeconds` | Seconds a turn id stays valid after its first call: the `turnLimitSeconds` setting. |
+| `turnLimitSeconds` | Seconds a turn id stays valid after its first call: the `turnLimitSeconds` setting. `null` with no config. |
 | `maxTokens` | The cap on a call's `max_tokens`. |
 | `tokenMargin` | Tokens added to the window before `window_exceeded`. |
 | `model` | `{ id, capabilities }` of the active model. `id` changes when the admin switches model, so a client caches capability by it. |
@@ -388,7 +388,7 @@ signed-in account. None returns a dollar amount to a player.
 | `breakdownThreshold` | The share, in whole percent, at which a client names a single prompt under its group: the `breakdownThreshold` setting (1 to 100), or the server default `10` while it is unset. |
 | `acknowledged` | Warning thresholds this account acknowledged this week. |
 
-With `locked`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` (`breakdown` and `breakdownThreshold` too) and
+With `locked`, `unconfirmed`, `age-gate` or `paused` for want of a model, every field but `tier` and `state` is `null` (`breakdown` and `breakdownThreshold` too) and
 `acknowledged` is `[]`. A `paused` day keeps every field filled.
 
 **`POST /api/hosted-ai/warnings/:threshold/ack`** acknowledges a warning for the current UTC week, for this

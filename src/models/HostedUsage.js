@@ -78,7 +78,8 @@ const HostedUsage = {
    */
   recentTurnCosts: (subject, limit) => db.prepare(`
     SELECT SUM(cost_micros) AS cost FROM hosted_usage WHERE subject = ?
-    GROUP BY turn_id HAVING SUM(status = 'open') = 0 AND SUM(prompt_type = 'narration') > 0    ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
+    GROUP BY turn_id HAVING SUM(status = 'open') = 0 AND SUM(prompt_type = 'narration') > 0
+    ORDER BY MAX(started_at) DESC, MAX(id) DESC LIMIT ?
   `).all(subject, limit).map((row) => row.cost),
 
   /**
