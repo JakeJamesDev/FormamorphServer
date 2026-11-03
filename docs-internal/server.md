@@ -366,6 +366,16 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 ## Deploy log
 
+- **2026-11-03** — deployed `cea5aa6`: the Formamorph AI proxy, metering, limits and admin routes, the third
+  Supporter tier, Patreon tier names and pledge freshness, the network kind and likes marker, offer totals, and
+  the stricter Avatar license gate. All 3,358 tests passed in 40.8 s wall time. Backup
+  `backups/pre-deploy-d3c4670-2026-11-03T22-27-54.790Z.db`, integrity `ok`. Boot applied `tables`, `networkKind`,
+  `supporterTop`, `hostedGrants` and `indexes`. `supporterTop` rebuilds `patreon_links` with the same columns
+  and a wider CHECK, so old code still runs on it. Added
+  `PATREON_SUPPORTER_TOP_TIER_ID` on the server. Published the privacy policy as `acceptance_version=4` with
+  re-accept. The policy states 30-day usage retention, so `hosted_ai` must set `retentionDays` to 30. The proxy
+  stays paused until the launch checklist env keys are set. Service active with zero restarts, boot logged
+  `Server running on port`, network lists downloaded, public route 200.
 - **2026-10-28** — deployed `d3c4670`: the mascot listing kind, staff pins, and Supporter-only listings with
   the gated route, per-account watermark, tile scramble, revocation and the publish script. All 2,858 tests
   passed in 51.8 s wall time. Backup `backups/pre-deploy-a0c0689-2026-10-28T13-22-15.290Z.db`, integrity
