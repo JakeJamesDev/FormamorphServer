@@ -16,8 +16,9 @@ const {
   getUnreadCount,
   getMeta,
   searchUsers,
-  searchThreads
-} = require('../controllers/feedbackController');
+  searchThreads,
+  resolveLinks
+} =require('../controllers/feedbackController');
 const { protect, protectWhenSent, staff } = require('../middleware/auth');
 const { clientIpKeyGenerator } = require('../utils/rateLimitKey');
 
@@ -51,11 +52,24 @@ const searchLimiter = rateLimit({
   message: { success: false, error: 'Too many searches. Try again shortly.' }
 });
 
-// Literal paths first, so neither is read as a thread ID.
+// Preview asks once each time it opens, so this budget is apart from the autocomplete's.
+const resolveLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : clientIpKeyGenerator(req)),
+  message: { success: false, error: 'Too many previews. Try again shortly.' }
+});
+
+// Literal paths first, so none is read as a thread ID.
 
 // Autocomplete: usernames by prefix (a thread's participants first), threads by number or title
 router.get('/search/users', protect, searchLimiter, searchUsers);
 router.get('/search/threads', protect, searchLimiter, searchThreads);
+
+// The targets of text not yet posted, for Preview
+router.post('/links/resolve', protect, resolveLimiter, resolveLinks);
 
 // The types, categories, statuses and caps this server will accept; open to guests
 router.get('/meta', protectWhenSent, getMeta);

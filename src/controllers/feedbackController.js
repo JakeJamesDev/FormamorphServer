@@ -293,6 +293,26 @@ exports.searchThreads = async (req, res, next) => {
 };
 
 /**
+ * @desc    The link targets of unposted text, resolved for the caller; stores nothing
+ * @route   POST /api/feedback/links/resolve
+ * @access  Private
+ */
+exports.resolveLinks = async (req, res, next) => {
+  try {
+    const { text } = req.body || {};
+    if (typeof text !== 'string') {
+      return res.status(400).json({ success: false, error: 'Text is required' });
+    }
+    if (text.length > Feedback.BODY_MAX) {
+      return res.status(400).json({ success: false, error: `A description is limited to ${Feedback.BODY_MAX} characters` });
+    }
+    res.status(200).json({ success: true, data: { targets: resolverFor([text], req.user)(text) } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * @desc    Add a comment to a thread
  * @route   POST /api/feedback/:id/comments
  * @access  Private (a bug's reporter or an admin; anyone on an unlocked suggestion or question)
