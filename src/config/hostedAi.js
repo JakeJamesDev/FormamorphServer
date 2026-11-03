@@ -32,7 +32,7 @@ const REFUSALS = Object.freeze({
   invalid_request: { status: 400, error: 'The request is not a chat completion this server can send.' },
   age_gate_required: { status: 403, error: 'Confirm you are 18 or older to use Formamorph AI.' },
   not_entitled: { status: 403, error: 'Formamorph AI is part of a Supporter pledge on Patreon.' },
-  pledge_unconfirmed: { status: 403, error: "We can't confirm your Patreon pledge right now. Formamorph AI will work again as soon as we can." },
+  pledge_unconfirmed: { status: 403, error: "We can't confirm your Patreon pledge right now. We'll get Formamorph AI working again as soon as we can." },
   service_paused: { status: 503, error: 'Formamorph AI is paused. Try again later.' },
   rate_limited: { status: 429, error: 'Too many requests. Wait a moment and try again.' },
   turn_expired: { status: 409, error: 'This turn has ended. Start a new turn.' },
