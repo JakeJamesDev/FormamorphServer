@@ -366,6 +366,9 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 ## Deploy log
 
+- **2026-11-05** — deployed `9dbdfd2`: the admin Formamorph AI usage report. All 3,387 tests passed in 57.2 s wall
+  time. No schema step, so no backup. Service active with zero restarts, boot logged `Server running on port`,
+  public route 200.
 - **2026-11-05** — deployed `1e28243`: the routes also answer the doubled offer count address 3.6.0 builds call,
   until the next release. All 3,374 tests passed in 57.2 s wall time. No schema step, so no backup. Service active
   with zero restarts, boot logged `Server running on port`, public route 200.
