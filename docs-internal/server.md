@@ -144,6 +144,44 @@ Webhook deliveries are signals, because Patreon sends no delivery id:
 - A failed delivery read logs and does not count toward the alert. The next hourly run repairs it.
 - ⚠️ Unverified: the member list may lag behind a webhook. A new tier could then wait for a later read.
 
+## Testing Formamorph AI with the testing key
+
+`npm run live:hosted-ai` sends real calls through the real app on this machine. Only the upstream call
+leaves it. Nothing touches production, so tests don't count toward the daily ceiling or the usage report.
+
+| Part | In the run |
+|---|---|
+| App, route, limits, retries, metering | Real |
+| Upstream URL | Real |
+| `hosted_ai` setting | Copied from production |
+| API key | `HOSTED_AI_TEST_API_KEY`, spent on the testing account |
+| Database, storage, account | Scratch, gone after the run |
+| Caddy | Not covered. See [Check Caddy](#2-check-caddy) |
+
+**One-time setup.** Add these to the local `.env`. The values live in the local hosted-tier note.
+
+```
+HOSTED_AI_UPSTREAM_URL=<upstream URL>
+HOSTED_AI_TEST_API_KEY=<testing key>
+```
+
+**Refresh the settings copy** whenever production's `hosted_ai` setting changes. The copy holds prices, so
+it stays in the unshared `.scratch/` folder.
+
+```bash
+ssh formamorph-api -i "$HOME/.ssh/id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && node -e "require(\"dotenv\").config(); console.log(JSON.stringify(require(\"./src/models/Setting\").get(\"hosted_ai\")))"' > .scratch/hosted-ai-settings.json
+```
+
+**Run it.**
+
+```bash
+npm run live:hosted-ai -- --prompt "Describe a tavern." --max-tokens 400
+```
+
+- `--mode` picks `stream`, `whole` or `both`. `--tier` picks the account's tier.
+- `--body` sends a full chat completion from a JSON file, such as a captured client request.
+- It prints each reply and usage row. `PASS` needs every call to settle `ok`, with no open row or held slot.
+
 ## Formamorph AI launch checklist
 
 Work top to bottom. Each step needs the one before it.

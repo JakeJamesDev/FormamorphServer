@@ -70,7 +70,7 @@ const startUpstream = (delayMs) => {
 };
 
 /** Seed `count` entitled accounts straight into the database, each with a bearer header. */
-const seedAccounts = (count) => {
+const seedAccounts = (count, tier = SUPPORTER) => {
   const insert = db.prepare('INSERT INTO users (id, username, password, account_type) VALUES (?, ?, ?, ?)');
   const accounts = [];
   db.transaction(() => {
@@ -78,7 +78,7 @@ const seedAccounts = (count) => {
       const id = uuidv4();
       insert.run(id, `load-${String(i).padStart(4, '0')}`, 'not-a-login', 'normal');
       Policy.accept(Policy.AGE_GATE, id);
-      PatreonLink.link({ userId: id, patreonUserId: `load-p-${i}`, tier: SUPPORTER, pledgeStart: null, checkedAt: new Date().toISOString() });
+      PatreonLink.link({ userId: id, patreonUserId: `load-p-${i}`, tier, pledgeStart: null, checkedAt: new Date().toISOString() });
       accounts.push({ id, authorization: `Bearer ${jwt.sign({ id, tv: 0 }, process.env.JWT_SECRET)}` });
     }
   })();
@@ -135,9 +135,9 @@ const runTurn = async (origin, account, parallel) => {
   return [first, ...rest];
 };
 
-/** Wait for every row to settle and every slot to free, up to `DRAIN_MS`. */
-const drain = async () => {
-  const deadline = Date.now() + DRAIN_MS;
+/** Wait for every row to settle and every slot to free, up to `waitMs`. */
+const drain = async (waitMs = DRAIN_MS) => {
+  const deadline = Date.now() + waitMs;
   const open = () => db.prepare("SELECT COUNT(*) AS n FROM hosted_usage WHERE status = 'open'").get().n;
   while ((open() > 0 || heldSlots() > 0) && Date.now() < deadline) {
     await new Promise((resolve) => { setTimeout(resolve, 20); });
@@ -215,4 +215,4 @@ const runLoad = async ({ accounts, turns, parallel, delayMs, parallelLimit = par
   }
 };
 
-module.exports = { runLoad };
+module.exports = { runLoad, seedAccounts, drain };
