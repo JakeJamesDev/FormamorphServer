@@ -366,6 +366,12 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 ## Deploy log
 
+- **2026-11-05** — deployed `346e858`: Formamorph AI usage rows now record time to first token, the longest gap
+  between tokens, the finish reason and a fixed failure cause. All 3,373 tests passed in 80.7 s wall time. Backup
+  `backups/pre-deploy-cea5aa6-2026-11-05T00-14-33.306Z.db`, integrity `ok`. Boot applied
+  `hostedUsageDiagnostics`, additive, so a rollback needs no restore. Service active with zero restarts, boot
+  logged `Server running on port`, public route 200. The journal shows every 3.6.0 offer-count call answering 404
+  on a doubled `/api/api/funnel` path, and `funnel_totals` is empty.
 - **2026-11-03** — deployed `cea5aa6`: the Formamorph AI proxy, metering, limits and admin routes, the third
   Supporter tier, Patreon tier names and pledge freshness, the network kind and likes marker, offer totals, and
   the stricter Avatar license gate. All 3,358 tests passed in 40.8 s wall time. Backup
