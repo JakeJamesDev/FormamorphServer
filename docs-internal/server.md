@@ -404,6 +404,9 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 ## Deploy log
 
+- **2026-11-05** — deployed `83fff6d`: staff read `account_likes` on contest entries in the catalog. All 3,410 tests
+  passed in 53 s wall time. No schema step, so no backup. Service active with zero restarts, boot logged
+  `Server running on port`, public catalog 200 with no `account_likes` on any guest row.
 - **2026-11-05** — deployed `9dbdfd2`: the admin Formamorph AI usage report. All 3,387 tests passed in 57.2 s wall
   time. No schema step, so no backup. Service active with zero restarts, boot logged `Server running on port`,
   public route 200.
