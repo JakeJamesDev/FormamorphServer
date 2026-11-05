@@ -36,6 +36,15 @@ describe('POST /api/funnel/:step', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM funnel_totals').get().n).toBe(0);
   });
 
+  it('counts a step sent to the doubled address 3.6.0 builds call', async () => {
+    const res = await fromItsOwnAddress(request(app).post('/api/api/funnel/offer_shown'));
+
+    expect(res.status).toBe(204);
+    expect(db.prepare('SELECT day, step, count FROM funnel_totals').all()).toEqual([
+      { day: today(), step: 'offer_shown', count: 1 }
+    ]);
+  });
+
   it('stores only the step, the day and the count, whoever sends it', async () => {
     const user = createUser();
     await fromAddress('198.51.100.9', request(app).post('/api/funnel/offer_shown'))

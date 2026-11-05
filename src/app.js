@@ -109,6 +109,8 @@ app.use('/api/supporter-content', supporterContentRoutes);
 // request body reaches the log (see routes/hostedAi.js).
 app.use(HOSTED_AI_PATH, hostedAiRoutes);
 app.use('/api/funnel', funnelRoutes);
+// 3.6.0 builds call this address. Remove at the next release (client release blocker 08).
+app.use('/api/api/funnel', funnelRoutes);
 
 // Base route
 app.get('/', (req, res) => {
