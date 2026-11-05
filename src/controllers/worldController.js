@@ -160,6 +160,22 @@ const markLikesMarkers = (req, worlds) => {
   for (const world of worlds) world.likes_marker = markers.get(world.id).reasons;
 };
 
+/**
+ * Put a contest entry's account likes on it for a staff reader, as `account_likes`.
+ *
+ * Judges rank entries by accounts alone; `likes` stays the sum everyone else reads.
+ *
+ * @param {Object} req - The Express request
+ * @param {Array<Object>} worlds - The rows about to be sent, edited in place
+ */
+const markAccountLikes = (req, worlds) => {
+  if (!isStaff(req.user)) return;
+
+  const entries = worlds.filter((world) => world.contest_event_id);
+  const counts = World.accountLikeCounts(entries.map((world) => world.id));
+  for (const entry of entries) entry.account_likes = counts.get(entry.id) ?? 0;
+};
+
 /** One account's like, as both like lists send it. Shared so the audit cannot drift from the plain list. */
 const likerRow = (row) => ({
   id: row.id,
@@ -367,6 +383,7 @@ exports.getWorlds = async (req, res, next) => {
 
     markGuestLikes(req, result.worlds);
     markLikesMarkers(req, result.worlds);
+    markAccountLikes(req, result.worlds);
 
     // The catalog reads differently for every reader — liked marks, an author's own quarantined
     // listings, and staff markers — so it is one reader's to hold, and it is only ever held against a

@@ -1069,6 +1069,23 @@ const World = {
     db.prepare('SELECT COUNT(*) AS count FROM world_likes WHERE world_id = ?').get(worldId).count,
 
   /**
+   * `accountLikeCount` for many listings in one read.
+   *
+   * @param {Array<string>} ids - World IDs
+   * @returns {Map<string, number>} Listing id to count; a listing with no account like has no key
+   */
+  accountLikeCounts: (ids) => {
+    if (!ids || ids.length === 0) return new Map();
+
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT world_id, COUNT(*) AS count FROM world_likes WHERE world_id IN (${placeholders}) GROUP BY world_id
+    `).all(...ids);
+
+    return new Map(rows.map((row) => [row.world_id, row.count]));
+  },
+
+  /**
    * Whether this user has liked a listing.
    * @param {string} worldId - World ID
    * @param {string} userId - User ID
