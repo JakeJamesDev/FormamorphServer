@@ -22,7 +22,16 @@ const FunnelTotal = {
    *
    * @returns {Array<{ day: string, step: string, count: number }>}
    */
-  all: () => db.prepare('SELECT day, step, count FROM funnel_totals ORDER BY day DESC, step ASC').all()
+  all: () => db.prepare('SELECT day, step, count FROM funnel_totals ORDER BY day DESC, step ASC').all(),
+
+  /**
+   * Each step's total since a day, inclusive.
+   *
+   * @param {string} day - 'YYYY-MM-DD', UTC
+   * @returns {Map<string, number>} Step to count
+   */
+  sumsSince: (day) => new Map(db.prepare('SELECT step, SUM(count) AS count FROM funnel_totals WHERE day >= ? GROUP BY step').all(day)
+    .map((row) => [row.step, row.count]))
 };
 
 module.exports = FunnelTotal;

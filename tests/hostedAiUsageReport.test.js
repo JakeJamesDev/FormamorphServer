@@ -1,0 +1,208 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createRequire } from 'module';
+import { app, request, db, migrate } from './context.js';
+import { createUser, authHeader } from './helpers.js';
+
+const require = createRequire(import.meta.url);
+const Setting = require('../src/models/Setting');
+const PatreonLink = require('../src/models/PatreonLink');
+const HostedGrant = require('../src/models/HostedGrant');
+const HostedProviderSpend = require('../src/models/HostedProviderSpend');
+const FunnelTotal = require('../src/models/FunnelTotal');
+const { HOSTED_AI } = require('../src/config/hostedAi');
+const { DAY_MS } = require('../src/config/time');
+
+const ROUTE = '/api/hosted-ai/admin/usage-report';
+const SETTINGS = { tiers: { supporter: { window: 1000, budget: 1 }, supporter_plus: { window: 2000, budget: 2 } } };
+
+const daysAgo = (days) => new Date(Date.now() - days * DAY_MS).toISOString();
+const dayOf = (iso) => iso.slice(0, 10);
+
+/** Insert one settled call. Each test names only what it reads. */
+const call = (fields = {}) => {
+  const row = {
+    subject: 'subject-a', user_id: null, turn_id: 'turn-a', tier: 'supporter', model: 'm', prompt_type: 'narration',
+    estimated_prompt_tokens: 1, prompt_tokens: null, cached_tokens: null, output_tokens: null, cost_micros: 100,
+    cost_source: 'upstream', started_at: new Date().toISOString(), duration_ms: null, status: 'ok', retry: 0, stopped: 0,
+    first_token_ms: null, max_gap_ms: null, finish_reason: null, failure: null, ...fields
+  };
+  const names = Object.keys(row);
+  db.prepare(`INSERT INTO hosted_usage (${names.join(', ')}) VALUES (${names.map((name) => `@${name}`).join(', ')})`).run(row);
+};
+
+const read = async (days = 7) => {
+  const res = await request(app).get(`${ROUTE}?days=${days}`).set(authHeader(createUser({ accountType: 'admin' })));
+  expect(res.status).toBe(200);
+  return res.body.data;
+};
+
+beforeEach(() => {
+  migrate(db);
+  db.prepare('DELETE FROM hosted_usage').run();
+  db.prepare('DELETE FROM hosted_provider_spend').run();
+  db.prepare('DELETE FROM funnel_totals').run();
+  db.prepare('DELETE FROM hosted_grants').run();
+  db.prepare('DELETE FROM patreon_links').run();
+  Setting.set(HOSTED_AI, SETTINGS);
+});
+
+describe('GET /api/hosted-ai/admin/usage-report', () => {
+  it('refuses everyone but an admin, and a range it cannot read', async () => {
+    expect((await request(app).get(ROUTE)).status).toBe(401);
+    for (const accountType of ['normal', 'mod', 'dev']) {
+      expect((await request(app).get(ROUTE).set(authHeader(createUser({ accountType })))).status).toBe(403);
+    }
+    const admin = authHeader(createUser({ accountType: 'admin' }));
+    for (const days of ['0', '367', '1.5', 'week']) {
+      expect((await request(app).get(`${ROUTE}?days=${days}`).set(admin)).status).toBe(400);
+    }
+  });
+
+  it('never names an account, a subject or a turn', async () => {
+    const user = createUser({ username: 'report-private-name' });
+    call({ subject: 'private-subject-id', user_id: user.id, turn_id: 'private-turn-id', first_token_ms: 500, max_gap_ms: 100, duration_ms: 1500, output_tokens: 10 });
+
+    const stored = JSON.stringify(await read());
+
+    for (const trace of ['private-subject-id', user.id, 'report-private-name', 'private-turn-id']) {
+      expect(stored).not.toContain(trace);
+    }
+  });
+
+  it('fills every day of the range and leaves out the days before it', async () => {
+    call({ started_at: daysAgo(1), turn_id: 't1', subject: 's1', cost_micros: 100 });
+    call({ started_at: daysAgo(1), turn_id: 't1', subject: 's1', cost_micros: 200 });
+    call({ started_at: daysAgo(1), turn_id: 't2', subject: 's2', cost_micros: 300 });
+    call({ started_at: daysAgo(3), cost_micros: 999 });
+    HostedProviderSpend.record({ day: dayOf(daysAgo(1)), providerMicros: 650, recordedMicros: 600, readAt: new Date().toISOString() });
+
+    const report = await read(2);
+
+    expect(report.days).toEqual([
+      { day: dayOf(daysAgo(1)), calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650 },
+      { day: dayOf(daysAgo(0)), calls: 0, turns: 0, accounts: 0, costMicros: 0, providerMicros: null }
+    ]);
+    expect(report.totals).toMatchObject({ calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650 });
+  });
+
+  it('counts a stopped attempt in spend, since the provider bills it', async () => {
+    call({ cost_micros: 100 });
+    call({ cost_micros: 40, stopped: 1 });
+
+    expect((await read()).totals.costMicros).toBe(140);
+  });
+
+  it('sums each prompt type, with medians and a high percentile from its own calls', async () => {
+    call({ prompt_type: 'summary', cost_micros: 5, first_token_ms: 9000, max_gap_ms: 9000, duration_ms: 10000, output_tokens: 10 });
+    for (const [firstToken, gap] of [[100, 10], [200, 20], [300, 30], [400, 40], [500, 500]]) {
+      call({
+        cost_micros: 10, prompt_tokens: 100, cached_tokens: 25, output_tokens: 20, first_token_ms: firstToken, max_gap_ms: gap,
+        duration_ms: firstToken + 1000
+      });
+    }
+    call({ status: 'error', failure: 'idle_limit', cost_micros: 10, prompt_tokens: null, output_tokens: null });
+
+    const { promptTypes } = await read();
+    const narration = promptTypes.find((row) => row.promptType === 'narration');
+
+    expect(promptTypes.map((row) => row.promptType)).toEqual(['narration', 'summary']);
+    expect(narration).toEqual({
+      promptType: 'narration', calls: 6, costMicros: 60, avgPromptTokens: 100, avgOutputTokens: 20, cachedShare: 0.25, failed: 1,
+      firstTokenP50Ms: 300, tokensPerSecondP50: 20, maxGapP90Ms: 500
+    });
+  });
+
+  it('gives no speed for a type with no timed call, and no cached share with no prompt tokens', async () => {
+    call({ prompt_type: 'help' });
+
+    expect((await read()).promptTypes[0]).toMatchObject({ firstTokenP50Ms: null, tokensPerSecondP50: null, maxGapP90Ms: null, cachedShare: null });
+  });
+
+  it('counts how calls ended and why they failed', async () => {
+    call();
+    call();
+    call({ status: 'aborted' });
+    call({ status: 'error', failure: 'thinking' });
+    call({ status: 'error', failure: 'thinking' });
+    call({ status: 'error', failure: 'status_503' });
+
+    const report = await read();
+
+    expect(report.endings).toEqual(expect.arrayContaining([{ status: 'ok', calls: 2 }, { status: 'aborted', calls: 1 }, { status: 'error', calls: 3 }]));
+    expect(report.failures).toEqual([{ failure: 'thinking', calls: 2 }, { failure: 'status_503', calls: 1 }]);
+    expect(report.totals.failed).toBe(3);
+  });
+
+  it('orders the slowest calls by their worst wait and holds no more than five', async () => {
+    for (let index = 1; index <= 6; index += 1) {
+      call({ first_token_ms: index * 100, max_gap_ms: 10, duration_ms: index * 100 + 1000, output_tokens: 50 });
+    }
+    call({ prompt_type: 'summary', first_token_ms: 50, max_gap_ms: 9000, duration_ms: 10050, output_tokens: 100 });
+    call({ prompt_type: 'help' });
+
+    const { slowest } = await read();
+
+    expect(slowest).toHaveLength(5);
+    expect(slowest.map((row) => row.maxGapMs === 9000 ? 'gap' : row.firstTokenMs)).toEqual(['gap', 600, 500, 400, 300]);
+    expect(slowest[0]).toMatchObject({ promptType: 'summary', tokensPerSecond: 10, status: 'ok', failure: null });
+    expect(Object.keys(slowest[0]).sort()).toEqual(['failure', 'firstTokenMs', 'maxGapMs', 'promptType', 'startedAt', 'status', 'tokensPerSecond']);
+  });
+
+  it('counts the entitled per tier once each, with the highest tier winning', async () => {
+    const link = (user, tier, patreonUserId) => PatreonLink.link({ userId: user.id, patreonUserId, tier, pledgeStart: null, checkedAt: new Date().toISOString() });
+    const both = createUser();
+    link(both, 'supporter', 'p-both');
+    HostedGrant.create({ userId: both.id, tier: 'supporter_plus', endsAt: daysAgo(-5), createdBy: null });
+    link(createUser(), 'supporter', 'p-plain');
+    const revoked = createUser();
+    HostedGrant.revoke(HostedGrant.create({ userId: revoked.id, tier: 'supporter_top', endsAt: daysAgo(-5), createdBy: null }).id);
+
+    const { tiers } = await read();
+
+    expect(tiers.map((row) => [row.tier, row.entitled])).toEqual([['supporter', 1], ['supporter_plus', 1], ['supporter_top', 0]]);
+  });
+
+  it('reports each tier and the heaviest accounts against the weekly budget', async () => {
+    call({ subject: 's-low', turn_id: 't1', cost_micros: 100_000 });
+    call({ subject: 's-high', turn_id: 't2', cost_micros: 400_000 });
+    call({ subject: 's-high', turn_id: 't3', cost_micros: 100_000, stopped: 1 });
+    call({ subject: 's-plus', turn_id: 't4', tier: 'supporter_plus', cost_micros: 200_000 });
+
+    const report = await read();
+
+    expect(report.tiers[0]).toEqual({ tier: 'supporter', entitled: 0, active: 2, turns: 3, costMicros: 600_000, topBudgetShare: 0.4 });
+    expect(report.tiers[1]).toMatchObject({ tier: 'supporter_plus', topBudgetShare: 0.1 });
+    expect(report.tiers[2]).toMatchObject({ tier: 'supporter_top', active: 0, topBudgetShare: null });
+    expect(report.heaviest).toEqual([
+      { tier: 'supporter', turns: 2, costMicros: 500_000, budgetShare: 0.4 },
+      { tier: 'supporter_plus', turns: 1, costMicros: 200_000, budgetShare: 0.1 },
+      { tier: 'supporter', turns: 1, costMicros: 100_000, budgetShare: 0.1 }
+    ]);
+  });
+
+  it('lists at most five heaviest accounts', async () => {
+    for (let index = 0; index < 7; index += 1) call({ subject: `s${index}`, cost_micros: 100 + index });
+
+    expect((await read()).heaviest).toHaveLength(5);
+  });
+
+  it('sums the offer steps inside the range and lists every step', async () => {
+    db.prepare('INSERT INTO funnel_totals (day, step, count) VALUES (?, ?, ?)').run(dayOf(daysAgo(0)), 'offer_shown', 4);
+    db.prepare('INSERT INTO funnel_totals (day, step, count) VALUES (?, ?, ?)').run(dayOf(daysAgo(1)), 'offer_shown', 3);
+    db.prepare('INSERT INTO funnel_totals (day, step, count) VALUES (?, ?, ?)').run(dayOf(daysAgo(5)), 'offer_shown', 50);
+    FunnelTotal.increment(dayOf(daysAgo(0)), 'see_levels');
+
+    expect((await read(2)).offer).toEqual([
+      { step: 'offer_shown', count: 7 }, { step: 'see_levels', count: 1 }, { step: 'patreon_click', count: 0 }, { step: 'checklist_finished', count: 0 }
+    ]);
+  });
+
+  it('answers an empty range with zeros, not a failure', async () => {
+    const report = await read(1);
+
+    expect(report.totals).toMatchObject({ calls: 0, costMicros: 0, cachedShare: null, providerMicros: 0 });
+    expect(report.promptTypes).toEqual([]);
+    expect(report.slowest).toEqual([]);
+    expect(report.heaviest).toEqual([]);
+  });
+});

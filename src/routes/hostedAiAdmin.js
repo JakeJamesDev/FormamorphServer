@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect, staff, admin } = require('../middleware/auth');
 const {
-  createGrant, listGrants, revokeGrant, getSpend, getSpendReport
+  createGrant, listGrants, revokeGrant, getSpend, getSpendReport, getUsageReport
 } = require('../controllers/hostedAiAdminController');
 
 const router = express.Router();
@@ -15,5 +15,6 @@ router.delete('/grants/:id', staff, revokeGrant);
 
 router.get('/spend/:subject', admin, getSpend);
 router.get('/spend-report', admin, getSpendReport);
+router.get('/usage-report', admin, getUsageReport);
 
 module.exports = router;

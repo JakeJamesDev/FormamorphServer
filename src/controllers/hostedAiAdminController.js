@@ -4,6 +4,7 @@ const HostedUsage = require('../models/HostedUsage');
 const { TIER_KEYS } = require('../config/hostedAi');
 const { weekStart, resetAt } = require('../utils/hostedMeter');
 const { breakdownOf } = require('../utils/hostedState');
+const { buildUsageReport } = require('../utils/hostedUsageReport');
 const { DAY_MS } = require('../config/time');
 
 /** The staff and admin routes of Formamorph AI: grants, a subject's week and the spend report. */
@@ -93,6 +94,22 @@ exports.getSpend = (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * @desc    Sums and call timings for the last N UTC days. Names no account.
+ * @route   GET /api/hosted-ai/admin/usage-report?days=N
+ * @access  Private/Admin
+ */
+exports.getUsageReport = (req, res, next) => {
+  try {
+    const days = req.query.days === undefined ? 14 : Number(req.query.days);
+    if (!Number.isInteger(days) || days < 1 || days > 366) return bad(res, 'days must be a whole number from 1 to 366');
+
+    return res.status(200).json({ success: true, data: buildUsageReport(days) });
+  } catch (error) {
+    return next(error);
   }
 };
 
