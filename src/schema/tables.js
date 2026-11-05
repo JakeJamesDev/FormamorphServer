@@ -735,7 +735,8 @@ const apply = (database) => {
   // reply text, ever. `user_id` has no foreign key: erasure sets it null and the row stays with its
   // subject, so the week and the day keep their sums. `retry` is the proxy's second attempt at a call and
   // takes no turn-cap slot. `stopped` is an attempt stopped before any reply text: on the day's spend, off
-  // the player's allowance.
+  // the player's allowance. `first_token_ms` and `max_gap_ms` are null on a whole reply or a stream with no
+  // output. `failure` is a fixed cause on an `error` row, never upstream text.
   database.exec(`
     CREATE TABLE IF NOT EXISTS hosted_usage (
       id INTEGER PRIMARY KEY,
@@ -753,7 +754,11 @@ const apply = (database) => {
       duration_ms INTEGER,
       status TEXT NOT NULL CHECK (status IN ('open', 'ok', 'aborted', 'error', 'swept')),
       retry INTEGER NOT NULL DEFAULT 0,
-      stopped INTEGER NOT NULL DEFAULT 0
+      stopped INTEGER NOT NULL DEFAULT 0,
+      first_token_ms INTEGER,
+      max_gap_ms INTEGER,
+      finish_reason TEXT,
+      failure TEXT
     )
   `);
 

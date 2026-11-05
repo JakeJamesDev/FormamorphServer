@@ -13,6 +13,7 @@ const HostedUsage = require('../src/models/HostedUsage');
 const { usageOf } = require('../src/utils/hostedState');
 const { weekStart } = require('../src/utils/hostedMeter');
 const hostedUsageRetry = require('../src/schema/steps/hostedUsageRetry');
+const hostedUsageDiagnostics = require('../src/schema/steps/hostedUsageDiagnostics');
 const { HOSTED_AI, REFUSALS } = require('../src/config/hostedAi');
 
 /**
@@ -707,6 +708,174 @@ describe('the schema step', () => {
     expect(hostedUsageRetry.apply(old)).toBe(true);
     expect(old.prepare('SELECT retry, stopped FROM hosted_usage').get()).toEqual({ retry: 0, stopped: 0 });
     expect(hostedUsageRetry.apply(old)).toBe(false);
+    old.close();
+  });
+});
+
+describe('diagnostics', () => {
+  const FINISH = (reason) => event({ id: 'c1', choices: [{ delta: {}, finish_reason: reason }] });
+  const records = () => db.prepare(`
+    SELECT status, stopped, first_token_ms AS first, max_gap_ms AS gap, finish_reason AS finish, failure FROM hosted_usage ORDER BY id
+  `).all();
+
+  /** Sends each `[delay, event]` after the one before it. */
+  const timed = (...steps) => (_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    let at = 0;
+    for (const [delay, piece] of steps) {
+      at += delay;
+      setTimeout(() => res.write(piece), at);
+    }
+    setTimeout(() => res.end(), at + 10);
+  };
+  const refused = (status) => (_req, res) => res.writeHead(status).end('host-detail-xyz');
+
+  it('records the wait for the first token apart from the longest gap after it', async () => {
+    scripts = [timed([0, ROLE], [400, TEXT], [100, TEXT], [20, FINISH('stop')], [0, USAGE], [0, DONE])];
+
+    await send(supporter(), streamed());
+
+    const [row] = records();
+    expect(row.first).toBeGreaterThanOrEqual(380);
+    expect(row.gap).toBeGreaterThanOrEqual(90);
+    expect(row.gap).toBeLessThan(380);
+    expect(row).toMatchObject({ status: 'ok', finish: 'stop', failure: null });
+  });
+
+  it('reads the finish reason of a reply cut at the token limit', async () => {
+    scripts = [stream(ROLE, TEXT, FINISH('length'), USAGE, DONE)];
+
+    await send(supporter(), streamed());
+
+    expect(records()[0].finish).toBe('length');
+  });
+
+  it('keeps upstream free text off the row', async () => {
+    scripts = [stream(ROLE, TEXT, FINISH('Blocked: the player said hello'), USAGE, DONE)];
+
+    await send(supporter(), streamed());
+
+    expect(records()[0].finish).toBeNull();
+  });
+
+  it('records a whole reply with a finish reason and no stream timing', async () => {
+    scripts = [(_req, res) => res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({
+      id: 'c2', choices: [{ message: { role: 'assistant', content: 'Hi' }, finish_reason: 'stop' }]
+    }))];
+
+    await send(supporter(), chat());
+
+    expect(records()[0]).toMatchObject({ status: 'ok', first: null, gap: null, finish: 'stop', failure: null });
+  });
+
+  it('names the status of an upstream refusal, on both attempts of a stream', async () => {
+    scripts = [refused(429), refused(503)];
+
+    await send(supporter(), streamed());
+
+    expect(records().map((row) => row.failure)).toEqual(['status_429', 'status_503']);
+  });
+
+  it('names the status of a refused whole reply', async () => {
+    scripts = [refused(500)];
+
+    await send(supporter(), chat());
+
+    expect(records()).toEqual([expect.objectContaining({ status: 'error', failure: 'status_500' })]);
+  });
+
+  it('names an error inside a reply, without its text', async () => {
+    scripts = [stream(ERROR_FRAME), replies];
+
+    await send(supporter(), streamed());
+
+    expect(records().map((row) => row.failure)).toEqual(['upstream_reply', null]);
+    expect(JSON.stringify(records())).not.toContain('host-detail-xyz');
+  });
+
+  it('names an attempt stopped for thinking, and clears it all for the retry', async () => {
+    // The proxy stops at the thinking frame, so the finish reason has to come before it.
+    scripts = [stream(FINISH('length'), THINK), stream(ERROR_FRAME)];
+
+    await send(supporter(), streamed());
+
+    const [stopped, retry] = records();
+    expect(stopped).toMatchObject({ status: 'error', stopped: 1, finish: 'length', failure: 'thinking' });
+    expect(stopped.first).not.toBeNull();
+    expect(retry).toMatchObject({ first: null, gap: null, finish: null, failure: 'upstream_reply' });
+  });
+
+  it('does not carry the idle limit into a retry that fails another way', async () => {
+    Setting.set(HOSTED_AI, settings(NO_THINKING, { idleLimitSeconds: 1 }));
+    scripts = [silent, refused(500)];
+
+    await send(supporter(), streamed());
+
+    expect(records().map((row) => row.failure)).toEqual(['idle_limit', 'status_500']);
+  }, 10_000);
+
+  it('names a stream that ends with nothing to forward', async () => {
+    scripts = [stream(ROLE), replies];
+
+    await send(supporter(), streamed());
+
+    const [empty] = records();
+    expect(empty).toMatchObject({ failure: 'empty', first: null, gap: null });
+  });
+
+  it('names a dropped connection', async () => {
+    scripts = [drop(ROLE, TEXT)];
+
+    await send(supporter(), streamed());
+
+    expect(records()[0]).toMatchObject({ status: 'error', failure: 'network' });
+    expect(records()[0].first).not.toBeNull();
+  });
+
+  it('names a connection that never opens', async () => {
+    const url = process.env.HOSTED_AI_UPSTREAM_URL;
+    process.env.HOSTED_AI_UPSTREAM_URL = 'http://127.0.0.1:1/v1/chat/completions';
+
+    try {
+      await send(supporter(), chat());
+    } finally {
+      process.env.HOSTED_AI_UPSTREAM_URL = url;
+    }
+
+    expect(records()[0]).toMatchObject({ status: 'error', failure: 'network' });
+  });
+
+  it('names the idle limit, and leaves it off a retry that streams', async () => {
+    Setting.set(HOSTED_AI, settings(NO_THINKING, { idleLimitSeconds: 1 }));
+    scripts = [silent, replies];
+
+    await send(supporter(), streamed());
+
+    expect(records().map((row) => row.failure)).toEqual(['idle_limit', null]);
+  }, 10_000);
+
+  it('records no failure when the client leaves', async () => {
+    scripts = [stall(ROLE, TEXT)];
+
+    const { req, seen } = openClient(supporter(), streamed());
+    await vi.waitFor(() => expect(seen.text).toContain('Hello'));
+    req.destroy();
+
+    await vi.waitFor(() => expect(records()[0]?.status).toBe('aborted'));
+    expect(records()[0].failure).toBeNull();
+    expect(records()[0].first).not.toBeNull();
+  });
+
+  it('adds the columns to an existing table, once', () => {
+    const old = new Database(':memory:');
+    old.exec('CREATE TABLE hosted_usage (id INTEGER PRIMARY KEY)');
+    old.exec('INSERT INTO hosted_usage DEFAULT VALUES');
+
+    expect(hostedUsageDiagnostics.apply(old)).toBe(true);
+    expect(old.prepare('SELECT first_token_ms, max_gap_ms, finish_reason, failure FROM hosted_usage').get()).toEqual({
+      first_token_ms: null, max_gap_ms: null, finish_reason: null, failure: null
+    });
+    expect(hostedUsageDiagnostics.apply(old)).toBe(false);
     old.close();
   });
 });

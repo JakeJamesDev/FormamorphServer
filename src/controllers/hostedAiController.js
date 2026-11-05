@@ -151,11 +151,36 @@ const usageSnapshot = (subject, config) => {
   }
 };
 
+/** An attempt that failed for a known cause. `failure` is what the usage row records. */
+class AttemptFailure extends Error {
+  constructor(failure) {
+    super(failure);
+    this.failure = failure;
+  }
+}
+
 /** Thrown when the upstream refuses a call or sends an error inside a 200 reply. */
-class UpstreamErrorReply extends Error {}
+class UpstreamErrorReply extends AttemptFailure {}
 
 /** Thrown when a reply shows thinking on a model with thinking off, or a stream ends with nothing to forward. */
-class AttemptStopped extends Error {}
+class AttemptStopped extends AttemptFailure {}
+
+/** The first usable finish reason in one parsed reply. The pattern keeps upstream free text off the row. */
+const finishReasonOf = (payload) => {
+  if (!isPlainObject(payload) || !Array.isArray(payload.choices)) return null;
+  const reason = payload.choices.map((choice) => choice?.finish_reason)
+    .find((value) => typeof value === 'string' && /^[a-z_]{1,32}$/.test(value));
+  return reason ?? null;
+};
+
+/** The usage row's cause for a failed attempt, from fixed values only. */
+const failureOf = (error, idleFired) => {
+  if (idleFired) return 'idle_limit';
+  if (error instanceof AttemptFailure) return error.failure;
+  // The messages Node's fetch gives a failed connection and a dropped body.
+  if (error instanceof TypeError && ['fetch failed', 'terminated'].includes(error.message)) return 'network';
+  return 'other';
+};
 
 /** Resolve once a full socket buffer drains, or the client leaves. */
 const drained = (res) => new Promise((resolve) => {
@@ -172,12 +197,13 @@ const drained = (res) => new Promise((resolve) => {
  * Settle the call's row, then check the ceiling against the settled cost. A failed write leaves the row open
  * for the hourly sweep, at its reservation.
  */
-const settle = (meter, { usage, outputChars, status, stopped }) => {
+const settle = (meter, { usage, outputChars, status, stopped, diagnostics }) => {
   try {
     HostedUsage.settle(meter.rowId, {
       status,
       stopped: stopped ? 1 : 0,
       durationMs: Date.now() - meter.started.getTime(),
+      ...diagnostics,
       ...settlement({ usage, outputChars, estimatedPromptTokens: meter.estimatedPromptTokens, ratio: meter.ratio, prices: meter.prices })
     });
   } catch (error) {
@@ -207,11 +233,15 @@ exports.activeConfig = activeConfig;
 exports.proxy = async (req, res) => {
   let controller = new AbortController();
   let idleTimer = null;
+  let idleFired = false;
   let clientGone = false;
   const armIdle = (idleMs) => {
     clearTimeout(idleTimer);
     const running = controller;
-    idleTimer = setTimeout(() => running.abort(), idleMs);
+    idleTimer = setTimeout(() => {
+      idleFired = true;
+      running.abort();
+    }, idleMs);
   };
 
   let meter = null;
@@ -220,16 +250,40 @@ exports.proxy = async (req, res) => {
   let outputChars = 0;
   let finished = false;
   let settled = false;
+  let firstTokenMs = null;
+  let maxGapMs = null;
+  let lastTokenAt = null;
+  let finishReason = null;
+  let failure = null;
   // The first settle wins: the success path settles before it reports usage, `finally` covers the rest.
   const settleOnce = (status, stopped = false) => {
     if (settled || !meter) return;
     settled = true;
-    settle(meter, { usage, outputChars, status, stopped });
+    settle(meter, {
+      usage,
+      outputChars,
+      status,
+      stopped,
+      diagnostics: { firstTokenMs, maxGapMs, finishReason, failure: status === 'error' ? failure : null }
+    });
   };
   // Every parsed reply payload passes here, so usage and the output estimate see the same bytes.
   const observe = (payload) => {
     if (isPlainObject(payload) && payload.usage !== undefined) usage = payload.usage;
     outputChars += generatedChars(payload);
+    finishReason = finishReasonOf(payload) ?? finishReason;
+  };
+  // Stream frames only: a whole reply has one arrival, which `duration_ms` already holds.
+  const markToken = (payload) => {
+    if (generatedChars(payload) === 0) return;
+    const now = Date.now();
+    if (firstTokenMs === null) {
+      firstTokenMs = now - meter.started.getTime();
+      maxGapMs = 0;
+    } else {
+      maxGapMs = Math.max(maxGapMs, now - lastTokenAt);
+    }
+    lastTokenAt = now;
   };
 
   try {
@@ -294,9 +348,9 @@ exports.proxy = async (req, res) => {
       }
       const reply = Buffer.concat(chunks);
       const parsed = parseJson(reply.toString('utf8'));
-      if (isError(parsed)) throw new UpstreamErrorReply();
+      if (isError(parsed)) throw new UpstreamErrorReply('upstream_reply');
       observe(parsed);
-      if (noThinking && hasThinking(parsed) && !hasReply(parsed)) throw new AttemptStopped();
+      if (noThinking && hasThinking(parsed) && !hasReply(parsed)) throw new AttemptStopped('thinking');
       finished = true;
       settleOnce('ok');
       const state = usageSnapshot(req.hosted.subject, config);
@@ -319,12 +373,13 @@ exports.proxy = async (req, res) => {
         res.flushHeaders();
       };
       const readFrame = (payload) => {
-        if (isError(payload)) throw new UpstreamErrorReply();
+        if (isError(payload)) throw new UpstreamErrorReply('upstream_reply');
         observe(payload);
+        markToken(payload);
         if (!holding) return;
         const thinking = hasThinking(payload);
         if (hasReply(payload) || (thinking && !noThinking)) holding = false;
-        else if (thinking) throw new AttemptStopped();
+        else if (thinking) throw new AttemptStopped('thinking');
       };
       for await (const chunk of upstream.body) {
         pending += decoder.decode(chunk, { stream: true });
@@ -344,13 +399,15 @@ exports.proxy = async (req, res) => {
             // A slow client is not upstream silence, so the idle clock stops while the buffer drains.
             clearTimeout(idleTimer);
             await drained(res);
+            // The same holds for the longest gap.
+            lastTokenAt = Date.now();
           }
         }
         armIdle(config.idleMs);
       }
       pending += decoder.decode();
       readFrame(eventData(pending));
-      if (holding) throw new AttemptStopped();
+      if (holding) throw new AttemptStopped('empty');
       if (isDone(pending)) {
         doneEvent = pending;
         pending = '';
@@ -377,7 +434,7 @@ exports.proxy = async (req, res) => {
 
       if (!upstream.ok) {
         await upstream.body?.cancel().catch(() => {});
-        throw new UpstreamErrorReply();
+        throw new UpstreamErrorReply(`status_${upstream.status}`);
       }
 
       return body.stream ? forwardStream(upstream) : forwardWhole(upstream);
@@ -388,6 +445,7 @@ exports.proxy = async (req, res) => {
       try {
         return await attempt();
       } catch (error) {
+        failure = failureOf(error, idleFired);
         if (clientGone || res.headersSent || !(body.stream || retried || error instanceof AttemptStopped)) throw error;
       }
       settleOnce('error', true);
@@ -402,6 +460,11 @@ exports.proxy = async (req, res) => {
       usage = null;
       outputChars = 0;
       settled = false;
+      idleFired = false;
+      firstTokenMs = null;
+      maxGapMs = null;
+      lastTokenAt = null;
+      finishReason = null;
     }
   } catch {
     if (clientGone) return undefined;

@@ -146,15 +146,16 @@ const HostedUsage = {
    * Settle an open row. A row the sweep settled first stays as the sweep left it.
    *
    * @param {number} id - The row
-   * @param {Object} result - `{ status, stopped, costSource, costMicros, promptTokens, cachedTokens, outputTokens, durationMs }`
+   * @param {Object} result - `{ status, stopped, costSource, costMicros, promptTokens, cachedTokens, outputTokens, durationMs, firstTokenMs, maxGapMs, finishReason, failure }`
    */
   settle: (id, result) => {
     db.prepare(`
       UPDATE hosted_usage
       SET status = @status, stopped = @stopped, cost_source = @costSource, cost_micros = @costMicros, prompt_tokens = @promptTokens,
-        cached_tokens = @cachedTokens, output_tokens = @outputTokens, duration_ms = @durationMs
+        cached_tokens = @cachedTokens, output_tokens = @outputTokens, duration_ms = @durationMs,
+        first_token_ms = @firstTokenMs, max_gap_ms = @maxGapMs, finish_reason = @finishReason, failure = @failure
       WHERE id = @id AND status = 'open'
-    `).run({ id, stopped: 0, ...result });
+    `).run({ id, stopped: 0, firstTokenMs: null, maxGapMs: null, finishReason: null, failure: null, ...result });
   },
 
   /**
