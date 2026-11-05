@@ -166,10 +166,10 @@ HOSTED_AI_TEST_API_KEY=<testing key>
 ```
 
 **Refresh the settings copy** whenever production's `hosted_ai` setting changes. The copy holds prices, so
-it stays in the unshared `.scratch/` folder.
+it stays in the unshared `.scratch/` folder. Run this in PowerShell from the repo root.
 
-```bash
-ssh formamorph-api -i "$HOME/.ssh/id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && node -e "require(\"dotenv\").config(); console.log(JSON.stringify(require(\"./src/models/Setting\").get(\"hosted_ai\")))"' > .scratch/hosted-ai-settings.json
+```powershell
+ssh formamorph-api -i "$HOME\.ssh\id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && node -e ''require(`dotenv`).config(); console.log(JSON.stringify(require(`./src/models/Setting`).get(`hosted_ai`)))''' | Set-Content -Encoding ascii .scratch\hosted-ai-settings.json
 ```
 
 **Run it.**
