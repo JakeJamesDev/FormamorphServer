@@ -117,6 +117,9 @@ A world is eligible when all of these are true:
 - **Q11.** `hidden_gem` goes on every row `World.getAll` returns, including the author listing routes that reuse it. Non-world rows are always `false`. The single listing and content routes get no field.
 - **Q12.** Pruning deletes rotations whose `rotated_at` is strictly older than now − 7 days, except the newest.
 - **Q13.** A Like moved by a Claim keeps its original `created_at`, so it counts on the day it was first pressed.
+- **Q18.** A backfill run with `--write` deletes every existing rotation, then calls `rotateHiddenGems(now)` in the same run. Every rotation before the backfill was picked on a near-empty log, and its picks would otherwise sit in cooldown for 7 days.
+- **Q19.** When two backups fall on the same UTC day, their difference goes on that day.
+- **Q20.** A backup's time comes from its file name. A nightly `db-<date>` file counts as 04:17 UTC on its date, the time of the nightly backup run. A name without a date, or a list out of time order, is refused before any write. The default run is dry and prints totals; `--write` writes and sets the `hidden_gem_backfill` marker. zstd input uses Node's built-in `zlib`.
 - **Q17.** The world-content route returns 500 for a missing id today, because the not-found error from `getContent` maps to 500. Ticket 01 makes it return 404 before the download is counted, like the other two content routes. The bucket guard in `incrementDownloads` stays as well.
 
 ## Testing Decisions
