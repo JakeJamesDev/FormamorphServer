@@ -80,7 +80,7 @@ Once a day, after you pass the age gate, the app tells our server that it was op
 
 **The send holds three things:** a hash of your Install, your platform, and your app version. It holds no play, no world, and no account. Our server sets the day by its own clock.
 
-**The hash uses a key that changes every month.** The key is deleted when the month closes. After that, nobody can match a hash to your Install.
+**The hash uses a key that changes every month.** The key is deleted when the month closes. Once the nightly copies that hold it are gone too, nobody can match a hash to your Install.
 
 **While the month is open, the hash can be matched to your account** if you have signed in on that copy of the app. We store the Install beside the account when you sign in, and the hash comes from that Install.
 
