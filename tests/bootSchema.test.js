@@ -314,7 +314,9 @@ describe('the schema step', () => {
     expect(seeded.body).toContain('a salted hash of your network address, and a coarse browser family');
     expect(seeded.body).toContain('**We blank the hash and the browser family after 90 days.**');
     expect(seeded.body).toContain('press the heart again on the same copy of the app');
-    expect(seeded.body).toContain('**Signing in moves these likes to your account.**');
+    expect(seeded.body).toContain('**Signing in links your Install to your account**');
+    expect(seeded.body).toContain('## Counting active installs');
+    expect(seeded.body).toContain('turn off **Daily Check-In**');
 
     // The Network Kind, which collection may not store before this text is live.
     expect(seeded.body).toContain('\n## The kind of network behind a like\n');

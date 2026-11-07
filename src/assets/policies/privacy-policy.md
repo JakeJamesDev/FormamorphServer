@@ -1,6 +1,6 @@
 **Last updated: 7 November 2026**
 
-This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It also covers Formamorph AI, if you choose to use it. The game runs on your device. Unless you use Formamorph AI, nothing about a playthrough reaches us.
+This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It also covers a daily send that counts active installs, and Formamorph AI, if you choose to use it. The game runs on your device. Unless you use Formamorph AI, nothing about a playthrough reaches us.
 
 **Jake James** operates Formamorph. Write to **privacy@formamorph.ai** about anything in this policy.
 
@@ -44,7 +44,7 @@ We also use your network address to **rate limit** requests, so no single source
 
 ## Liking while signed out
 
-In the app you can like a listing without an account. We store the like against your **Install**: a random id the app makes once and keeps in your browser's local storage. It names that copy of the app and nothing else. It carries nothing about you or your device, we never show it to you, and it never goes in a link.
+In the app you can like a listing without an account. We store the like against your **Install**: a random id that every copy of the app makes once, when it first needs it, and keeps in your browser's local storage. It names that copy of the app and nothing else. It carries nothing about you or your device, we never show it to you, and it never goes in a link.
 
 Beside the like we store **a salted hash of your network address, and a coarse browser family** such as `Chrome/Windows`. We derive both the way we derive a Signal, and we do not store the address.
 
@@ -54,7 +54,7 @@ The hash has one purpose: **to limit and detect abuse**. It caps how many of the
 
 **To take one of these likes back, press the heart again on the same copy of the app.**
 
-**Signing in moves these likes to your account.** They become ordinary Likes. We record which account took the Install, so signing out again does not let the same copy of the app like a listing twice. Deleting your account deletes that record too.
+**Signing in links your Install to your account**, whether or not it gave a like. Any likes it gave move to your account and become ordinary Likes. We record which account took the Install, so signing out again does not let the same copy of the app like a listing twice. Deleting your account deletes that record too.
 
 ## The kind of network behind a like
 
@@ -73,6 +73,20 @@ The VPN and hosting lists come from [X4BNet lists_vpn](https://github.com/X4BNet
 When the app shows you the Formamorph AI offer, it adds one to a **daily total** for each step you reach: the offer was shown, you opened the levels, you chose Patreon, or you finished the checklist. The total is a number per step per day.
 
 **We store no address, no Install id, and no account with it.** Nothing in a total says who you are. We use the totals to learn whether the offer works.
+
+## Counting active installs
+
+Once a day, after you pass the age gate, the app tells our server that it was opened. We use it to count how many copies of the app people use, each day and each month.
+
+**The send holds three things:** a hash of your Install, your platform, and your app version. It holds no play, no world, and no account. Our server sets the day by its own clock.
+
+**The hash uses a key that changes every month.** The key is deleted when the month closes. After that, nobody can match a hash to your Install.
+
+**While the month is open, the hash can be matched to your account** if you have signed in on that copy of the app. We store the Install beside the account when you sign in, and the hash comes from that Install.
+
+**We delete the daily records when the month closes.** Nightly copies of the database can hold them for up to 30 days more. The **totals** stay with no end date. A total is a number per day or per month, split by platform and app version. Nothing in a total says who you are.
+
+**You can turn the send off.** Open Settings, then Data, then Privacy, and turn off **Daily Check-In**. The app sends nothing after that.
 
 ## Using Formamorph AI
 
@@ -124,6 +138,8 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 - **The kind of network beside a like:** 90 days. The like itself stays.
 - **Your Patreon link:** until you unlink it or delete your account.
 - **Records and refusal totals of Formamorph AI calls:** 30 days. We keep no text from your play.
+- **Daily records of active installs:** until the month closes.
+- **Totals of active installs:** kept, with no end date.
 - **Nightly copies of the database:** up to 30 days.
 - **Published files:** mirrored to Cloudflare storage for as long as the listing exists.
 
