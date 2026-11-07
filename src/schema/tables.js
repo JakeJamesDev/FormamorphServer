@@ -738,7 +738,7 @@ const apply = (database) => {
   // the player's allowance. `first_token_ms` and `max_gap_ms` are null on a whole reply or a stream with no
   // output. `failure` is a fixed cause on an `error` row, never upstream text. `max_tokens` (capped) and
   // `reserve_micros` are what admission held and never change on settle. `client_version` is null for a
-  // request with no readable client header. `provider` is the upstream provider that served the call.
+  // request with no readable client header.
   database.exec(`
     CREATE TABLE IF NOT EXISTS hosted_usage (
       id INTEGER PRIMARY KEY,
@@ -763,8 +763,7 @@ const apply = (database) => {
       failure TEXT,
       max_tokens INTEGER,
       reserve_micros INTEGER,
-      client_version TEXT,
-      provider TEXT
+      client_version TEXT
     )
   `);
 

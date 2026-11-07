@@ -253,14 +253,14 @@ describe('report clients', () => {
 });
 
 describe('hostedUsageTelemetry schema step', () => {
-  it('adds the four nullable columns to an existing table, once', () => {
+  it('adds the three nullable columns to an existing table, once', () => {
     const old = new Database(':memory:');
     old.exec('CREATE TABLE hosted_usage (id INTEGER PRIMARY KEY)');
     old.exec('INSERT INTO hosted_usage DEFAULT VALUES');
 
     expect(hostedUsageTelemetry.apply(old)).toBe(true);
-    expect(old.prepare('SELECT max_tokens, reserve_micros, client_version, provider FROM hosted_usage').get()).toEqual({
-      max_tokens: null, reserve_micros: null, client_version: null, provider: null
+    expect(old.prepare('SELECT max_tokens, reserve_micros, client_version FROM hosted_usage').get()).toEqual({
+      max_tokens: null, reserve_micros: null, client_version: null
     });
     expect(hostedUsageTelemetry.apply(old)).toBe(false);
     old.close();
