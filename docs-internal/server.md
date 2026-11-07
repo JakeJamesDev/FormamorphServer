@@ -446,6 +446,10 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-07** — deployed `40ebe93`: the usage report measures each account against its latest tier, so a
+  mid-week upgrade no longer reads as over budget. All 3,502 tests passed in 51 s (53 s wall). No backup: no
+  schema step. Service active with zero restarts, boot logged `Server running on port`, public route 200.
+  npm 11 skipped the `better-sqlite3` install script; its bundled `linux-x64` prebuild loads, so nothing broke.
 - **2026-11-07** — deployed `3856877`: the backfill reads older `-NNNZ` pre-deploy names. All 3,501 tests passed
   in 54 s (55 s wall). No backup: no schema step. Service active with zero restarts, boot logged
   `Server running on port`, public route 200. Hidden Gems backfill ran once, list ending at
