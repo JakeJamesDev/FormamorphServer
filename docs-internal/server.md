@@ -446,6 +446,11 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-07** — deployed `3856877`: the backfill reads older `-NNNZ` pre-deploy names. All 3,501 tests passed
+  in 54 s (55 s wall). No backup: no schema step. Service active with zero restarts, boot logged
+  `Server running on port`, public route 200. Hidden Gems backfill ran once, list ending at
+  `pre-deploy-83fff6d-2026-11-07T20-04-16.078Z.db`: `worlds=734 buckets=23663 downloads=97453 skipped=30`,
+  then `picks=` 3 worlds. The catalog flags those 3.
 - **2026-11-07** — deployed `2e835ce`: Formamorph AI telemetry (refusal totals, reservation and client version
   on usage rows), active installs (daily send, month close) and the server half of Hidden Gems. All 3,500 tests
   passed in 42 s (43 s wall). Backup `backups/pre-deploy-83fff6d-2026-11-07T20-04-16.078Z.db`, integrity `ok`.
