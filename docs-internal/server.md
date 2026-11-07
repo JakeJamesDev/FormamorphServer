@@ -445,6 +445,14 @@ backup is last.
 
 ## Deploy log
 
+- **2026-11-07** — deployed `2e835ce`: Formamorph AI telemetry (refusal totals, reservation and client version
+  on usage rows), active installs (daily send, month close) and the server half of Hidden Gems. All 3,500 tests
+  passed in 42 s (43 s wall). Backup `backups/pre-deploy-83fff6d-2026-11-07T20-04-16.078Z.db`, integrity `ok`.
+  Boot applied `hostedUsageTelemetry`, `hiddenGems`, `hostedRefusals`, `activeInstalls`, `activeInstallTotals`
+  and `indexes`, all additive. Service active with zero restarts, boot logged `Server running on port`, public
+  route 200. Published the privacy policy as `acceptance_version=5` with re-accept. The Caddyfile has no `log`
+  directive, so Caddy keeps no access log. `active_installs` is still off. The Hidden Gems backfill is not run:
+  its dry run refuses the two September backups named with `-NNNZ` milliseconds.
 - **2026-11-05** — deployed `83fff6d`: staff read `account_likes` on contest entries in the catalog. All 3,410 tests
   passed in 53 s wall time. No schema step, so no backup. Service active with zero restarts, boot logged
   `Server running on port`, public catalog 200 with no `account_likes` on any guest row.
