@@ -1,5 +1,6 @@
 const HostedUsage = require('../models/HostedUsage');
 const HostedUsageReport = require('../models/HostedUsageReport');
+const HostedRefusal = require('../models/HostedRefusal');
 const FunnelTotal = require('../models/FunnelTotal');
 const Setting = require('../models/Setting');
 const { HOSTED_AI, MICROS_PER_DOLLAR, TIER_KEYS } = require('../config/hostedAi');
@@ -120,7 +121,12 @@ const buildUsageReport = (days, now = new Date()) => {
     heaviest: HostedUsageReport.subjects(since).slice(0, HEAVIEST_LIMIT).map(({ subject, ...row }) => ({
       ...row, budgetShare: shares.get(subject)?.share ?? null
     })),
-    offer: FUNNEL_STEPS.map((step) => ({ step, count: offer.get(step) || 0 }))
+    offer: FUNNEL_STEPS.map((step) => ({ step, count: offer.get(step) || 0 })),
+    refusals: {
+      days: HostedRefusal.days(dayNames[0]),
+      tiers: HostedRefusal.tiers(dayNames[0]),
+      budgetExhaustedAccounts: HostedRefusal.accountsSince(dayNames[0], 'budget_exhausted')
+    }
   };
 };
 

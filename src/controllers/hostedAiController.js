@@ -1,5 +1,6 @@
 const Setting = require('../models/Setting');
 const HostedUsage = require('../models/HostedUsage');
+const HostedRefusal = require('../models/HostedRefusal');
 const {
   HOSTED_AI, TIER_KEYS, MICROS_PER_DOLLAR, TURN_HEADER, USAGE_HEADER, REFUSALS, refusalBody, upstreamUrl, upstreamKey, userSecret, isPlainObject,
   warnThresholdsOf, breakdownThresholdOf, PROMPT_TYPE_HEADER, promptTypeOf
@@ -17,7 +18,21 @@ const AuditLog = require('../models/AuditLog');
  * Nothing here logs: request and upstream bodies hold player text, and an error object can carry either.
  */
 
-const refuse = (res, code, extra = {}) => res.status(REFUSALS[code].status).json({ ...refusalBody(code), ...extra });
+/**
+ * Answer a refusal and count it on its Refusal total. `upstream_error` is a provider failure, not a refusal.
+ * A failed count never changes the answer.
+ */
+const refuse = (req, res, code, extra = {}) => {
+  if (code !== 'upstream_error') {
+    try {
+      HostedRefusal.record({ userId: req.user.id, subject: req.hosted?.subject, tier: req.hosted?.tier, code, at: new Date() });
+    } catch (error) {
+      // A database error carries no player text.
+      console.error('Hosted refusal record failed:', error);
+    }
+  }
+  return res.status(REFUSALS[code].status).json({ ...refusalBody(code), ...extra });
+};
 
 /**
  * Refuse an account that has not passed the age gate or holds no entitled tier, by pledge or grant.
@@ -25,10 +40,10 @@ const refuse = (res, code, extra = {}) => res.status(REFUSALS[code].status).json
  * Sets `req.hosted` with the spend subject and tier for the proxy.
  */
 exports.admit = (req, res, next) => {
-  if (!ageConfirmed(req.user.id)) return refuse(res, 'age_gate_required');
+  if (!ageConfirmed(req.user.id)) return refuse(req, res, 'age_gate_required');
 
   const owned = entitlement(req.user.id);
-  if (!owned) return refuse(res, unconfirmedTier(req.user.id) ? 'pledge_unconfirmed' : 'not_entitled');
+  if (!owned) return refuse(req, res, unconfirmedTier(req.user.id) ? 'pledge_unconfirmed' : 'not_entitled');
 
   req.hosted = { subject: owned.subject, tier: owned.tier };
   return next();
@@ -37,10 +52,10 @@ exports.admit = (req, res, next) => {
 /**
  * Answer an error from the route's own middleware, without logging it. A parse error carries the raw body.
  */
-exports.routeError = (err, _req, res, _next) => {
+exports.routeError = (err, req, res, _next) => {
   if (res.headersSent) return res.end();
   if (err && (err.type === 'entity.parse.failed' || err.type === 'entity.too.large')) {
-    return refuse(res, 'invalid_request');
+    return refuse(req, res, 'invalid_request');
   }
   return res.status(500).json({ success: false, error: 'Server Error' });
 };
@@ -289,20 +304,20 @@ exports.proxy = async (req, res) => {
   try {
     const turnId = req.get(TURN_HEADER) || null;
     const config = activeConfig(req.hosted.tier, turnId ? HostedUsage.turnModel(req.hosted.subject, turnId) : null);
-    if (!config) return refuse(res, 'service_paused');
+    if (!config) return refuse(req, res, 'service_paused');
 
     const started = new Date();
     // Before the rate limits, so a paused call spends no slot and answers as paused.
-    if (checkPause(started, config.ceilingMicros)) return refuse(res, 'service_paused');
+    if (checkPause(started, config.ceilingMicros)) return refuse(req, res, 'service_paused');
     release = acquireSlot(req.user.id, config.parallelLimit);
-    if (!release) return refuse(res, 'rate_limited');
-    if (!takeMinute(req.user.id, config.perMinuteLimit, started.getTime())) return refuse(res, 'rate_limited');
+    if (!release) return refuse(req, res, 'rate_limited');
+    if (!takeMinute(req.user.id, config.perMinuteLimit, started.getTime())) return refuse(req, res, 'rate_limited');
 
     let body;
     try {
       body = buildUpstreamBody(req.body, { ...config, user: anonymousUser(req.hosted.subject, userSecret()) });
     } catch (error) {
-      return refuse(res, error instanceof HostedRequestError ? error.code : 'invalid_request');
+      return refuse(req, res, error instanceof HostedRequestError ? error.code : 'invalid_request');
     }
 
     const prices = config.entry.prices;
@@ -328,7 +343,7 @@ exports.proxy = async (req, res) => {
       window: config.limits.window,
       margin: config.margin
     });
-    if (admitted.refusal) return refuse(res, admitted.refusal, admitted.extra);
+    if (admitted.refusal) return refuse(req, res, admitted.refusal, admitted.extra);
     meter = { rowId: admitted.rowId, started, estimatedPromptTokens, ratio: config.ratio, prices, ceilingMicros: config.ceilingMicros };
     res.set(TURN_HEADER, admitted.turnId);
 
@@ -449,11 +464,11 @@ exports.proxy = async (req, res) => {
         if (clientGone || res.headersSent || !(body.stream || retried || error instanceof AttemptStopped)) throw error;
       }
       settleOnce('error', true);
-      if (retried) return refuse(res, 'upstream_error');
+      if (retried) return refuse(req, res, 'upstream_error');
       retried = true;
       const now = new Date();
       const rowId = admitRetry({ ...call, turnId: admitted.turnId, now });
-      if (rowId === null) return refuse(res, 'upstream_error');
+      if (rowId === null) return refuse(req, res, 'upstream_error');
       controller.abort();
       controller = new AbortController();
       meter = { ...meter, rowId, started: now };
@@ -469,7 +484,7 @@ exports.proxy = async (req, res) => {
   } catch {
     if (clientGone) return undefined;
     if (res.headersSent) return endWithErrorEvent(res);
-    return refuse(res, 'upstream_error');
+    return refuse(req, res, 'upstream_error');
   } finally {
     clearTimeout(idleTimer);
     controller.abort();

@@ -109,6 +109,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Reservation** | The worst-case cost an admitted call records as an `open` usage row before it is forwarded: the estimated prompt plus the capped `max_tokens`. Budget sums count it, so parallel calls cannot all pass the same sum. The call then settles to its real cost. |
 | **Pause** | The stop on Formamorph AI calls once the UTC day's spend, open rows included, reaches the daily ceiling. Admins are alerted once. Every call is refused at once, started turns included, with no grace call, so a paused day can cut a turn short. A call that would reach the ceiling starts the pause and is refused. A call already streaming finishes. An admin can lift it until 00:00 UTC; the next day starts unpaused. |
 | **Refusal code** | The `code` a refused Formamorph AI call answers with, such as `budget_exhausted`, `turn_expired` or `pledge_unconfirmed` (a pledge Patreon has not confirmed for 7 days), each with its own status. The list lives in `config/hostedAi` and the client mirrors it. |
+| **Refusal total** | The count of one account's refused Formamorph AI calls on one UTC day, per Refusal code and tier, with the spend subject and the first and last time. Every refusal adds to it except `upstream_error`, a provider failure. Retention deletes it by its first time; erasure nulls its account and keeps it. The usage report shows totals and distinct accounts, never an account. |
 
 ## Clients
 

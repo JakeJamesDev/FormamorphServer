@@ -4,6 +4,7 @@ const { PLACEHOLDER_ID, PLACEHOLDER_USERNAME } = require('../config/accountDelet
 const { deleteWorldContent, deleteThumbnail, deleteAvatar, deletePendingFile } = require('./fileStorage');
 const PendingUpdate = require('../models/PendingUpdate');
 const HostedUsage = require('../models/HostedUsage');
+const HostedRefusal = require('../models/HostedRefusal');
 const { clearListingCache, clearAccountCache } = require('./supporterProcessing');
 const { MODERATION_STATES } = require('../config/listingReview');
 
@@ -70,6 +71,7 @@ const eraseRows = db.transaction((user, removeContent) => {
 
   // Formamorph AI usage stays with its spend subject, so the week and the day keep their sums.
   HostedUsage.forgetUser(user.id);
+  HostedRefusal.forgetUser(user.id);
 
   // Last, so every reference to it has already gone or moved. Likes, follows, policy answers, Signals,
   // message state and votes cascade from here; feedback and reports are set null and stay readable.

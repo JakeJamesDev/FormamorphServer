@@ -61,6 +61,7 @@ const STEPS = [
   require('./steps/hostedUsageRetry'),
   require('./steps/hostedUsageDiagnostics'),
   require('./steps/hiddenGems'),
+  require('./steps/hostedRefusals'),
   require('./indexes')
 ];
 
