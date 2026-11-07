@@ -409,6 +409,30 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 - **Pruning:** the same job deletes rotations older than 7 days, except the newest.
 - **Rules and constants:** `src/config/hiddenGems.js`, and the server spec at `docs-internal/specs/hidden-gems/spec.md`.
 
+### Backfilling the download log (once)
+
+Run this right after the deploy that adds the tables. It rebuilds `world_download_days` from the backups
+since 2026-09-06, so the first rotation scores 60 days of downloads.
+
+- Each gap between two backups is spread evenly over its UTC days. Worlds deleted since are skipped.
+- It adds to buckets the live log already has. A nightly `db-<date>` file counts as taken at 04:17 UTC.
+- `--write` stores the buckets, replaces every rotation with a fresh one, and records the run in the
+  internal `hidden_gem_backfill` setting. A second run is refused.
+
+The commands below are PowerShell. They pass every backup in time order, so this deploy's pre-deploy
+backup is last.
+
+1. Dry run. Check that the last file is this deploy's pre-deploy backup, then read the totals:
+
+   ```powershell
+   ssh formamorph-api -i "$HOME\.ssh\id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && F=$(ls backups | grep -E ''^(db-[0-9-]+\.db(\.zst)?|pre-deploy-.+\.db)$'' | sed -E ''s/^db-([0-9-]+)/\1T04-17 &/; s/^pre-deploy-[0-9a-f]+-(.*)$/\1 &/'' | sort | sed ''s/^[^ ]* /backups\//'') && echo $F | tr '' '' ''\n'' | tail -3 && npm run -s backfill-download-days -- $F'
+   ```
+
+   Expect `worlds=<n> buckets=<n> downloads=<n> skipped=<n>`.
+
+2. Write. Same command with `--write` after `--`. Expect the totals again and `picks=<ids>`, or `picks=none`.
+   Record both lines in the deploy log entry.
+
 ## Cost
 
 | Item | Per month |

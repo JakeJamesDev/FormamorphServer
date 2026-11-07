@@ -40,6 +40,9 @@ const PATREON_TIER_NAMES = 'patreon_tier_names';
 const PATREON_RECONCILE_FAILURES = 'patreon_reconcile_failures';
 const PATREON_TIER_PRICES = 'patreon_tier_prices';
 
+/** Internal: the one Hidden Gems download backfill's run, `{ ranAt, backups, downloads }`. Null until it runs. */
+const HIDDEN_GEM_BACKFILL = 'hidden_gem_backfill';
+
 /** Every setting there is, by key. */
 const SETTINGS = {
   [CLIENT_MINIMUMS]: { default: {}, validate: validateClientMinimums },
@@ -74,7 +77,9 @@ const SETTINGS = {
   // Written only by `utils/hostedProvider`: whether the low-balance alert went out since the last good reading.
   [HOSTED_BALANCE_ALERTED]: { default: false, internal: true },
   // Written only by `utils/reconcilePatreon`: the run of failed hourly reconciles, so a restart keeps the count.
-  [PATREON_RECONCILE_FAILURES]: { default: 0, internal: true }
+  [PATREON_RECONCILE_FAILURES]: { default: 0, internal: true },
+  // Written only by `utils/backfillDownloadDays`, so a second run is refused.
+  [HIDDEN_GEM_BACKFILL]: { default: null, internal: true }
 };
 
 /**
@@ -103,6 +108,7 @@ const defaultFor = (key) => JSON.parse(JSON.stringify(SETTINGS[key].default));
 
 module.exports = {
   CLIENT_MINIMUMS,
+  HIDDEN_GEM_BACKFILL,
   PATREON_CREATOR_TOKENS,
   PATREON_RECONCILE_FAILURES,
   PATREON_TIER_NAMES,
