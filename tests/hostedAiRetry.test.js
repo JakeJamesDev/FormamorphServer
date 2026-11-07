@@ -58,10 +58,16 @@ const stream = (...events) => (_req, res) => {
   res.end();
 };
 
-/** Streams the events one chunk at a time, so each reaches the client before the next is sent. */
-const spaced = (...events) => (_req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  events.forEach((piece, i) => setTimeout(() => (i === events.length - 1 ? res.end(piece) : res.write(piece)), i * 40));
+/** Sends `first` and holds the response; the test sends the rest with `up.write` and `up.end`. */
+const held = (first) => {
+  const up = {};
+  up.script = (_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    res.write(first);
+    up.write = (piece) => res.write(piece);
+    up.end = (piece) => res.end(piece);
+  };
+  return up;
 };
 
 /** Sends the events, then stays silent. */
@@ -131,7 +137,7 @@ const flags = () => rows().map(({ status, retry, stopped }) => ({ status, retry,
 
 /** Open a raw client request. `seen` holds what the client has received so far. */
 const openClient = (user, body) => {
-  const seen = { response: null, text: '' };
+  const seen = { response: null, text: '', ended: false };
   const payload = JSON.stringify(body);
   const req = http.request(new URL(ROUTE, request(app).post(ROUTE).url), {
     method: 'POST',
@@ -139,6 +145,7 @@ const openClient = (user, body) => {
   }, (res) => {
     seen.response = res;
     res.on('data', (chunk) => { seen.text += chunk; });
+    res.on('end', () => { seen.ended = true; });
     res.on('error', () => {});
   });
   req.on('error', () => {});
@@ -269,11 +276,15 @@ describe('thinking', () => {
 
   it('never retries after forwarded thinking on a model with thinking on: a failure ends as today', async () => {
     Setting.set(HOSTED_AI, settings(WITH_THINKING));
-    scripts = [spaced(THINK, ERROR_FRAME)];
+    const up = held(THINK);
+    scripts = [up.script];
 
-    const res = await send(supporter(), streamed());
+    const { seen } = openClient(supporter(), streamed());
+    await vi.waitFor(() => expect(seen.text).toBe(THINK));
+    up.end(ERROR_FRAME);
+    await vi.waitFor(() => expect(seen.ended).toBe(true));
 
-    expect(res.text).toBe(`${THINK}event: error\ndata: ${JSON.stringify(REFUSED)}\n\n`);
+    expect(seen.text).toBe(`${THINK}event: error\ndata: ${JSON.stringify(REFUSED)}\n\n`);
     expect(received).toHaveLength(1);
   });
 
@@ -347,16 +358,30 @@ describe('a stream that fails before any reply text', () => {
 });
 
 describe('after reply text has reached the client', () => {
-  it.each([
-    ['an error frame', () => spaced(TEXT, ERROR_FRAME)],
-    ['a dropped connection', () => drop(TEXT)]
-  ])('does not retry after %s and ends with the SSE error event', async (_name, failure) => {
-    scripts = [failure(), replies];
+  const ERROR_END = `${TEXT}event: error\ndata: ${JSON.stringify(REFUSED)}\n\n`;
+
+  it('does not retry after an error frame and ends with the SSE error event', async () => {
+    const up = held(TEXT);
+    scripts = [up.script, replies];
+
+    const { seen } = openClient(supporter(), streamed());
+    await vi.waitFor(() => expect(seen.text).toBe(TEXT));
+    up.end(ERROR_FRAME);
+    await vi.waitFor(() => expect(seen.ended).toBe(true));
+
+    expect(seen.response.statusCode).toBe(200);
+    expect(seen.text).toBe(ERROR_END);
+    expect(received).toHaveLength(1);
+    expect(flags()).toEqual([{ status: 'error', retry: 0, stopped: 0 }]);
+  });
+
+  it('does not retry after a dropped connection and ends with the SSE error event', async () => {
+    scripts = [drop(TEXT), replies];
 
     const res = await send(supporter(), streamed());
 
     expect(res.status).toBe(200);
-    expect(res.text).toBe(`${TEXT}event: error\ndata: ${JSON.stringify(REFUSED)}\n\n`);
+    expect(res.text).toBe(ERROR_END);
     expect(received).toHaveLength(1);
     expect(flags()).toEqual([{ status: 'error', retry: 0, stopped: 0 }]);
   });
@@ -718,28 +743,33 @@ describe('diagnostics', () => {
     SELECT status, stopped, first_token_ms AS first, max_gap_ms AS gap, finish_reason AS finish, failure FROM hosted_usage ORDER BY id
   `).all();
 
-  /** Sends each `[delay, event]` after the one before it. */
-  const timed = (...steps) => (_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    let at = 0;
-    for (const [delay, piece] of steps) {
-      at += delay;
-      setTimeout(() => res.write(piece), at);
-    }
-    setTimeout(() => res.end(), at + 10);
-  };
   const refused = (status) => (_req, res) => res.writeHead(status).end('host-detail-xyz');
 
   it('records the wait for the first token apart from the longest gap after it', async () => {
-    scripts = [timed([0, ROLE], [400, TEXT], [100, TEXT], [20, FINISH('stop')], [0, USAGE], [0, DONE])];
+    // A frozen clock, moved before each frame, and each frame sent after the client has the one before.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const start = Date.now();
+      const up = held(ROLE);
+      scripts = [up.script];
+      const { seen } = openClient(supporter(), streamed());
+      await vi.waitFor(() => expect(up.end).toBeDefined());
 
-    await send(supporter(), streamed());
+      const at = async (ms, piece, expected) => {
+        vi.setSystemTime(start + ms);
+        up.write(piece);
+        await vi.waitFor(() => expect(seen.text).toBe(expected));
+      };
+      await at(400, TEXT, ROLE + TEXT);
+      await at(500, TEXT, ROLE + TEXT + TEXT);
+      vi.setSystemTime(start + 520);
+      up.end(FINISH('stop') + USAGE + DONE);
+      await vi.waitFor(() => expect(records()[0]?.status).toBe('ok'));
 
-    const [row] = records();
-    expect(row.first).toBeGreaterThanOrEqual(380);
-    expect(row.gap).toBeGreaterThanOrEqual(90);
-    expect(row.gap).toBeLessThan(380);
-    expect(row).toMatchObject({ status: 'ok', finish: 'stop', failure: null });
+      expect(records()).toEqual([{ status: 'ok', stopped: 0, first: 400, gap: 100, finish: 'stop', failure: null }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reads the finish reason of a reply cut at the token limit', async () => {
