@@ -477,14 +477,14 @@ exports.getWorldContent = async (req, res, next) => {
     // Checked before the download is counted: a quarantined listing is out of circulation, and a refused
     // download that still bumped the counter would be a lie in the other direction.
     const row = World.findById(req.params.id);
-    if (row && !World.isVisibleTo(row, req.user)) {
+    if (!row || !World.isVisibleTo(row, req.user)) {
       return res.status(404).json({
         success: false,
         error: 'World not found'
       });
     }
 
-    if (row && row.supporter_only) {
+    if (row.supporter_only) {
       return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
     }
 

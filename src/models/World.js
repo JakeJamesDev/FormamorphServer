@@ -12,6 +12,8 @@ const Event = require('./Event');
 const PendingUpdate = require('./PendingUpdate');
 const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility');
 const { MODERATION_STATES, isApproved, inCirculationClause } = require('../config/listingReview');
+const { hiddenGemClause } = require('./HiddenGem');
+const { utcDay } = require('../config/time');
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -253,7 +255,8 @@ const World = {
         pu.world_id IS NOT NULL AS has_pending_update,
         COALESCE(json_extract(pu.fields, '$.name'), w.name) AS pending_name,
         pu.queued_at AS pending_queued_at,
-        pu.thumbnail_file IS NOT NULL AS pending_has_thumbnail
+        pu.thumbnail_file IS NOT NULL AS pending_has_thumbnail,
+        ${hiddenGemClause('w', 'ce')} AS hidden_gem
         FROM worlds w JOIN users u ON w.author_id = u.id
         LEFT JOIN events ce ON ce.id = w.contest_event_id
         LEFT JOIN pending_updates pu ON pu.world_id = w.id`;
@@ -360,6 +363,7 @@ const World = {
 
         world.models = parseModels(world.models);
         world.has_pending_update = world.has_pending_update === 1;
+        world.hidden_gem = world.hidden_gem === 1;
         if (world.has_pending_update) {
           world.pending_preview = {
             name: world.pending_name,
@@ -872,27 +876,22 @@ const World = {
   },
 
   /**
-   * Increment download count for a world
+   * Count one download on the listing and in today's UTC bucket, leaving `updated_at` alone. A missing id
+   * changes nothing, so its route can still answer 404.
    * @param {string} id - World ID
    * @returns {number} New download count
    */
-  incrementDownloads: (id) => {
-    try {
-      // Update download count only, not updated_at
-      db.prepare(`
-        UPDATE worlds
-        SET downloads = downloads + 1
-        WHERE id = ?
-      `).run(id);
-      
-      // Get updated world
-      const world = World.findById(id);
-      
-      return world ? world.downloads : 0;
-    } catch (error) {
-      throw error;
-    }
-  },
+  incrementDownloads: (id) => db.transaction(() => {
+    const { changes } = db.prepare('UPDATE worlds SET downloads = downloads + 1 WHERE id = ?').run(id);
+    if (!changes) return 0;
+
+    db.prepare(`
+      INSERT INTO world_download_days (world_id, day, count) VALUES (?, ?, 1)
+      ON CONFLICT(world_id, day) DO UPDATE SET count = count + 1
+    `).run(id, utcDay(new Date()));
+
+    return World.findById(id).downloads;
+  })(),
 
   /**
    * Update spoiler status for a world without updating the updated_at timestamp

@@ -21,6 +21,7 @@ const { sweepSuspensions, startSuspensionSweeper } = require('./utils/sweepSuspe
 const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcilePatreon');
 const { sweepHostedUsage, startHostedUsageSweeper } = require('./utils/sweepHostedUsage');
 const { monitorProvider, startHostedMonitors } = require('./utils/hostedProvider');
+const { rotateHiddenGems, startHiddenGemRotation } = require('./utils/rotateHiddenGems');
 const { mailEnabled } = require('./utils/mail');
 const app = require('./app');
 
@@ -89,6 +90,10 @@ startHostedUsageSweeper();
 // And for the provider account: check its balance and store the days of spend it reports, now and hourly.
 void monitorProvider();
 startHostedMonitors();
+
+// And for Hidden Gems: rotate if one came due while the server was down, then check hourly.
+rotateHiddenGems();
+startHiddenGemRotation();
 
 // Set port
 const PORT = process.env.PORT || 8797;

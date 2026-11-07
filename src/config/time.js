@@ -3,4 +3,7 @@ const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-module.exports = { MINUTE_MS, HOUR_MS, DAY_MS };
+/** A UTC `YYYY-MM-DD`. */
+const utcDay = (date) => date.toISOString().slice(0, 10);
+
+module.exports = { MINUTE_MS, HOUR_MS, DAY_MS, utcDay };

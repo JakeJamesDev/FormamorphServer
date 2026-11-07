@@ -164,6 +164,12 @@ const apply = (database) => {
     CREATE INDEX IF NOT EXISTS idx_hosted_usage_started ON hosted_usage(started_at);
   `);
 
+  // A world's picks, for the catalog flag and the cooldown, and rotations by age, for the newest and pruning.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_hidden_gem_picks_world ON hidden_gem_picks(world_id);
+    CREATE INDEX IF NOT EXISTS idx_hidden_gem_rotations_at ON hidden_gem_rotations(rotated_at);
+  `);
+
   return indexNames(database).length > before;
 };
 

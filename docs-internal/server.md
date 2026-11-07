@@ -393,6 +393,22 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
   The first miss after a revision change deletes that listing's older files. The review route never caches.
 - **Cost:** a cold Morphie-sized request (26 layers plus the Initial render) takes about 1.5 s.
 
+## Hidden Gems
+
+💎 Up to 3 well-liked, low-download worlds, flagged `hidden_gem: true` on `GET /api/worlds` rows.
+
+| Table | Holds |
+|---|---|
+| `world_download_days` | One row per world per UTC day: `count` of downloads from all three content routes |
+| `hidden_gem_rotations` | One row per rotation: `rotated_at` |
+| `hidden_gem_picks` | The worlds each rotation picked |
+
+- **Job:** `rotateHiddenGems` (`src/utils/rotateHiddenGems.js`) runs at boot, then hourly. It rotates only
+  when the newest rotation is 12 h old or older, so a restart never reshuffles early. A failure is logged
+  as `Hidden Gem rotation failed:` and the next tick retries.
+- **Pruning:** the same job deletes rotations older than 7 days, except the newest.
+- **Rules and constants:** `src/config/hiddenGems.js`, and the server spec at `docs-internal/specs/hidden-gems/spec.md`.
+
 ## Cost
 
 | Item | Per month |
