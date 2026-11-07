@@ -3,6 +3,7 @@ const { ANONYMOUS_LIKES, validateAnonymousLikes } = require('./anonymousLikes');
 const { LISTING_REVIEW, validateListingReview } = require('./listingReview');
 const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username');
 const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
+const { ACTIVE_INSTALLS, validateActiveInstalls } = require('./activeInstalls');
 const { HOSTED_AI, HOSTED_AI_DEFAULT, HOSTED_BALANCE_ALERTED, validateHostedAi } = require('./hostedAi');
 const {
   MIN_FLAGGED, FLAGGED_SHARE, BURST_SIZE, BURST_WINDOW_MINUTES,
@@ -55,6 +56,8 @@ const SETTINGS = {
   [USERNAME_RENAME_GATE]: { default: false, validate: validateUsernameRenameGate, adminOnly: true },
   // Off until the privacy text that states the collection is live. `config/networkKind` says what it gates.
   [NETWORK_KIND]: { default: false, validate: validateNetworkKind },
+  // Off until the privacy text that states the Daily Send is live. `config/activeInstalls` says what it gates.
+  [ACTIVE_INSTALLS]: { default: false, validate: validateActiveInstalls },
   // The Likes Marker thresholds, read on every audit read. `config/likesMarker` says what each means.
   [MIN_FLAGGED]: { default: 5, validate: validateMinFlagged },
   [FLAGGED_SHARE]: { default: 0.5, validate: validateFlaggedShare },

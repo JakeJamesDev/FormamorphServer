@@ -31,6 +31,7 @@ const patreonRoutes = require('./routes/patreon');
 const supporterContentRoutes = require('./routes/supporterContent');
 const hostedAiRoutes = require('./routes/hostedAi');
 const funnelRoutes = require('./routes/funnel');
+const activeInstallRoutes = require('./routes/activeInstalls');
 
 const app = express();
 
@@ -111,6 +112,7 @@ app.use(HOSTED_AI_PATH, hostedAiRoutes);
 app.use('/api/funnel', funnelRoutes);
 // 3.6.0 builds call this address. Remove at the next release (client release blocker 08).
 app.use('/api/api/funnel', funnelRoutes);
+app.use('/api/active-installs', activeInstallRoutes);
 
 // Base route
 app.get('/', (req, res) => {
