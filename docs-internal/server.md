@@ -420,13 +420,14 @@ since 2026-09-06, so the first rotation scores 60 days of downloads.
 - `--write` stores the buckets, replaces every rotation with a fresh one, and records the run in the
   internal `hidden_gem_backfill` setting. A second run is refused.
 
-The commands below are PowerShell. They pass every backup in time order, so this deploy's pre-deploy
-backup is last.
+The commands below are PowerShell. They pass every backup in time order, up to and including `pre-deploy-83fff6d-…`,
+the backup of the deploy that added the tables. A later backup would count downloads the live log
+already holds.
 
-1. Dry run. Check that the last file is this deploy's pre-deploy backup, then read the totals:
+1. Dry run. Check that the last file is that backup, then read the totals:
 
    ```powershell
-   ssh formamorph-api -i "$HOME\.ssh\id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && F=$(ls backups | grep -E ''^(db-[0-9-]+\.db(\.zst)?|pre-deploy-.+\.db)$'' | sed -E ''s/^db-([0-9-]+)/\1T04-17 &/; s/^pre-deploy-[0-9a-f]+-(.*)$/\1 &/'' | sort | sed ''s/^[^ ]* /backups\//'') && echo $F | tr '' '' ''\n'' | tail -3 && npm run -s backfill-download-days -- $F'
+   ssh formamorph-api -i "$HOME\.ssh\id_ed25519_formamorph" -o IdentitiesOnly=yes 'cd /srv/formamorph/app && F=$(ls backups | grep -E ''^(db-[0-9-]+\.db(\.zst)?|pre-deploy-.+\.db)$'' | sed -E ''s/^db-([0-9-]+)/\1T04-17 &/; s/^pre-deploy-[0-9a-f]+-(.*)$/\1 &/'' | sort | sed ''s/^[^ ]* /backups\//'' | sed "/pre-deploy-83fff6d-/q") && echo $F | tr '' '' ''\n'' | tail -3 && npm run -s backfill-download-days -- $F'
    ```
 
    Expect `worlds=<n> buckets=<n> downloads=<n> skipped=<n>`.

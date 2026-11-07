@@ -120,6 +120,19 @@ describe('backfillDownloadDays', () => {
     expect(windowDownloads(reset, '2026-11-05')).toBe(0);
   });
 
+  it('reads a pre-deploy name with dash milliseconds', async () => {
+    const world = await publish(createUser(), 'Lantern Ford');
+    const files = [
+      backup('pre-deploy-bb348e1-2026-11-05T23-23-03-494Z.db', { [world]: 0 }),
+      backup(PRE_DEPLOY, { [world]: 4 })
+    ];
+
+    backfillDownloadDays(files, { write: true, now: T0 });
+
+    expect(windowDownloads(world, '2026-11-05')).toBe(0);
+    expect(windowDownloads(world, '2026-11-07')).toBe(4);
+  });
+
   it('adds to buckets the live log already holds', async () => {
     const world = await publish(createUser(), 'Cinder Yard');
     const files = [backup('db-2026-11-06.db', { [world]: 0 }), backup(PRE_DEPLOY, { [world]: 2 })];

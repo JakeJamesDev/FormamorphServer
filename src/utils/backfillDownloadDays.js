@@ -12,7 +12,7 @@ const { DAY_MS, utcDay } = require('../config/time');
 const NIGHTLY_TIME = 'T04:17:00.000Z';
 
 const NIGHTLY_NAME = /^db-(\d{4}-\d{2}-\d{2})\.db(\.zst)?$/;
-const PRE_DEPLOY_NAME = /^pre-deploy-[0-9a-f]+-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2}(?:\.\d+)?)Z\.db$/;
+const PRE_DEPLOY_NAME = /^pre-deploy-[0-9a-f]+-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})(?:[.-](\d+))?Z\.db$/;
 
 /**
  * When a backup was taken, read from its file name.
@@ -27,7 +27,8 @@ const backupTime = (file) => {
   let iso = null;
 
   if (nightly) iso = `${nightly[1]}${NIGHTLY_TIME}`;
-  if (preDeploy) iso = `${preDeploy[1]}T${preDeploy[2]}:${preDeploy[3]}:${preDeploy[4]}Z`;
+  // Older names end in `-NNNZ` milliseconds, newer ones in `.NNNZ`.
+  if (preDeploy) iso = `${preDeploy[1]}T${preDeploy[2]}:${preDeploy[3]}:${preDeploy[4]}.${preDeploy[5] ?? '0'}Z`;
 
   const time = iso ? new Date(iso) : null;
   if (!time || Number.isNaN(time.getTime())) throw new Error(`No backup time in the file name: ${name}`);
