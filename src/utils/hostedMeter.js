@@ -50,8 +50,8 @@ const turnGrace = ({ turnCallCap, limits, margin, maxTokensCap }, prices) => tur
  * A reservation that reaches the ceiling starts the pause. The call is then refused and keeps no row, first
  * call or continuation.
  *
- * @param {Object} call - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, turnCallCap, budgetMicros,
- *   graceMicros, ceilingMicros, window, margin, estimatedPromptTokens, reserveMicros }`; `turnId` null on a turn's first call
+ * @param {Object} call - `{ subject, userId, tier, model, promptType, clientVersion, turnId, now, turnLimitMs, turnCallCap,
+ *   budgetMicros, graceMicros, ceilingMicros, window, margin, estimatedPromptTokens, maxTokens, reserveMicros }`; `turnId` null on a turn's first call
  * @returns {{ refusal: string, extra?: Object }|{ rowId: number, turnId: string }}
  */
 const admitCall = db.transaction((call) => {
@@ -87,7 +87,9 @@ const admitCall = db.transaction((call) => {
     model: call.model,
     promptType: call.promptType,
     estimatedPromptTokens: call.estimatedPromptTokens,
-    costMicros: call.reserveMicros,
+    maxTokens: call.maxTokens,
+    reserveMicros: call.reserveMicros,
+    clientVersion: call.clientVersion,
     startedAt: now.toISOString()
   });
 
@@ -99,8 +101,8 @@ const admitCall = db.transaction((call) => {
  *
  * The call passed its budget, window and turn cap at admission, so only these two checks repeat.
  *
- * @param {Object} retry - `{ subject, userId, tier, model, promptType, turnId, now, turnLimitMs, ceilingMicros,
- *   estimatedPromptTokens, reserveMicros }`
+ * @param {Object} retry - `{ subject, userId, tier, model, promptType, clientVersion, turnId, now, turnLimitMs, ceilingMicros,
+ *   estimatedPromptTokens, maxTokens, reserveMicros }`
  * @returns {number|null} The new row id, or null
  */
 const admitRetry = db.transaction((retry) => {
@@ -117,7 +119,9 @@ const admitRetry = db.transaction((retry) => {
     model: retry.model,
     promptType: retry.promptType,
     estimatedPromptTokens: retry.estimatedPromptTokens,
-    costMicros: retry.reserveMicros,
+    maxTokens: retry.maxTokens,
+    reserveMicros: retry.reserveMicros,
+    clientVersion: retry.clientVersion,
     startedAt: now.toISOString(),
     retry: 1
   });

@@ -52,6 +52,25 @@ const promptTypeRows = (since) => {
   });
 };
 
+/** Settled cost over reservation, or null with nothing reserved. */
+const withRatio = (row) => ({ ...row, ratio: row.reserveMicros > 0 ? row.costMicros / row.reserveMicros : null });
+
+const reservationRows = (since) => {
+  const promptTypes = HostedUsageReport.reservations(since);
+  const sum = (field) => promptTypes.reduce((total, row) => total + row[field], 0);
+
+  return {
+    overall: withRatio({ calls: sum('calls'), reserveMicros: sum('reserveMicros'), costMicros: sum('costMicros') }),
+    promptTypes: promptTypes.map(withRatio)
+  };
+};
+
+const clientRows = (since) => {
+  const without = new Map(HostedUsageReport.turnsWithoutNarration(since).map((row) => [row.clientVersion, row.turns]));
+
+  return HostedUsageReport.clients(since).map((row) => ({ ...row, turnsWithoutNarration: without.get(row.clientVersion) || 0 }));
+};
+
 /** Each subject's share of its tier's weekly budget, null where the tier has no budget set. */
 const budgetShares = (now) => {
   const tiers = Setting.get(HOSTED_AI)?.tiers || {};
@@ -121,6 +140,8 @@ const buildUsageReport = (days, now = new Date()) => {
     heaviest: HostedUsageReport.subjects(since).slice(0, HEAVIEST_LIMIT).map(({ subject, ...row }) => ({
       ...row, budgetShare: shares.get(subject)?.share ?? null
     })),
+    reservations: reservationRows(since),
+    clients: clientRows(since),
     offer: FUNNEL_STEPS.map((step) => ({ step, count: offer.get(step) || 0 })),
     refusals: {
       days: HostedRefusal.days(dayNames[0]),

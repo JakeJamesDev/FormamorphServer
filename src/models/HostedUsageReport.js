@@ -67,6 +67,36 @@ const HostedUsageReport = {
     ORDER BY MAX(COALESCE(first_token_ms, 0), COALESCE(max_gap_ms, 0)) DESC, id DESC LIMIT ?
   `).all(since, limit),
 
+  /**
+   * Reservation against settled cost per prompt type. Only rows the provider priced and that kept their reply,
+   * since a swept or estimated cost is the reservation itself.
+   */
+  reservations: (since) => db.prepare(`
+    SELECT prompt_type AS promptType, COUNT(*) AS calls, SUM(reserve_micros) AS reserveMicros, SUM(cost_micros) AS costMicros
+    FROM hosted_usage
+    WHERE started_at >= ? AND status = 'ok' AND cost_source = 'upstream' AND stopped = 0 AND reserve_micros IS NOT NULL
+    GROUP BY prompt_type ORDER BY reserveMicros DESC
+  `).all(since),
+
+  clients: (since) => db.prepare(`
+    SELECT client_version AS clientVersion, COUNT(*) AS calls, COUNT(DISTINCT turn_id) AS turns, SUM(cost_micros) AS costMicros
+    FROM hosted_usage WHERE started_at >= ? GROUP BY client_version ORDER BY calls DESC
+  `).all(since),
+
+  /**
+   * Closed turns with no narration call, under the version of each turn's first row. A turn is judged on all
+   * its rows and counts only when its first row is in range, so the range edge never changes the verdict.
+   */
+  turnsWithoutNarration: (since) => db.prepare(`
+    WITH turns AS (
+      SELECT MIN(id) AS firstId FROM hosted_usage GROUP BY subject, turn_id
+      HAVING SUM(status = 'open') = 0 AND SUM(prompt_type IS 'narration') = 0
+    )
+    SELECT first.client_version AS clientVersion, COUNT(*) AS turns
+    FROM turns JOIN hosted_usage AS first ON first.id = turns.firstId
+    WHERE first.started_at >= ? GROUP BY first.client_version
+  `).all(since),
+
   /** Accounts holding a Patreon tier or a live grant, for the entitlement count. */
   entitledCandidates: (now) => db.prepare(`
     SELECT user_id AS userId FROM patreon_links WHERE tier IS NOT NULL

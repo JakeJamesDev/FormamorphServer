@@ -116,7 +116,8 @@ const spendTheWeek = async (user) => {
 /** Spend on another turn of the subject, already settled. */
 const otherSpend = ({ user, subject }, costMicros, startedAt = new Date().toISOString()) => {
   const id = HostedUsage.open({
-    subject, userId: user.id, turnId: `other-${rnd()}`, tier: 'supporter', model: 'main', estimatedPromptTokens: 0, costMicros, startedAt
+    subject, userId: user.id, turnId: `other-${rnd()}`, tier: 'supporter', model: 'main', estimatedPromptTokens: 0, maxTokens: 0,
+    reserveMicros: costMicros, startedAt
   });
   HostedUsage.settle(id, { status: 'ok', costSource: 'computed', costMicros, promptTokens: 0, cachedTokens: 0, outputTokens: 0, durationMs: 1 });
 };

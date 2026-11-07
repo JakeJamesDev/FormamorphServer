@@ -129,6 +129,14 @@ const parseClientHeader = (value) => {
   };
 };
 
+/**
+ * The version a record keeps for a build, or null when the header named none, so zero never reads as a real build.
+ *
+ * @param {{ version: string }|undefined} client - What `parseClientHeader` read
+ * @returns {string|null}
+ */
+const recordedVersion = (client) => (client && client.version !== ZERO_VERSION ? client.version : null);
+
 /** A route key: a method, one space, and a path. The path gates itself and everything under it. */
 const ROUTE_KEY = /^(GET|POST|PUT|PATCH|DELETE) \/[A-Za-z0-9\-._~/]*$/;
 
@@ -181,5 +189,6 @@ module.exports = {
   isVersion,
   compareVersions,
   parseClientHeader,
+  recordedVersion,
   validateClientMinimums
 };

@@ -11,6 +11,7 @@ const { ageConfirmed, entitlement, unconfirmedTier, usageOf } = require('../util
 const { checkPause, pauseState, liftPause } = require('../utils/hostedPause');
 const { acquireSlot, takeMinute } = require('../utils/hostedLimits');
 const AuditLog = require('../models/AuditLog');
+const { recordedVersion } = require('../config/clientVersion');
 
 /**
  * The Formamorph AI proxy.
@@ -328,9 +329,11 @@ exports.proxy = async (req, res) => {
       tier: req.hosted.tier,
       model: config.entry.id,
       promptType: promptTypeOf(req.get(PROMPT_TYPE_HEADER)),
+      clientVersion: recordedVersion(req.client),
       turnLimitMs: config.turnLimitMs,
       ceilingMicros: config.ceilingMicros,
       estimatedPromptTokens,
+      maxTokens: body.max_tokens,
       reserveMicros: worstCase(estimatedPromptTokens, body.max_tokens, prices)
     };
     const admitted = admitCall({

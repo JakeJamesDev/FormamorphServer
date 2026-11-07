@@ -736,7 +736,9 @@ const apply = (database) => {
   // subject, so the week and the day keep their sums. `retry` is the proxy's second attempt at a call and
   // takes no turn-cap slot. `stopped` is an attempt stopped before any reply text: on the day's spend, off
   // the player's allowance. `first_token_ms` and `max_gap_ms` are null on a whole reply or a stream with no
-  // output. `failure` is a fixed cause on an `error` row, never upstream text.
+  // output. `failure` is a fixed cause on an `error` row, never upstream text. `max_tokens` (capped) and
+  // `reserve_micros` are what admission held and never change on settle. `client_version` is null for a
+  // request with no readable client header. `provider` is the upstream provider that served the call.
   database.exec(`
     CREATE TABLE IF NOT EXISTS hosted_usage (
       id INTEGER PRIMARY KEY,
@@ -758,7 +760,11 @@ const apply = (database) => {
       first_token_ms INTEGER,
       max_gap_ms INTEGER,
       finish_reason TEXT,
-      failure TEXT
+      failure TEXT,
+      max_tokens INTEGER,
+      reserve_micros INTEGER,
+      client_version TEXT,
+      provider TEXT
     )
   `);
 

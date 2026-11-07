@@ -152,7 +152,8 @@ describe('the usage table', () => {
     expect(columns).toEqual([
       'id', 'subject', 'user_id', 'turn_id', 'tier', 'estimated_prompt_tokens', 'prompt_tokens', 'cached_tokens',
       'output_tokens', 'cost_micros', 'cost_source', 'started_at', 'duration_ms', 'status', 'retry', 'stopped',
-      'first_token_ms', 'max_gap_ms', 'finish_reason', 'failure', 'model', 'prompt_type'
+      'first_token_ms', 'max_gap_ms', 'finish_reason', 'failure', 'max_tokens', 'reserve_micros',
+      'client_version', 'provider', 'model', 'prompt_type'
     ]);
     expect(indexes.sort()).toEqual(['started_at', 'subject,started_at']);
     expect(db.prepare('PRAGMA foreign_key_list(hosted_usage)').all()).toEqual([]);

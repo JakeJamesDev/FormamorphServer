@@ -121,14 +121,19 @@ const HostedUsage = {
   /**
    * Record an admitted call as `open` with its reservation.
    *
-   * @param {Object} row - `{ subject, userId, turnId, tier, model, promptType, estimatedPromptTokens, costMicros, startedAt, retry }`
+   * The reservation goes in both `cost_micros`, which settling replaces, and `reserve_micros`, which it keeps.
+   *
+   * @param {Object} row - `{ subject, userId, turnId, tier, model, promptType, estimatedPromptTokens, maxTokens,
+   *   reserveMicros, clientVersion, startedAt, retry }`
    * @returns {number} The row id
    */
   open: (row) => Number(db.prepare(`
     INSERT INTO hosted_usage
-      (subject, user_id, turn_id, tier, model, prompt_type, estimated_prompt_tokens, cost_micros, started_at, status, retry)
-    VALUES (@subject, @userId, @turnId, @tier, @model, @promptType, @estimatedPromptTokens, @costMicros, @startedAt, 'open', @retry)
-  `).run({ promptType: null, retry: 0, ...row }).lastInsertRowid),
+      (subject, user_id, turn_id, tier, model, prompt_type, estimated_prompt_tokens, max_tokens, cost_micros, reserve_micros,
+        client_version, started_at, status, retry)
+    VALUES (@subject, @userId, @turnId, @tier, @model, @promptType, @estimatedPromptTokens, @maxTokens, @reserveMicros,
+      @reserveMicros, @clientVersion, @startedAt, 'open', @retry)
+  `).run({ promptType: null, clientVersion: null, retry: 0, ...row }).lastInsertRowid),
 
   /**
    * A subject's cost per prompt type since an instant, open rows included.
