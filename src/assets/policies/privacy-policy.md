@@ -1,4 +1,4 @@
-**Last updated: 3 November 2026**
+**Last updated: 7 November 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It also covers Formamorph AI, if you choose to use it. The game runs on your device. Unless you use Formamorph AI, nothing about a playthrough reaches us.
 
@@ -82,9 +82,11 @@ Formamorph AI is an optional AI service that we run. If you choose it in Setting
 
 **The provider receives the text and an anonymous id.** The id stays the same across your turns, so the provider can tell that they came from one person. We do not send your username, your email address, or your network address.
 
-**We record each call to measure use and cost:** your account, your Patreon user id or staff grant, your tier, the model, the type of prompt, the number of tokens, the cost, the time, how long the call took, and how it ended. Staff can read these records. They hold no text from your play.
+**We record each call to measure use and cost:** your account, your Patreon user id or staff grant, your tier, the model, the type of prompt, the number of tokens, the token limit and the amount held for the call, the cost, the time, how long the call took, how it ended, and the version of the app that made the call. Staff can read these records. They hold no text from your play.
 
-**We delete these records after 30 days.** If you delete your account, we remove your account from them at once. Your Patreon user id stays on them until the 30 days end.
+**We count each refused call.** When we refuse a call, we add one to a **daily total**. The total holds the reason for the refusal, your account, your Patreon user id or staff grant, your tier, and the first and last time that day. Staff can read these totals. They hold no text from your play.
+
+**We delete these records and totals after 30 days.** If you delete your account, we remove your account from them at once. Your Patreon user id stays on them until the 30 days end.
 
 ## Linking Patreon
 
@@ -121,7 +123,7 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 - **The address hash and browser family beside a like you gave while signed out:** 90 days. The like itself stays.
 - **The kind of network beside a like:** 90 days. The like itself stays.
 - **Your Patreon link:** until you unlink it or delete your account.
-- **Records of Formamorph AI calls:** 30 days. We keep no text from your play.
+- **Records and refusal totals of Formamorph AI calls:** 30 days. We keep no text from your play.
 - **Nightly copies of the database:** up to 30 days.
 - **Published files:** mirrored to Cloudflare storage for as long as the listing exists.
 
