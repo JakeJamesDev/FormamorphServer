@@ -110,6 +110,15 @@ A world is eligible when all of these are true:
 - The flag doesn't depend on the reader. Staff and authors also get catalog rows outside circulation, so the flag must check the population itself rather than rely on the reader's visibility filter.
 - The server doesn't reorder rows for gems.
 
+### Rulings from ticket 01
+
+- **Q9.** Equal scores order by world id ascending, as a plain string compare.
+- **Q10.** A rotation whose population has 0 window downloads still inserts an empty rotation row. The catalog flags nothing, and the 12-hour clock restarts.
+- **Q11.** `hidden_gem` goes on every row `World.getAll` returns, including the author listing routes that reuse it. Non-world rows are always `false`. The single listing and content routes get no field.
+- **Q12.** Pruning deletes rotations whose `rotated_at` is strictly older than now − 7 days, except the newest.
+- **Q13.** A Like moved by a Claim keeps its original `created_at`, so it counts on the day it was first pressed.
+- **Q17.** The world-content route returns 500 for a missing id today, because the not-found error from `getContent` maps to 500. Ticket 01 makes it return 404 before the download is counted, like the other two content routes. The bucket guard in `incrementDownloads` stays as well.
+
 ## Testing Decisions
 
 - A good test drives `GET /api/worlds`, the download routes, the backfill script, and `rotateHiddenGems(now)` with a set clock, and checks the catalog response. It doesn't read the new tables directly, and it doesn't compute a score by hand.
