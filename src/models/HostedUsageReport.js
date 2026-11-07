@@ -1,5 +1,11 @@
 const db = require('../config/db');
 
+/** A subject's tier on its latest call: the tier its budget now comes from, after any upgrade or downgrade. */
+const LATEST_TIER = `(
+  SELECT latest.tier FROM hosted_usage latest WHERE latest.subject = hosted_usage.subject
+  ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1
+) AS tier`;
+
 /**
  * Whole-service sums over the Formamorph AI usage rows, for the admin report.
  *
@@ -48,15 +54,15 @@ const HostedUsageReport = {
     FROM hosted_usage WHERE started_at >= ? GROUP BY tier
   `).all(since),
 
-  /** One row per spend subject, costliest first. The caller keeps `subject` out of its reply. */
+  /** One row per spend subject, costliest first, with its latest tier. The caller keeps `subject` out of its reply. */
   subjects: (since) => db.prepare(`
-    SELECT subject, tier, COUNT(DISTINCT turn_id) AS turns, SUM(cost_micros) AS costMicros
+    SELECT subject, ${LATEST_TIER}, COUNT(DISTINCT turn_id) AS turns, SUM(cost_micros) AS costMicros
     FROM hosted_usage WHERE started_at >= ? GROUP BY subject ORDER BY costMicros DESC, subject
   `).all(since),
 
-  /** What each subject spent against its allowance since an instant, stopped attempts left out. */
+  /** What each subject spent against its allowance since an instant, stopped attempts left out, with its latest tier. */
   allowanceSpend: (since) => db.prepare(`
-    SELECT subject, tier, SUM(cost_micros) AS costMicros
+    SELECT subject, ${LATEST_TIER}, SUM(cost_micros) AS costMicros
     FROM hosted_usage WHERE started_at >= ? AND stopped = 0 GROUP BY subject
   `).all(since),
 

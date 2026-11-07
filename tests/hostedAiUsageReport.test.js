@@ -180,6 +180,17 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     ]);
   });
 
+  it('measures an account that upgraded mid-week against its latest tier', async () => {
+    const at = (secondsAgo) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+    call({ subject: 's-up', turn_id: 't1', started_at: at(2), cost_micros: 600_000 });
+    call({ subject: 's-up', turn_id: 't2', started_at: at(1), tier: 'supporter_plus', cost_micros: 600_000 });
+
+    const report = await read();
+
+    expect(report.heaviest).toEqual([{ tier: 'supporter_plus', turns: 2, costMicros: 1_200_000, budgetShare: 0.6 }]);
+    expect(report.tiers.map((row) => [row.tier, row.topBudgetShare])).toEqual([['supporter', null], ['supporter_plus', 0.6], ['supporter_top', null]]);
+  });
+
   it('lists at most five heaviest accounts', async () => {
     for (let index = 0; index < 7; index += 1) call({ subject: `s${index}`, cost_micros: 100 + index });
 
