@@ -7,9 +7,13 @@ const require = createRequire(import.meta.url);
 const Setting = require('../src/models/Setting');
 const { ACTIVE_INSTALLS, ACTIVE_INSTALLS_LIMIT, NO_CLIENT } = require('../src/config/activeInstalls');
 const { CODES } = require('../src/config/anonymousLikes');
+const Signal = require('../src/models/Signal');
+const ActiveInstall = require('../src/models/ActiveInstall');
+const { sweepRetention } = require('../src/utils/sweepRetention');
 
 const INSTALL_A = '0b5f6a3e-7c1d-4e2a-9f80-1a2b3c4d5e6f';
 const INSTALL_B = '9e8d7c6b-5a49-4382-a716-f5e4d3c2b1a0';
+const INSTALL_C = '11111111-2222-4333-8444-555555555555';
 
 const send = (install = INSTALL_A, client = '3.7.0 windows') => {
   let req = fromItsOwnAddress(request(app).post('/api/active-installs'));
@@ -26,6 +30,7 @@ let adminUser;
 const totals = (query = '') => request(app).get(`/api/active-installs${query}`).set(authHeader(adminUser));
 
 beforeEach(() => {
+  db.prepare('DELETE FROM active_install_totals').run();
   db.prepare('DELETE FROM active_install_days').run();
   db.prepare('DELETE FROM active_install_keys').run();
   Setting.set(ACTIVE_INSTALLS, true);
@@ -215,7 +220,7 @@ describe('GET /api/active-installs', () => {
   it('sorts a breakdown by count, biggest first', async () => {
     await send(INSTALL_A, '3.7.0 web');
     await send(INSTALL_B, '3.7.0 windows');
-    await send('11111111-2222-4333-8444-555555555555', '3.7.0 windows');
+    await send(INSTALL_C, '3.7.0 windows');
 
     const [today] = (await totals('?days=1')).body.data.days;
     expect(today.breakdown).toEqual([
@@ -253,5 +258,130 @@ describe('GET /api/active-installs', () => {
       const body = JSON.stringify(res.body).toLowerCase() + JSON.stringify(res.headers).toLowerCase();
       for (const secret of [...stored, INSTALL_A, INSTALL_B]) expect(body).not.toContain(secret);
     }
+  });
+});
+
+describe('Month Close', () => {
+  const closedTotals = () => db.prepare('SELECT kind, period, platform, version, count FROM active_install_totals ORDER BY kind, period, platform, version').all();
+  const keyMonths = () => db.prepare('SELECT month FROM active_install_keys ORDER BY month').all().map((row) => row.month);
+
+  /** March: A updates between two days, B sends once. April: A sends on its first day. */
+  const sendMarchAndApril = async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at('2026-03-30T10:00:00.000Z');
+    await send(INSTALL_A, '3.6.0 windows');
+    at('2026-03-31T10:00:00.000Z');
+    await send(INSTALL_A, '3.7.0 android');
+    await send(INSTALL_B, '3.7.0 android');
+    at('2026-04-01T00:30:00.000Z');
+    await send(INSTALL_A, '3.7.0 android');
+  };
+
+  const MARCH_TOTALS = [
+    { kind: 'day', period: '2026-03-30', platform: 'windows', version: '3.6.0', count: 1 },
+    { kind: 'day', period: '2026-03-31', platform: 'android', version: '3.7.0', count: 2 },
+    { kind: 'month', period: '2026-03', platform: 'android', version: '3.7.0', count: 1 },
+    { kind: 'month', period: '2026-03', platform: 'windows', version: '3.6.0', count: 1 }
+  ];
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('closes a past month into totals and deletes its rows and key', async () => {
+    await sendMarchAndApril();
+
+    expect(sweepRetention('2026-04-01T01:00:00.000Z').months).toBe(1);
+
+    expect(closedTotals()).toEqual(MARCH_TOTALS);
+    expect(rows()).toEqual([{ day: '2026-04-01', platform: 'android', version: '3.7.0' }]);
+    expect(keyMonths()).toEqual(['2026-04']);
+  });
+
+  it('shows the admin the same numbers before and after the close', async () => {
+    await sendMarchAndApril();
+    at('2026-04-01T01:00:00.000Z');
+    const before = (await totals('?days=3')).body.data;
+    expect(before.months.map((m) => [m.month, m.total])).toEqual([['2026-04', 1], ['2026-03', 2]]);
+
+    sweepRetention('2026-04-01T01:00:00.000Z');
+
+    expect(rows()).toHaveLength(1);
+    expect((await totals('?days=3')).body.data).toEqual(before);
+  });
+
+  it('writes the totals once when it runs twice, and never closes a closed month again', async () => {
+    await sendMarchAndApril();
+    sweepRetention('2026-04-01T01:00:00.000Z');
+
+    expect(sweepRetention('2026-04-01T02:00:00.000Z').months).toBe(0);
+    expect(closedTotals()).toEqual(MARCH_TOTALS);
+
+    // A clock that ran back stores a row and a key in the closed month.
+    at('2026-03-15T10:00:00.000Z');
+    await send(INSTALL_C, '3.7.0 web');
+    expect(keyMonths()).toEqual(['2026-03', '2026-04']);
+
+    expect(sweepRetention('2026-04-01T03:00:00.000Z').months).toBe(0);
+    expect(closedTotals()).toEqual(MARCH_TOTALS);
+    expect(rows()).toEqual([{ day: '2026-04-01', platform: 'android', version: '3.7.0' }]);
+    expect(keyMonths()).toEqual(['2026-04']);
+  });
+
+  it('produces the same totals when it runs days late', async () => {
+    await sendMarchAndApril();
+    at('2026-04-05T10:00:00.000Z');
+    await send(INSTALL_B, '3.8.0 android');
+
+    expect(sweepRetention('2026-04-09T12:00:00.000Z').months).toBe(1);
+
+    expect(closedTotals()).toEqual(MARCH_TOTALS);
+    expect(rows().map((row) => row.day)).toEqual(['2026-04-01', '2026-04-05']);
+  });
+
+  it('deletes a past month key that has no rows', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    at('2026-04-02T10:00:00.000Z');
+    await send();
+    // No route leaves a key without rows; a direct insert stands in for one.
+    db.prepare("INSERT INTO active_install_keys (month, secret) VALUES ('2026-02', randomblob(32))").run();
+
+    expect(sweepRetention('2026-04-02T11:00:00.000Z').months).toBe(0);
+
+    expect(keyMonths()).toEqual(['2026-04']);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('leaves the current month live', async () => {
+    await sendMarchAndApril();
+
+    expect(sweepRetention('2026-03-31T23:59:59.000Z').months).toBe(0);
+
+    expect(closedTotals()).toEqual([]);
+    expect(rows()).toHaveLength(4);
+    expect(keyMonths()).toEqual(['2026-03', '2026-04']);
+  });
+
+  it('closes even when the sweep cannot read its deadline', async () => {
+    await sendMarchAndApril();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
+
+    expect(sweepRetention('2026-04-01T01:00:00.000Z')).toEqual({ signals: 0, marks: 0, kinds: 0, months: 1 });
+    expect(closedTotals()).toEqual(MARCH_TOTALS);
+  });
+
+  it('keeps the rest of the sweep running when the close throws', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const cutoff = vi.spyOn(Signal, 'cutoff');
+    vi.spyOn(ActiveInstall, 'closeMonthsBefore').mockImplementation(() => { throw new Error('locked'); });
+
+    expect(sweepRetention('2026-04-01T01:00:00.000Z').months).toBe(0);
+    expect(cutoff).toHaveBeenCalled();
+  });
+
+  it('refuses a second total for one period, platform and version', () => {
+    const insert = db.prepare("INSERT INTO active_install_totals (kind, period, platform, version, count) VALUES ('day', '2026-01-01', 'web', '3.7.0', 1)");
+    insert.run();
+
+    expect(() => insert.run()).toThrow(/UNIQUE/);
   });
 });

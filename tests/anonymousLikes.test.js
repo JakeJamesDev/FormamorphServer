@@ -773,7 +773,7 @@ describe('letting go of an address after ninety days', () => {
 
     const swept = sweepRetention(NOW);
 
-    expect(swept).toEqual({ signals: 0, marks: 3, kinds: 0 });
+    expect(swept).toEqual({ signals: 0, marks: 3, kinds: 0, months: 0 });
   });
 
   it('purges the Signals even when emptying the hashes throws', async () => {
@@ -791,7 +791,7 @@ describe('letting go of an address after ninety days', () => {
 
     const swept = sweepRetention(NOW);
 
-    expect(swept).toEqual({ signals: 1, marks: 0, kinds: 0 });
+    expect(swept).toEqual({ signals: 1, marks: 0, kinds: 0, months: 0 });
   });
 
   it('answers with nothing swept rather than throwing when the deadline cannot be read', async () => {
@@ -800,7 +800,7 @@ describe('letting go of an address after ninety days', () => {
     quiet();
     vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
 
-    expect(sweepRetention(NOW)).toEqual({ signals: 0, marks: 0, kinds: 0 });
+    expect(sweepRetention(NOW)).toEqual({ signals: 0, marks: 0, kinds: 0, months: 0 });
   });
 });
 

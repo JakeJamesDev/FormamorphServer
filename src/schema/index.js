@@ -64,6 +64,7 @@ const STEPS = [
   require('./steps/hiddenGems'),
   require('./steps/hostedRefusals'),
   require('./steps/activeInstalls'),
+  require('./steps/activeInstallTotals'),
   require('./indexes')
 ];
 

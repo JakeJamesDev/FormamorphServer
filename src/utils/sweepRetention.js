@@ -2,6 +2,8 @@ const { hourly } = require('./hourly');
 const Signal = require('../models/Signal');
 const AnonymousLike = require('../models/AnonymousLike');
 const World = require('../models/World');
+const ActiveInstall = require('../models/ActiveInstall');
+const { utcDay } = require('../config/time');
 
 /**
  * Let go of everything the retention promise says is let go of.
@@ -11,7 +13,7 @@ const World = require('../models/World');
  * hourly. Unlike the quarantine sweeper there is no lazy read path, because nothing reads these tables on
  * a request an ordinary user makes — the staff views ask for matches inside retention themselves.
  *
- * Three steps, because the rows expire differently. A Signal is nothing but where an account acted
+ * Three address steps, because the rows expire differently. A Signal is nothing but where an account acted
  * from, so the whole row goes. An Anonymous Like is a like as well as an address, and the like is not
  * the operator's to take away with it, so only where it came from goes — hash, browser family and
  * Network Kind — and the number a listing shows does not move. An account Like loses only its Network
@@ -21,15 +23,24 @@ const World = require('../models/World');
  * Each step is caught on its own, the way the event sweeper catches each transition. They share the
  * deadline and nothing else, and a table that will not write must not keep another from expiring.
  *
+ * A fourth step, the Month Close, runs first, on the calendar month of `now` rather than the deadline, so a
+ * deadline that will not read never holds it back.
+ *
  * Never throws, down to reading the deadline. This runs on a timer nobody is watching; a failure to
  * purge must not take the process down.
  *
  * @param {string} [now] - The instant to measure retention back from, for tests
- * @returns {{signals: number, marks: number, kinds: number}} Signals deleted, marks emptied, and account
- *   Likes that lost their kind
+ * @returns {{signals: number, marks: number, kinds: number, months: number}} Signals deleted, marks
+ *   emptied, account Likes that lost their kind, and Active Install months closed
  */
 const sweepRetention = (now = undefined) => {
-  const swept = { signals: 0, marks: 0, kinds: 0 };
+  const swept = { signals: 0, marks: 0, kinds: 0, months: 0 };
+
+  try {
+    swept.months = ActiveInstall.closeMonthsBefore(utcDay(now ? new Date(now) : new Date()).slice(0, 7));
+  } catch (error) {
+    console.error('Active Install month close failed:', error);
+  }
 
   let cutoff;
   try {

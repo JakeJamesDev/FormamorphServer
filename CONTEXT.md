@@ -127,6 +127,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Active Install** | An Install that made a Daily Send on a UTC day. DAU counts them per day; MAU counts them once per calendar month, under the platform and version of their first send that month. |
 | **Daily Send** | `POST /api/active-installs`: one request a day, with the Install and client headers and no body or account. The server clock sets the day. It stores one row per Install per day, under its first version, while the `active_installs` setting is on. Refused without a valid Install id or a real version. |
 | **Month Key** | The random secret of one UTC calendar month, made on its first Daily Send. A Daily Send stores only the HMAC-SHA256 of the Install id under it, so a hash matches its Install only while the key exists. No route returns it. |
+| **Month Close** | The retention sweep's step that turns each past UTC month into totals: one count per day, and one per month that counts each hash once under its first row. In the same transaction it deletes the month's rows and every older Month Key. A month that has totals is never counted again; rows that reach it later are deleted. The admin route reads closed and live periods the same. |
 
 ## Settings
 

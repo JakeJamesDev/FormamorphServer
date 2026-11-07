@@ -459,6 +459,7 @@ Daily (DAU) and calendar-month (MAU) active installs. Each copy of the app sends
 
 - 🔒 Rows hold the day, platform, version and an HMAC-SHA256 of the Install id under that month's key. No account, address or raw id.
 - 🔁 A repeat send that day changes nothing, so the day keeps the Install's first version. MAU counts each Install once, under the platform and version of its first send that month.
+- 🗓️ The Month Close runs in the hourly retention sweep. It turns each past month into day and month totals (`active_install_totals`), then deletes that month's rows and key. Closed and live periods read the same in the admin route.
 - 🚦 The POST has its own limiter: 100 per address per 24 hours, kept in memory (`config/activeInstalls.js`).
 - ⏸️ Nothing is stored until the `active_installs` setting is on. Turn it on after the privacy policy that names the Daily Send is live.
 

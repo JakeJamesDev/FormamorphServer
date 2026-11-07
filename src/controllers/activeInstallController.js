@@ -51,8 +51,8 @@ exports.getTotals = (req, res, next) => {
 
     const today = Date.parse(utcDay(new Date()));
     const dayNames = Array.from({ length: dayCount }, (_, index) => utcDay(new Date(today - index * DAY_MS)));
-    const liveDays = ActiveInstall.daysSince(dayNames[dayCount - 1]);
-    const days = dayNames.map((day) => period('day', day, liveDays.get(day)));
+    const dayCounts = ActiveInstall.daysSince(dayNames[dayCount - 1]);
+    const days = dayNames.map((day) => period('day', day, dayCounts.get(day)));
 
     const months = [...ActiveInstall.months()]
       .sort(([a], [b]) => b.localeCompare(a))
