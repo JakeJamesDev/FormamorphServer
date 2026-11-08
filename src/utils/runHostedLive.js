@@ -74,6 +74,7 @@ const rowLine = (row) => [
   `status ${row.status}`,
   `model ${row.model}`,
   `tokens ${row.prompt_tokens}+${row.output_tokens}`,
+  `cached ${row.cached_tokens ?? 'n/a'}`,
   `$${(row.cost_micros / 1_000_000).toFixed(6)} (${row.cost_source})`,
   `first token ${row.first_token_ms} ms`,
   `finish ${row.finish_reason}`,
