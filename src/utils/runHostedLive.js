@@ -12,6 +12,7 @@
  *   --mode MODE       stream, whole or both                         (default both)
  *   --tier TIER       The account's tier                            (default supporter)
  *   --settings FILE   The hosted_ai copy                            (default .scratch/hosted-ai-settings.json)
+ *   --format FORMAT   text or json (one line, for probes)           (default text)
  *
  * Sends real calls on HOSTED_AI_TEST_API_KEY through the real app, with a scratch in-memory database.
  * Exits 1 when a call fails or a row or parallel slot leaks.
@@ -46,7 +47,8 @@ const parse = (argv) => {
     body: null,
     mode: 'both',
     tier: undefined,
-    settings: path.join(ROOT, '.scratch', 'hosted-ai-settings.json')
+    settings: path.join(ROOT, '.scratch', 'hosted-ai-settings.json'),
+    format: 'text'
   };
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
@@ -56,6 +58,10 @@ const parse = (argv) => {
     else if (flag === '--body') options.body = value;
     else if (flag === '--tier') options.tier = value;
     else if (flag === '--settings') options.settings = value;
+    else if (flag === '--format') {
+      if (value !== 'text' && value !== 'json') throw new Error('--format is text or json');
+      options.format = value;
+    }
     else if (flag === '--mode') {
       if (!MODES[value]) throw new Error('--mode is stream, whole or both');
       options.mode = value;
@@ -101,6 +107,11 @@ const rowLine = (row) => [
       process.stdout.write = write;
     }
 
+    if (options.format === 'json') {
+      console.log(JSON.stringify(report));
+      process.exitCode = report.ok ? 0 : 1;
+      return;
+    }
     for (const call of report.calls) {
       console.log(`${call.mode}: HTTP ${call.status} in ${call.ms.toFixed(0)} ms${call.code ? `, ${call.code}` : ''}`);
       if (call.thinkingChars) console.log(`  Thinking: ${call.thinkingChars} characters`);
