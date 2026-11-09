@@ -252,6 +252,25 @@ describe('report clients', () => {
   });
 });
 
+describe('report clients before versions were recorded', () => {
+  it('leaves out rows older than the first versioned row, and keeps a later row with no version', async () => {
+    call({ turn_id: 'before', client_version: null, started_at: daysAgo(3) });
+    call({ turn_id: 'first', client_version: '1.0.0', started_at: daysAgo(2) });
+    call({ turn_id: 'headerless', client_version: null, started_at: daysAgo(1) });
+
+    expect((await report()).clients).toEqual([
+      { clientVersion: '1.0.0', calls: 1, turns: 1, costMicros: 100, turnsWithoutNarration: 0 },
+      { clientVersion: null, calls: 1, turns: 1, costMicros: 100, turnsWithoutNarration: 0 }
+    ]);
+  });
+
+  it('lists no clients while no row has a version', async () => {
+    call({ client_version: null });
+
+    expect((await report()).clients).toEqual([]);
+  });
+});
+
 describe('hostedUsageTelemetry schema step', () => {
   it('adds the three nullable columns to an existing table, once', () => {
     const old = new Database(':memory:');

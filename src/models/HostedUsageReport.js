@@ -6,6 +6,9 @@ const LATEST_TIER = `(
   ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1
 ) AS tier`;
 
+/** The first row that recorded a client version. Null before any did, which leaves the client reads empty. */
+const TRACKED_FROM = '(SELECT MIN(started_at) FROM hosted_usage WHERE client_version IS NOT NULL)';
+
 /**
  * Whole-service sums over the Formamorph AI usage rows, for the admin report.
  *
@@ -84,9 +87,10 @@ const HostedUsageReport = {
     GROUP BY prompt_type ORDER BY reserveMicros DESC
   `).all(since),
 
+  /** Rows from the first versioned row on, so rows from before versions were recorded stay out. */
   clients: (since) => db.prepare(`
     SELECT client_version AS clientVersion, COUNT(*) AS calls, COUNT(DISTINCT turn_id) AS turns, SUM(cost_micros) AS costMicros
-    FROM hosted_usage WHERE started_at >= ? GROUP BY client_version ORDER BY calls DESC
+    FROM hosted_usage WHERE started_at >= MAX(?, ${TRACKED_FROM}) GROUP BY client_version ORDER BY calls DESC
   `).all(since),
 
   /**
@@ -100,8 +104,17 @@ const HostedUsageReport = {
     )
     SELECT first.client_version AS clientVersion, COUNT(*) AS turns
     FROM turns JOIN hosted_usage AS first ON first.id = turns.firstId
-    WHERE first.started_at >= ? GROUP BY first.client_version
+    WHERE first.started_at >= MAX(?, ${TRACKED_FROM}) GROUP BY first.client_version
   `).all(since),
+
+  /** Distinct subjects per UTC day since an instant. */
+  accountDays: (since) => db.prepare(`
+    SELECT substr(started_at, 1, 10) AS day, COUNT(DISTINCT subject) AS count
+    FROM hosted_usage WHERE started_at >= ? GROUP BY day
+  `).all(since),
+
+  /** Distinct subjects since an instant. */
+  accountsSince: (since) => db.prepare('SELECT COUNT(DISTINCT subject) AS count FROM hosted_usage WHERE started_at >= ?').get(since).count,
 
   /** Accounts holding a Patreon tier or a live grant, for the entitlement count. */
   entitledCandidates: (now) => db.prepare(`

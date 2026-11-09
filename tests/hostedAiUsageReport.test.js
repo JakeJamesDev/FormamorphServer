@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db, migrate } from './context.js';
 import { createUser, authHeader } from './helpers.js';
@@ -43,8 +43,24 @@ beforeEach(() => {
   db.prepare('DELETE FROM funnel_totals').run();
   db.prepare('DELETE FROM hosted_grants').run();
   db.prepare('DELETE FROM patreon_links').run();
+  db.prepare('DELETE FROM active_install_days').run();
+  db.prepare('DELETE FROM active_install_totals').run();
   Setting.set(HOSTED_AI, SETTINGS);
 });
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** Fix the clock at an instant, for reads that depend on the budget week or the calendar month. */
+const at = (iso) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(iso));
+};
+
+const install = (day, hash, platform = 'windows') => {
+  db.prepare('INSERT INTO active_install_days (day, hash, platform, version) VALUES (?, ?, ?, ?)').run(day, hash, platform, '3.6.2');
+};
 
 describe('GET /api/hosted-ai/admin/usage-report', () => {
   it('refuses everyone but an admin, and a range it cannot read', async () => {
@@ -79,8 +95,8 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     const report = await read(2);
 
     expect(report.days).toEqual([
-      { day: dayOf(daysAgo(1)), calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650 },
-      { day: dayOf(daysAgo(0)), calls: 0, turns: 0, accounts: 0, costMicros: 0, providerMicros: null }
+      { day: dayOf(daysAgo(1)), calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650, installs: 0 },
+      { day: dayOf(daysAgo(0)), calls: 0, turns: 0, accounts: 0, costMicros: 0, providerMicros: null, installs: 0 }
     ]);
     expect(report.totals).toMatchObject({ calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650 });
   });
@@ -215,5 +231,71 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     expect(report.promptTypes).toEqual([]);
     expect(report.slowest).toEqual([]);
     expect(report.heaviest).toEqual([]);
+  });
+
+  it('counts the heaviest accounts and tiers from the week start, while the range totals keep the days before it', async () => {
+    // Wednesday; the week began Monday 2026-11-09.
+    at('2026-11-11T12:00:00.000Z');
+    call({ subject: 's-a', turn_id: 'old-1', started_at: '2026-11-08T12:00:00.000Z', cost_micros: 900_000 });
+    call({ subject: 's-a', turn_id: 'old-2', started_at: '2026-11-08T13:00:00.000Z', cost_micros: 900_000 });
+    call({ subject: 's-a', turn_id: 'new-1', started_at: '2026-11-09T00:00:00.000Z', cost_micros: 100_000 });
+    call({ subject: 's-b', turn_id: 'new-2', started_at: '2026-11-10T00:00:00.000Z', cost_micros: 300_000 });
+
+    const report = await read(7);
+
+    expect(report.week).toEqual({ since: '2026-11-09T00:00:00.000Z', resetAt: '2026-11-16T00:00:00.000Z' });
+    expect(report.totals).toMatchObject({ turns: 4, costMicros: 2_200_000 });
+    expect(report.heaviest).toEqual([
+      { tier: 'supporter', turns: 1, costMicros: 300_000, budgetShare: 0.3 },
+      { tier: 'supporter', turns: 1, costMicros: 100_000, budgetShare: 0.1 }
+    ]);
+    expect(report.tiers[0]).toMatchObject({ tier: 'supporter', active: 2, turns: 2, costMicros: 400_000, topBudgetShare: 0.3 });
+  });
+
+  it('counts installs per day in the range', async () => {
+    at('2026-11-11T12:00:00.000Z');
+    install('2026-11-10', 'h1');
+    install('2026-11-10', 'h2', 'web');
+    install('2026-11-11', 'h1');
+
+    const { days } = await read(2);
+
+    expect(days.map((day) => [day.day, day.installs])).toEqual([['2026-11-10', 2], ['2026-11-11', 1]]);
+  });
+
+  it('reports daily and monthly active installs and accounts for the calendar month', async () => {
+    at('2026-11-11T12:00:00.000Z');
+    // Last month: out of the month figure and the mean.
+    install('2026-10-31', 'old');
+    call({ subject: 's-old', turn_id: 'o', started_at: '2026-10-31T12:00:00.000Z' });
+    // Counting starts on the 8th, so the mean covers the 8th to the 10th.
+    install('2026-11-08', 'h1');
+    install('2026-11-08', 'h2');
+    install('2026-11-10', 'h1');
+    install('2026-11-10', 'h2');
+    install('2026-11-10', 'h3');
+    install('2026-11-11', 'h1');
+    call({ subject: 's-a', turn_id: 'a1', started_at: '2026-11-09T12:00:00.000Z' });
+    call({ subject: 's-a', turn_id: 'a2', started_at: '2026-11-10T12:00:00.000Z' });
+    call({ subject: 's-b', turn_id: 'b1', started_at: '2026-11-10T13:00:00.000Z' });
+    call({ subject: 's-a', turn_id: 'a3', started_at: '2026-11-11T01:00:00.000Z' });
+
+    const { activeUsers } = await read(7);
+
+    expect(activeUsers).toEqual({
+      installs: { today: 1, yesterday: 3, month: 3, averageDay: 5 / 3 },
+      accounts: { today: 1, yesterday: 2, month: 2, averageDay: 3 / 2 }
+    });
+  });
+
+  it('gives yesterday from last month on the first, and no mean with no full day counted', async () => {
+    at('2026-12-01T06:00:00.000Z');
+    install('2026-11-30', 'h1');
+    install('2026-12-01', 'h1');
+
+    const { activeUsers } = await read(1);
+
+    expect(activeUsers.installs).toEqual({ today: 1, yesterday: 1, month: 1, averageDay: null });
+    expect(activeUsers.accounts).toEqual({ today: 0, yesterday: 0, month: 0, averageDay: null });
   });
 });

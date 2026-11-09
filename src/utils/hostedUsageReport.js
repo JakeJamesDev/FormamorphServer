@@ -2,11 +2,12 @@ const HostedUsage = require('../models/HostedUsage');
 const HostedUsageReport = require('../models/HostedUsageReport');
 const HostedRefusal = require('../models/HostedRefusal');
 const FunnelTotal = require('../models/FunnelTotal');
+const ActiveInstall = require('../models/ActiveInstall');
 const Setting = require('../models/Setting');
 const { HOSTED_AI, MICROS_PER_DOLLAR, TIER_KEYS } = require('../config/hostedAi');
 const { FUNNEL_STEPS } = require('../config/funnel');
-const { DAY_MS } = require('../config/time');
-const { weekStart } = require('./hostedMeter');
+const { DAY_MS, utcDay } = require('../config/time');
+const { weekStart, resetAt } = require('./hostedMeter');
 const { entitlement } = require('./hostedState');
 
 const SLOWEST_LIMIT = 5;
@@ -27,13 +28,52 @@ const tokensPerSecond = ({ outputTokens, durationMs, firstTokenMs }) => {
 
 const present = (values) => values.filter((value) => value !== null && value !== undefined);
 
+const sumCounts = (breakdown = []) => breakdown.reduce((sum, row) => sum + row.count, 0);
+
+/** Distinct installs per UTC day since a day, all platforms and versions together. */
+const installCounts = (sinceDay) => new Map([...ActiveInstall.daysSince(sinceDay)].map(([day, breakdown]) => [day, sumCounts(breakdown)]));
+
+/**
+ * Today, yesterday, this month, and the mean full day of this month. The mean starts at the month's first
+ * counted day, so a month that began before counting did is not averaged over empty days.
+ */
+const activeFigures = (dayCounts, month, today, yesterday, monthStart) => {
+  const counted = [...dayCounts.keys()].filter((day) => day >= monthStart && day < today && dayCounts.get(day) > 0).sort();
+  let averageDay = null;
+  if (counted.length) {
+    const first = Date.parse(counted[0]);
+    const span = (Date.parse(today) - first) / DAY_MS;
+    let total = 0;
+    for (let index = 0; index < span; index += 1) total += dayCounts.get(utcDay(new Date(first + index * DAY_MS))) || 0;
+    averageDay = total / span;
+  }
+
+  return { today: dayCounts.get(today) || 0, yesterday: dayCounts.get(yesterday) || 0, month, averageDay };
+};
+
+/** Daily and monthly active app installs and Formamorph AI accounts, by UTC calendar month. */
+const activeUsers = (now) => {
+  const today = utcDay(now);
+  const yesterday = utcDay(new Date(Date.parse(today) - DAY_MS));
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const from = yesterday < monthStart ? yesterday : monthStart;
+  const accountDays = new Map(HostedUsageReport.accountDays(`${from}T00:00:00.000Z`).map((row) => [row.day, row.count]));
+
+  return {
+    installs: activeFigures(installCounts(from), sumCounts(ActiveInstall.months().get(today.slice(0, 7))), today, yesterday, monthStart),
+    accounts: activeFigures(accountDays, HostedUsageReport.accountsSince(`${monthStart}T00:00:00.000Z`), today, yesterday, monthStart)
+  };
+};
+
 /** Every day of the range, oldest first, so an idle day still takes its place on a chart. */
 const dayRows = (dayNames, since) => {
   const usage = new Map(HostedUsageReport.days(since).map((row) => [row.day, row]));
   const provider = new Map(HostedUsage.providerDaysSince(dayNames[0]).map((row) => [row.day, row.providerMicros]));
+  const installs = installCounts(dayNames[0]);
 
   return dayNames.map((day) => ({
-    day, calls: 0, turns: 0, accounts: 0, costMicros: 0, ...usage.get(day), providerMicros: provider.get(day) ?? null
+    day, calls: 0, turns: 0, accounts: 0, costMicros: 0, ...usage.get(day),
+    providerMicros: provider.get(day) ?? null, installs: installs.get(day) || 0
   }));
 };
 
@@ -104,7 +144,8 @@ const tierRows = (since, shares, now) => {
 };
 
 /**
- * The admin usage report for the last `days` UTC days, today included.
+ * The admin usage report for the last `days` UTC days, today included. Tiers and the heaviest accounts cover
+ * the current budget week instead, so they match the budget share beside them.
  *
  * Holds sums and call timings only. No account, subject or turn id leaves here.
  *
@@ -116,6 +157,7 @@ const buildUsageReport = (days, now = new Date()) => {
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const since = new Date(today - (days - 1) * DAY_MS).toISOString();
   const dayNames = Array.from({ length: days }, (_, index) => new Date(today - (days - 1 - index) * DAY_MS).toISOString().slice(0, 10));
+  const week = weekStart(now);
   const shares = budgetShares(now);
   const dayList = dayRows(dayNames, since);
   const { promptTokens, cachedTokens, ...totals } = HostedUsageReport.totals(since);
@@ -123,6 +165,8 @@ const buildUsageReport = (days, now = new Date()) => {
 
   return {
     since,
+    week: { since: week, resetAt: resetAt(now) },
+    activeUsers: activeUsers(now),
     totals: {
       ...totals,
       providerMicros: dayList.reduce((sum, day) => sum + (day.providerMicros || 0), 0),
@@ -132,12 +176,12 @@ const buildUsageReport = (days, now = new Date()) => {
     promptTypes: promptTypeRows(since),
     endings: HostedUsageReport.endings(since),
     failures: HostedUsageReport.failures(since),
-    tiers: tierRows(since, shares, now),
+    tiers: tierRows(week, shares, now),
     slowest: HostedUsageReport.slowest(since, SLOWEST_LIMIT).map(({ outputTokens, durationMs, ...row }) => ({
       ...row,
       tokensPerSecond: row.firstTokenMs === null ? null : tokensPerSecond({ outputTokens, durationMs, firstTokenMs: row.firstTokenMs })
     })),
-    heaviest: HostedUsageReport.subjects(since).slice(0, HEAVIEST_LIMIT).map(({ subject, ...row }) => ({
+    heaviest: HostedUsageReport.subjects(week).slice(0, HEAVIEST_LIMIT).map(({ subject, ...row }) => ({
       ...row, budgetShare: shares.get(subject)?.share ?? null
     })),
     reservations: reservationRows(since),
