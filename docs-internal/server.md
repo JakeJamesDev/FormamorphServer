@@ -446,6 +446,10 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-09** — deployed `9b9331c`: the usage report measures accounts against the budget week, and the
+  live hosted run shows cached tokens and has JSON output. All 3,508 tests passed in 67 s (75 s wall). No
+  backup: no schema step. Service active with zero restarts, boot logged `Server running on port`, public
+  route 200. npm again skipped the `better-sqlite3` install script; the prebuild loads.
 - **2026-11-07** — deployed `40ebe93`: the usage report measures each account against its latest tier, so a
   mid-week upgrade no longer reads as over budget. All 3,502 tests passed in 51 s (53 s wall). No backup: no
   schema step. Service active with zero restarts, boot logged `Server running on port`, public route 200.
