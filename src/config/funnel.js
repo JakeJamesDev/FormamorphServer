@@ -9,7 +9,7 @@
 
 const { MINUTE_MS } = require('./time');
 
-const FUNNEL_STEPS = ['offer_shown', 'local_offer_shown', 'see_levels', 'patreon_click', 'checklist_finished'];
+const FUNNEL_STEPS = ['offer_shown', 'engine_offer_shown', 'see_levels', 'patreon_click', 'checklist_finished'];
 
 const FUNNEL_WINDOW_MS = MINUTE_MS;
 const FUNNEL_LIMIT = 30;
