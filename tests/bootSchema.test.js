@@ -640,6 +640,23 @@ describe('the schema step', () => {
     legacy.close();
   });
 
+  it('stamps every existing address as set at the migration, unmarked, once', () => {
+    // A bounce for a mail sent before the migration then marks nothing, the safe side for an address
+    // that may have changed since.
+    const legacy = oldestDatabase();
+    legacy.prepare("INSERT INTO users (id, username, password, email) VALUES ('u-old', 'old', 'x', 'old@example.test')").run();
+    const before = new Date().toISOString();
+
+    expect(migrate(legacy)).toContain('emailMarker');
+
+    const row = legacy.prepare("SELECT email_set_at, email_marker, email_marked_at FROM users WHERE id = 'u-old'").get();
+    expect(row.email_set_at >= before).toBe(true);
+    expect(row).toMatchObject({ email_marker: null, email_marked_at: null });
+    expect(migrate(legacy)).not.toContain('emailMarker');
+
+    legacy.close();
+  });
+
   it('takes an outstanding link with the account it belongs to', () => {
     // Erasure deletes the user row and leaves the rest to the cascades. A verification link that outlived
     // its account would be a row pointing at nothing that an erased address could still be proven with.

@@ -46,13 +46,14 @@ const createAdminUser = async () => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     db.prepare(`
-      INSERT INTO users (id, username, password, email, account_type)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (id, username, password, email, email_set_at, account_type)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       uuidv4(),
       process.env.ADMIN_USERNAME || 'admin',
       hashedPassword,
       process.env.ADMIN_EMAIL || 'admin@example.com',
+      new Date().toISOString(),
       'admin'
     );
 

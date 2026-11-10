@@ -66,6 +66,7 @@ const STEPS = [
   require('./steps/activeInstalls'),
   require('./steps/activeInstallTotals'),
   require('./steps/mailLog'),
+  require('./steps/emailMarker'),
   require('./indexes')
 ];
 

@@ -181,7 +181,7 @@ server/
 - `POST /api/auth/resend-verification` - Ask for the verification mail again. No body
 - `POST /api/auth/request-password-reset` - Ask for a reset link. Body: `account`, an email address or a username. Always answers the same
 - `POST /api/auth/reset-password` - Set a new password. Body: the `token` out of the mailed link and `newPassword`
-- `GET /api/auth/me` - Get current user profile, including `email`, `emailVerified` and `usernameRename`
+- `GET /api/auth/me` - Get current user profile, including `email`, `emailVerified`, `emailMarker` and `usernameRename`
 - `POST /api/auth/username` - Choose a new name for an account flagged by the username rule. Body: `username`. Applies the register checks and codes, clears the flag and answers `{ success, user }` with no new token. An unflagged account is refused with 403
 
 #### Email and verification
@@ -203,6 +203,13 @@ offer another try when delivery failed. Asking again once the address is verifie
 Both routes carry a second rate limit on top of the per-IP credential one: **five verification mails per
 hour per account**, counted in memory and nowhere else. Refusals are refunded, so a mistyped address does
 not cost somebody the mail they were trying to get.
+
+📭 **Bounced addresses.** A hard bounce or a spam complaint for a mail sent to the current address marks
+it: `emailMarker` becomes `bounce` or `complaint` in every account summary, and the address loses its
+verification. While marked, resend, setting the same address and opening an older verification link
+answer `EMAIL_UNDELIVERABLE` and send nothing, and a reset request gets its usual answer with no mail.
+Setting a new address clears the marker. An event for a mail sent before the address last changed marks
+nothing.
 
 The budget follows the account rather than the address it names. An address can only be mailed by the one
 account holding it, so bounding the account already bounds the inbox — while bounding the address would
@@ -577,6 +584,7 @@ client has a screen to open rather than a message to print. An older build that 
 | `USERNAME_INVALID` | 400 | Registering or renaming with a name outside the username rule | Shows the rule text from `error`: "3–20 letters, numbers, spaces, _ or -" |
 | `USERNAME_RENAME_REQUIRED` | 403 | A write from an account flagged for rename, while the `username_rename_gate` setting is on | Opens the rename dialog, or sends the player to the rename page |
 | `USERNAME_TAKEN` | 400 | Registering or renaming with a name another account holds, ignoring case | Asks for another name |
+| `EMAIL_UNDELIVERABLE` | 409 | Resending verification, setting the same address again, or opening a verification link while a bounce or complaint marks the address | Shows the bounce notice for `emailMarker` and asks for a different address |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
 **Username rule.** Registration and rename trim the typed name and collapse each run of spaces into one.

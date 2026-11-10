@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import { app, request, db } from './context.js';
 import { createUser, fromItsOwnAddress } from './helpers.js';
+import { SECRET, HEADER, RECIPIENT, event, post } from './sesEvents.js';
 
 const require = createRequire(import.meta.url);
 const { setMailTransport, resetMailTransport, captureTransport, sesTransport } = require('../src/utils/mail');
@@ -15,12 +16,8 @@ const { DAY_MS } = require('../src/config/time');
  * The mail log and the SES event webhook.
  *
  * Mail goes out through the real `sendMail` onto the capture transport; its tags are read back the way
- * SES would echo them. Events are posted as EventBridge delivers them, shaped after the AWS docs examples.
+ * SES would echo them. Events come from `sesEvents.js`.
  */
-
-const SECRET = 'test-ses-events-secret';
-const HEADER = 'X-SES-Events-Secret';
-const RECIPIENT = 'person.private@example.test';
 
 let mail;
 
@@ -49,64 +46,6 @@ const sendOne = async (email = nextAddress()) => {
   const user = createUser({ email });
   await sendVerificationEmail({ userId: user.id, email });
   return { user, id: mail.messages.at(-1).tags.mail_id };
-};
-
-const DETAIL_TYPES = {
-  Delivery: 'Email Delivered',
-  DeliveryDelay: 'Email Delivery Delayed',
-  Bounce: 'Email Bounced',
-  Complaint: 'Email Complaint Received',
-  Open: 'Email Opened'
-};
-
-/** The per-type object of an SES event, as in the docs examples. */
-const bodies = {
-  Delivery: (at) => ({ delivery: { timestamp: at, processingTimeMillis: 900, recipients: [RECIPIENT], smtpResponse: '250 2.6.0 Message received' } }),
-  DeliveryDelay: (at) => ({
-    deliveryDelay: {
-      timestamp: at, delayType: 'MailboxFull', expirationTime: at,
-      delayedRecipients: [{ emailAddress: RECIPIENT, status: '4.2.2', diagnosticCode: `smtp; 452 4.2.2 ${RECIPIENT} mailbox full` }]
-    }
-  }),
-  Bounce: (at, bounceType = 'Permanent', bounceSubType = 'General') => ({
-    bounce: {
-      bounceType, bounceSubType, timestamp: at, feedbackId: 'fb-1',
-      bouncedRecipients: [{ emailAddress: RECIPIENT, action: 'failed', status: '5.1.1', diagnosticCode: `smtp; 550 5.1.1 <${RECIPIENT}> user unknown` }]
-    }
-  }),
-  Complaint: (at) => ({ complaint: { timestamp: at, feedbackId: 'fb-2', complainedRecipients: [{ emailAddress: RECIPIENT }] } }),
-  Open: (at) => ({ open: { timestamp: at, userAgent: 'x', ipAddress: '192.0.2.1' } })
-};
-
-/** One SES event in the EventBridge envelope. */
-const event = (eventType, mailId, { at = new Date().toISOString(), extra = [] } = {}) => ({
-  version: '0',
-  id: 'eb-event-1',
-  'detail-type': DETAIL_TYPES[eventType],
-  source: 'aws.ses',
-  account: '123456789012',
-  time: at,
-  region: 'us-east-2',
-  resources: [],
-  detail: {
-    eventType,
-    mail: {
-      timestamp: at,
-      source: 'Formamorph <account@mail.formamorph.ai>',
-      messageId: 'ses-message-1',
-      destination: [RECIPIENT],
-      headers: [{ name: 'To', value: RECIPIENT }],
-      commonHeaders: { to: [RECIPIENT], subject: 'Verify your Formamorph email address' },
-      tags: { 'ses:configuration-set': ['formamorph-mail'], ...(mailId ? { mail_id: [mailId] } : {}), mail_kind: ['verify'] }
-    },
-    ...bodies[eventType](at, ...extra)
-  }
-});
-
-const post = (payload, secret = SECRET) => {
-  const req = request(app).post('/api/mail/events').set('Content-Type', 'application/json; charset=utf-8');
-  if (secret !== null) req.set(HEADER, secret);
-  return req.send(JSON.stringify(payload));
 };
 
 describe('the mail log', () => {

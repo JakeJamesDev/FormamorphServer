@@ -39,6 +39,9 @@ const SORT_FIELDS = Object.assign(Object.create(null), {
 const EMAIL_SORT_FIELDS = ['email'];
 
 const User = {
+  /** Why mail to an account's address stopped: the values of `email_marker`. */
+  EMAIL_MARKERS: { BOUNCE: 'bounce', COMPLAINT: 'complaint' },
+
   /**
    * Find a user by ID
    * @param {string} id - User ID
@@ -47,7 +50,7 @@ const User = {
   findById: (id) => {
     // `token_version` is here so a caller minting a token signs the current generation; every response
     // builds its own DTO field by field, so it never reaches a client.
-    return db.prepare('SELECT id, username, username_rename_required, email, email_verified_at, status, suspended_until, account_type, trusted_at, supporter_content_revoked_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
+    return db.prepare('SELECT id, username, username_rename_required, email, email_verified_at, email_set_at, email_marker, email_marked_at, status, suspended_until, account_type, trusted_at, supporter_content_revoked_at, avatar_file, avatar_updated_at, feed_seen_at, token_version, created_at, updated_at FROM users WHERE id = ?').get(id);
   },
 
   /**
@@ -165,12 +168,56 @@ const User = {
    * The guard is in the statement rather than around it, so a second link opened at the same moment
    * cannot move a stamp that already stands.
    *
+   * A marked address is never stamped.
+   *
    * @param {string} id - User ID
    * @returns {boolean} Whether this call is the one that stamped it
    */
   markEmailVerified: (id) => db
-    .prepare('UPDATE users SET email_verified_at = @now, updated_at = @now WHERE id = @id AND email_verified_at IS NULL')
+    .prepare('UPDATE users SET email_verified_at = @now, updated_at = @now WHERE id = @id AND email_verified_at IS NULL AND email_marker IS NULL')
     .run({ now: new Date().toISOString(), id }).changes > 0,
+
+  /**
+   * Put a new address on an account: unverified, unmarked, and stamped as set now.
+   *
+   * @param {string} id - User ID
+   * @param {string|null} email - The new address
+   * @returns {Object} The updated user
+   * @throws {Error} SQLITE_CONSTRAINT_UNIQUE when another account holds the address
+   */
+  changeEmail: (id, email) => {
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE users
+      SET email = @email, email_verified_at = NULL, email_set_at = @now, email_marker = NULL, email_marked_at = NULL,
+        updated_at = @now
+      WHERE id = @id
+    `).run({ id, email, now });
+
+    return User.findById(id);
+  },
+
+  /**
+   * Mark an account's address after a hard bounce or a complaint, and remove its verification.
+   *
+   * Only when the mail was sent to the current address, that is at or after the address was set. An
+   * address already marked keeps its first reason and time.
+   *
+   * @param {string} id - User ID
+   * @param {'bounce'|'complaint'} reason - Why mail to the address stops
+   * @param {string} sentAt - When the bounced mail was sent, as an ISO instant
+   * @returns {boolean} Whether this call marked it
+   */
+  markEmail: (id, reason, sentAt) => {
+    const now = new Date().toISOString();
+
+    return db.prepare(`
+      UPDATE users
+      SET email_marker = @reason, email_marked_at = @now, email_verified_at = NULL, updated_at = @now
+      WHERE id = @id AND email IS NOT NULL AND email_marker IS NULL
+        AND (email_set_at IS NULL OR email_set_at <= @sentAt)
+    `).run({ id, reason, sentAt, now }).changes > 0;
+  },
 
   /**
    * Create a new user
@@ -188,13 +235,14 @@ const User = {
       
       // Insert user into database
       db.prepare(`
-        INSERT INTO users (id, username, password, email, status, account_type)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, username, password, email, email_set_at, status, account_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         userId,
         userData.username,
         hashedPassword,
         userData.email || null,
+        new Date().toISOString(),
         userData.status || 'normal',
         userData.account_type || 'normal'
       );

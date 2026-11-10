@@ -1,5 +1,7 @@
 const crypto = require('crypto');
+const db = require('../config/db');
 const MailLog = require('../models/MailLog');
+const User = require('../models/User');
 const { MAIL_ID_TAG, SES_EVENTS_SECRET_HEADER, sesEventsSecret } = require('../config/mail');
 
 /** The SES event types the server records, with the status each sets and the object holding its time. */
@@ -42,6 +44,20 @@ const instantOf = (value) => {
 /** SES's bounce type as the log's: only a permanent bounce is hard. */
 const bounceTypeOf = (bounce) => (bounce?.bounceType === 'Permanent' ? 'hard' : 'soft');
 
+/** The marker a row's new status sets on its account's address, or null. A soft bounce sets none. */
+const markerOf = (row) => {
+  if (row.status === MailLog.STATUSES.COMPLAINED) return User.EMAIL_MARKERS.COMPLAINT;
+  if (row.status === MailLog.STATUSES.BOUNCED && row.bounce_type === 'hard') return User.EMAIL_MARKERS.BOUNCE;
+  return null;
+};
+
+/** Move the row, and mark its account's address when the move is a hard bounce or a complaint. */
+const recordEvent = db.transaction((event) => {
+  const { row, moved } = MailLog.applyEvent(event);
+  const marker = moved && row.user_id ? markerOf(row) : null;
+  if (marker) User.markEmail(row.user_id, marker, row.sent_at);
+});
+
 /**
  * @desc    Take one SES event from EventBridge and move its mail's status
  * @route   POST /api/mail/events
@@ -72,7 +88,7 @@ exports.mailEvent = (req, res, next) => {
 
     if (id) {
       const details = event[type.field];
-      MailLog.applyEvent({
+      recordEvent({
         id,
         status: type.status,
         bounceType: type.status === MailLog.STATUSES.BOUNCED ? bounceTypeOf(details) : null,

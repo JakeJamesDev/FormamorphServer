@@ -28,12 +28,20 @@ const accountSummary = (user) => ({
   username: user.username,
   email: user.email,
   emailVerified: Boolean(user.email_verified_at),
+  emailMarker: user.email_marker ?? null,
   status: user.status,
   suspendedUntil: user.suspended_until,
   accountType: user.account_type,
   avatarUrl: avatarUrlFor(user.avatar_file),
   usernameRename: usernameRename(user)
 });
+
+/** The answer to a request that would mail an address a bounce or complaint has marked. */
+const UNDELIVERABLE = {
+  success: false,
+  code: 'EMAIL_UNDELIVERABLE',
+  error: 'Mail to this address bounced or was reported as spam'
+};
 
 /**
  * Mail the verification link, and say whether it went.
@@ -374,13 +382,13 @@ exports.setEmail = async (req, res, next) => {
 
     let user = current;
     if (!unchanged) {
-      // A new address is unproven, whatever the old one was. Both columns move in one statement, so no
-      // moment exists where the row carries the new address under the old address's stamp.
+      // A new address is unproven and unmarked, whatever the old one was. Every address column moves in one
+      // statement, so no moment exists where the row carries the new address under the old address's stamps.
       //
       // Taken addresses are refused by the unique index rather than by a lookup first, for the reason
       // register gives. This statement writes one unique column, so a collision can only be the email.
       try {
-        user = User.update(req.user.id, { email: address, email_verified_at: null });
+        user = User.changeEmail(req.user.id, address);
       } catch (error) {
         if (error.code !== 'SQLITE_CONSTRAINT_UNIQUE') throw error;
 
@@ -391,6 +399,9 @@ exports.setEmail = async (req, res, next) => {
         });
       }
     }
+
+    // Only a new address clears the marker, so the same address again sends nothing.
+    if (user.email_marker) return res.status(409).json({ ...UNDELIVERABLE, user: accountSummary(user) });
 
     // Nothing to prove about an address already proven, which is only reachable on the unchanged branch.
     const mailSent = user.email_verified_at
@@ -422,6 +433,8 @@ exports.resendVerification = async (req, res, next) => {
         error: 'Add an email address before asking for the verification mail'
       });
     }
+
+    if (user.email_marker) return res.status(409).json(UNDELIVERABLE);
 
     // Answered as success, because the state the caller wanted is the state they are already in. A
     // refusal would only invite them to try again, and each try costs somebody a mail.
@@ -469,6 +482,9 @@ exports.verifyEmail = async (req, res, next) => {
     User.markEmailVerified(userId);
     const user = User.findById(userId);
 
+    // A link minted before the address was marked is spent here and verifies nothing.
+    if (user.email_marker) return res.status(409).json(UNDELIVERABLE);
+
     res.status(200).json({
       success: true,
       email: user.email,
@@ -513,6 +529,7 @@ exports.requestPasswordReset = async (req, res, next) => {
 
     // Only a proven address. An unverified one is a stranger's until it is proven, and a reset link is
     // the account — so this is the line that keeps a typo at registration from giving it away.
+    // A marked address is never verified, so it gets no reset mail either.
     if (user && user.email_verified_at) await tryResetMail({ userId: user.id, email: user.email });
   } catch (error) {
     next(error);
