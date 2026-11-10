@@ -39,6 +39,8 @@ export function removeScratchDirs() {
 // Must be set before anything reads `config/paths`, which resolves once at load. A caller's own root is
 // kept, and is never removed.
 process.env.STORAGE_ROOT ||= scratchDir('fms-test-');
+// Routine request lines go to files; keep a test run's lines out of the checkout.
+process.env.REQUEST_LOGS_DIR ||= scratchDir('fms-test-logs-');
 
 const require = createRequire(import.meta.url);
 

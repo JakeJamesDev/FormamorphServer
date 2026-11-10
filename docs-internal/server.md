@@ -352,6 +352,30 @@ the rows it measured for its day. The job never throws.
 
 The local backups directory is `BACKUPS_DIR` in `config/paths`.
 
+## Request log
+
+The API writes one line per request, in two classes:
+
+| Class | What | Where | Kept |
+|---|---|---|---|
+| 🗂️ Routine | Successful requests for thumbnails, avatars, and `/api/events/active` | `logs/routine-<YYYY-MM-DD>.log` in the checkout | 21 days |
+| 📓 Everything else | All other routes, and every failure on any route | The journal | Until the journal is full |
+
+- A routine line starts with its UTC time. The journal stamps its own lines.
+- The first routine line of a UTC day compresses the earlier days to `.log.gz` and removes files older than 21 days.
+- `REQUEST_LOGS_DIR` moves the directory. It has a default, so the server needs no env key.
+- The backup script does not copy `logs/`, and the storage report does not measure it.
+
+Read them on the server:
+
+```bash
+journalctl -u formamorph-api --since "-2 hours" | grep " 5[0-9][0-9] "   # failures
+zgrep -h "/api/thumbnails/" /srv/formamorph/app/logs/routine-*            # routine lines, all kept days
+```
+
+The journal's size limit is a system setting, in `/etc/systemd/journald.conf.d/size.conf` (`SystemMaxUse`).
+Without that file journald uses 10% of the disk, 4 GB at most.
+
 ## Backups
 
 A cron job for the `formamorph` user runs `/usr/local/bin/formamorph-backup` daily at **04:17 UTC**.

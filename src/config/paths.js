@@ -43,6 +43,9 @@ const SUPPORTER_PRIVATE_DIR = path.join(STORAGE_ROOT, 'supporter-private');
 /** Local database snapshots and `npm run backup` copies. Overridable so tests can use a scratch directory. */
 const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
+/** Daily files of routine request lines. Not in the journal, so they are kept by age and not by size. */
+const REQUEST_LOGS_DIR = process.env.REQUEST_LOGS_DIR || path.join(PROJECT_ROOT, 'logs');
+
 /** The bundled fingerprint list, copied in from the client repo. Tests point it at a fixture list. */
 const BUNDLED_FINGERPRINTS_PATH = process.env.BUNDLED_FINGERPRINTS_PATH
   ? path.resolve(PROJECT_ROOT, process.env.BUNDLED_FINGERPRINTS_PATH)
@@ -61,5 +64,6 @@ module.exports = {
   EVENT_POSTERS_DIR,
   SUPPORTER_PRIVATE_DIR,
   BACKUPS_DIR,
+  REQUEST_LOGS_DIR,
   BUNDLED_FINGERPRINTS_PATH,
 };

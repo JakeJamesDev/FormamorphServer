@@ -10,6 +10,7 @@ const { INSTALL_HEADER_NAME } = require('./config/anonymousLikes');
 const { SETTINGS_PATH } = require('./config/settings');
 const { HOSTED_AI_PATH, TURN_HEADER, USAGE_HEADER, PROMPT_TYPE_HEADER } = require('./config/hostedAi');
 const { clientIpKeyGenerator } = require('./utils/rateLimitKey');
+const { requestLoggers } = require('./utils/requestLog');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -76,7 +77,7 @@ app.use(readClient);
 morgan.token('client', (req) => `${req.client.platform}/${req.client.version}`);
 // Morgan's own `dev` format cannot be extended, so this is that format written out with the build on the
 // end. What it loses is the status coloring, which is escape codes in a journal nobody reads in a tty.
-app.use(morgan(':method :url :status :response-time ms - :res[content-length] :client'));
+app.use(requestLoggers());
 
 // Refuse a build below the minimum its route carries. The map is empty until staff write one, so this
 // changes nothing on a server nobody has configured.
