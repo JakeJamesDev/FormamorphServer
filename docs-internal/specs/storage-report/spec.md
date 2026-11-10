@@ -84,7 +84,8 @@ Rulings from the discussion:
 
 ### Alerts
 
-- Levels: 80% and 90% of a filesystem's total.
+- Levels: 80% and 90% of a filesystem's total. A filesystem reaches a level when its `usedFraction` is at or above it.
+- The report's `alertLevels` is the level constants, the same on every disk. The alert state is not in the report.
 - The job sends one mail when a filesystem reaches a level it had not reached. Going from under 80% to over 90% in one hour sends only the 90% mail.
 - Dropping below a level arms that level again.
 - The alert state is stored before the mail goes out, so a failed mail never repeats.
