@@ -5,6 +5,7 @@ const { USERNAME_RENAME_GATE, validateUsernameRenameGate } = require('./username
 const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
 const { ACTIVE_INSTALLS, validateActiveInstalls } = require('./activeInstalls');
 const { HOSTED_AI, HOSTED_AI_DEFAULT, HOSTED_BALANCE_ALERTED, validateHostedAi } = require('./hostedAi');
+const { MAIL_SES_ACCOUNT, MAIL_ALERTS } = require('./mail');
 const {
   MIN_FLAGGED, FLAGGED_SHARE, BURST_SIZE, BURST_WINDOW_MINUTES,
   validateMinFlagged, validateFlaggedShare, validateBurstSize, validateBurstWindow
@@ -82,7 +83,11 @@ const SETTINGS = {
   // Written only by `utils/reconcilePatreon`: the run of failed hourly reconciles, so a restart keeps the count.
   [PATREON_RECONCILE_FAILURES]: { default: 0, internal: true },
   // Written only by `utils/backfillDownloadDays`, so a second run is refused.
-  [HIDDEN_GEM_BACKFILL]: { default: null, internal: true }
+  [HIDDEN_GEM_BACKFILL]: { default: null, internal: true },
+  // Written only by `utils/mailHealth`: the last good SES account read, kept through a failed one.
+  [MAIL_SES_ACCOUNT]: { default: null, internal: true },
+  // Written only by `utils/mailHealth`, so a restart neither repeats an alert nor forgets one.
+  [MAIL_ALERTS]: { default: { status: null, bounce: false, complaint: false }, internal: true }
 };
 
 /**

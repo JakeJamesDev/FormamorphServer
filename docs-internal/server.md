@@ -281,6 +281,32 @@ those events to `POST https://api.formamorph.ai/api/mail/events`. Each event mov
 - No event stores or logs the recipient address. Rows go after 90 days in the retention sweep, and with
   the account.
 
+## Mail health
+
+Every hour, and at start-up, the server reads the SES account and the 7-day rates from `mail_log`. The job
+is off when mail is off.
+
+🔑 **IAM permissions** of the sending user:
+
+| Action | Used for |
+|---|---|
+| `ses:SendEmail` | Sending, on the mail domain identity and the configuration set |
+| `ses:GetAccount` | The hourly account status and 24-hour quota read |
+
+🚨 **Alerts** go to every admin as an urgent message, and to `STAFF_ALERT_EMAIL` when set:
+
+| Condition | Alert |
+|---|---|
+| Status is not `HEALTHY`, or sending is off | Once per different status. Re-arms when healthy |
+| Hard bounces reach 2.5% of 7-day mail | Once. Re-arms below 2.5% |
+| Complaints reach 0.05% of 7-day mail | Once. Re-arms below 0.05% |
+
+- A rate needs 200 mails in the window. Under that, it is not measured and its alert state stays as it is.
+- A failed SES read is logged and alerts nothing. The report keeps the last good read and its time.
+- `GET /api/mail/report?days=N` (admin, default 30, max 90) returns per-day counts, both rates with
+  Amazon's review (5%, 0.1%) and pause (10%, 0.5%) limits, the last SES status, and the last 24 hours'
+  sends against the quota.
+
 ## Backups
 
 A cron job for the `formamorph` user runs `/usr/local/bin/formamorph-backup` daily at **04:17 UTC**.

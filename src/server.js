@@ -23,6 +23,7 @@ const { sweepHostedUsage, startHostedUsageSweeper } = require('./utils/sweepHost
 const { monitorProvider, startHostedMonitors } = require('./utils/hostedProvider');
 const { rotateHiddenGems, startHiddenGemRotation } = require('./utils/rotateHiddenGems');
 const { mailEnabled, missingMailKeys } = require('./utils/mail');
+const { checkMailHealth, startMailHealthMonitor } = require('./utils/mailHealth');
 const app = require('./app');
 
 // Not fatal: the game works without mail. Verification and password reset do not.
@@ -90,6 +91,12 @@ startHostedUsageSweeper();
 // And for the provider account: check its balance and store the days of spend it reports, now and hourly.
 void monitorProvider();
 startHostedMonitors();
+
+// And for mail: read the SES account and the 7-day rates, now and hourly. Off with mail.
+if (mailEnabled) {
+  void checkMailHealth();
+  startMailHealthMonitor();
+}
 
 // And for Hidden Gems: rotate if one came due while the server was down, then check hourly.
 rotateHiddenGems();

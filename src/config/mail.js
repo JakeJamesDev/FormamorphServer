@@ -58,6 +58,27 @@ const SES_EVENTS_SECRET_HEADER = 'X-SES-Events-Secret';
 /** The shared secret SES events must carry. Empty refuses every event. */
 const sesEventsSecret = () => process.env.SES_EVENTS_SECRET || '';
 
+/** The days the bounce and complaint rates cover. */
+const RATE_WINDOW_DAYS = 7;
+
+/** Fewer mails than this in the window leave the rates unmeasured: one bounce in ten mails is noise. */
+const MIN_RATE_VOLUME = 200;
+
+/**
+ * Each rate as parts per 10,000: where admins are alerted, and where Amazon reviews and may pause the
+ * account. The bounce rate counts hard bounces only.
+ */
+const RATE_LIMITS = {
+  bounce: { alert: 250, review: 500, pause: 1000 },
+  complaint: { alert: 5, review: 10, pause: 50 }
+};
+
+/** Internal setting: the last SES account read, `{ enforcementStatus, sendingEnabled, sentLast24Hours, max24HourSend, checkedAt }`. */
+const MAIL_SES_ACCOUNT = 'mail_ses_account';
+
+/** Internal setting: which mail alerts have gone out, `{ status, bounce, complaint }`; `status` is the alerted state or null. */
+const MAIL_ALERTS = 'mail_alerts';
+
 module.exports = {
   MAIL_FROM,
   MAIL_REPLY_TO,
@@ -69,5 +90,10 @@ module.exports = {
   MAIL_ID_TAG,
   MAIL_KIND_TAG,
   SES_EVENTS_SECRET_HEADER,
-  sesEventsSecret
+  sesEventsSecret,
+  RATE_WINDOW_DAYS,
+  MIN_RATE_VOLUME,
+  RATE_LIMITS,
+  MAIL_SES_ACCOUNT,
+  MAIL_ALERTS
 };

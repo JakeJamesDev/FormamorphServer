@@ -35,6 +35,15 @@ const moves = (from, to) => {
   return !FINAL.has(from);
 };
 
+/** The rows that count against the bounce rate and the complaint rate. */
+const HARD_BOUNCE = "status = 'bounced' AND bounce_type = 'hard'";
+const COMPLAINED = "status = 'complained'";
+
+const countWhere = (condition) => `COALESCE(SUM(${condition}), 0)`;
+
+/** The counts each day of the mail report holds. */
+const DAY_COUNTS = ['sent', 'delivered', 'delayed', 'hardBounced', 'softBounced', 'complained'];
+
 /**
  * The record of each mail SES accepted. `schema/steps/mailLog` says what a row holds.
  */
@@ -89,6 +98,37 @@ const MailLog = {
 
     return { row: MailLog.findById(id), moved: true };
   }),
+
+  DAY_COUNTS,
+
+  /**
+   * Each UTC send day's counts since an instant: every mail sent, then each row by its current status.
+   * Days without mail are absent.
+   *
+   * @param {string} since - An ISO instant
+   * @returns {Array<Object>} One row per day: `day` and each of `DAY_COUNTS`
+   */
+  daysSince: (since) => db.prepare(`
+    SELECT substr(sent_at, 1, 10) AS day,
+           COUNT(*) AS sent,
+           ${countWhere("status = 'delivered'")} AS delivered,
+           ${countWhere("status = 'delayed'")} AS delayed,
+           ${countWhere(HARD_BOUNCE)} AS hardBounced,
+           ${countWhere("status = 'bounced' AND bounce_type = 'soft'")} AS softBounced,
+           ${countWhere(COMPLAINED)} AS complained
+    FROM mail_log WHERE sent_at >= ? GROUP BY day
+  `).all(since),
+
+  /**
+   * Mails sent since an instant, and how many of them hard-bounced or drew a complaint.
+   *
+   * @param {string} since - An ISO instant
+   * @returns {{ volume: number, hardBounces: number, complaints: number }} The counts
+   */
+  rateCounts: (since) => db.prepare(`
+    SELECT COUNT(*) AS volume, ${countWhere(HARD_BOUNCE)} AS hardBounces, ${countWhere(COMPLAINED)} AS complaints
+    FROM mail_log WHERE sent_at >= ?
+  `).get(since),
 
   /**
    * Delete every row sent before an instant.

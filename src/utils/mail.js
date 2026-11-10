@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
+const { SESv2Client, SendEmailCommand, GetAccountCommand } = require('@aws-sdk/client-sesv2');
 const { MAIL_FROM, MAIL_REPLY_TO, MAIL_ID_TAG, MAIL_KIND_TAG } = require('../config/mail');
 const MailLog = require('../models/MailLog');
 
@@ -27,16 +27,25 @@ const UTF8 = 'UTF-8';
  * never sends mail.
  *
  * @param {{ accessKeyId: string, secretAccessKey: string, region: string }} settings - From the environment
- * @returns {{ sendEmail: (input: Object) => Promise<Object> }} An SES client
+ * @returns {{ sendEmail: (input: Object) => Promise<Object>, getAccount: () => Promise<Object> }} An SES client
  */
 const sesClient = ({ accessKeyId, secretAccessKey, region }) => {
   const client = new SESv2Client({ region, credentials: { accessKeyId, secretAccessKey } });
 
-  return { sendEmail: (input) => client.send(new SendEmailCommand(input)) };
+  return {
+    sendEmail: (input) => client.send(new SendEmailCommand(input)),
+    getAccount: () => client.send(new GetAccountCommand({}))
+  };
 };
 
 /** SES quotes refused identities in its messages; a log line must not carry an address. */
 const withoutAddresses = (text) => String(text || '').replace(/[^\s<>"',;:()]+@[^\s<>"',;:()]+/g, '<address>');
+
+/** A new error without `cause`, so a logged SES failure holds no recipient. */
+const sesError = (what, error) => {
+  const requestId = error.$metadata?.requestId ? ` [request ${error.$metadata.requestId}]` : '';
+  return new Error(`${what} (${error.name || 'Error'})${requestId}: ${withoutAddresses(error.message)}`);
+};
 
 /**
  * Amazon SES, through the v2 SendEmail call.
@@ -65,9 +74,7 @@ const sesTransport = (client, configurationSetName) => ({
     try {
       response = await client.sendEmail(input);
     } catch (error) {
-      // A new error without `cause`, so a logged failure holds no recipient.
-      const requestId = error.$metadata?.requestId ? ` [request ${error.$metadata.requestId}]` : '';
-      throw new Error(`SES refused the message (${error.name || 'Error'})${requestId}: ${withoutAddresses(error.message)}`);
+      throw sesError('SES refused the message', error);
     }
 
     return { messageId: response?.MessageId ?? null };
@@ -110,11 +117,12 @@ const captureTransport = () => {
  *
  * @param {Object} env - Usually `process.env`
  * @param {Function} [makeClient] - Builds the SES client; tests pass a fake
- * @returns {{ transport: Object, missing: string[] }} The transport, and the keys whose absence turned mail off
+ * @returns {{ transport: Object, client: Object|null, missing: string[] }} The transport, the SES client (null
+ *   when mail is off), and the keys whose absence turned mail off
  */
 const transportFromEnv = (env, makeClient = sesClient) => {
   const missing = REQUIRED_MAIL_KEYS.filter((key) => !env[key]);
-  if (missing.length) return { transport: mailOffTransport(missing), missing };
+  if (missing.length) return { transport: mailOffTransport(missing), client: null, missing };
 
   const client = makeClient({
     accessKeyId: env.AWS_ACCESS_KEY_ID,
@@ -122,7 +130,7 @@ const transportFromEnv = (env, makeClient = sesClient) => {
     region: env.AWS_REGION || DEFAULT_SES_REGION
   });
 
-  return { transport: sesTransport(client, env.SES_CONFIGURATION_SET), missing };
+  return { transport: sesTransport(client, env.SES_CONFIGURATION_SET), client, missing };
 };
 
 /** Chosen once, at load, from the environment. */
@@ -141,6 +149,37 @@ const setMailTransport = (replacement) => { transport = replacement; };
 
 /** Put the startup transport back. */
 const resetMailTransport = () => { transport = startup.transport; };
+
+let client = startup.client;
+
+/** Put an SES client in place of the one chosen at startup. Tests only. */
+const setSesClient = (replacement) => { client = replacement; };
+
+/** Put the startup SES client back. */
+const resetSesClient = () => { client = startup.client; };
+
+/**
+ * Read the SES account's standing and sending quota.
+ *
+ * @returns {Promise<{ enforcementStatus: string|null, sendingEnabled: boolean|null, sentLast24Hours: number|null,
+ *   max24HourSend: number|null }|null>} The account, or null when mail is off
+ */
+const readSesAccount = async () => {
+  if (!client) return null;
+  let account;
+  try {
+    account = await client.getAccount();
+  } catch (error) {
+    throw sesError('SES account read failed', error);
+  }
+
+  return {
+    enforcementStatus: account?.EnforcementStatus ?? null,
+    sendingEnabled: account?.SendingEnabled ?? null,
+    sentLast24Hours: account?.SendQuota?.SentLast24Hours ?? null,
+    max24HourSend: account?.SendQuota?.Max24HourSend ?? null
+  };
+};
 
 /**
  * Send one message and log it once SES has taken it.
@@ -172,6 +211,9 @@ module.exports = {
   sendMail,
   setMailTransport,
   resetMailTransport,
+  setSesClient,
+  resetSesClient,
+  readSesAccount,
   captureTransport,
   sesTransport,
   transportFromEnv,
