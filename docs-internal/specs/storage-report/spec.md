@@ -1,8 +1,8 @@
 # Spec: Storage Report
 
 Status: draft
-Status note: Written 2026-11-10 from a design discussion. Not reviewed. The R2 source depends on one token test (see Open Items).
 Spec session: storage-report — spec
+Status note: Written 2026-11-10 from a design discussion. Not reviewed. The R2 source depends on one token test (see Open Items).
 
 ## Problem Statement
 
