@@ -2,7 +2,7 @@
 
 Status: draft
 Spec session: storage-report — spec
-Status note: Written 2026-11-10 from a design discussion. Not reviewed. The R2 source depends on one token test (see Open Items).
+Status note: Written 2026-11-10 from a design discussion. Not reviewed. The R2 source is the Cloudflare API, proven by ticket 04 (see Open Items).
 
 ## Problem Statement
 
@@ -130,8 +130,9 @@ The tests use real files for the directory walk. Only the disk totals and the ne
 
 ## Open Items
 
-- **Token test.** Cloudflare's docs do not state which permission `r2StorageAdaptiveGroups` needs, how fresh its rows are, or its rate limit. Before the R2 ticket, create a token with **Account Analytics: Read** and run the query once. If it fails or the data lags by more than a day, use the fallback.
-- **Fallback.** The nightly backup script writes `rclone size --json` for both buckets to a file in the data directory. The job reads that file. The report shape does not change.
+- **R2 source ruling (ticket 04, 2026-11-10): Cloudflare API.** A token with only **Account Analytics: Read** runs `r2StorageAdaptiveGroups` (HTTP 200, no errors). Rows arrive about every 30 minutes, and the newest was under 1 hour old for both buckets. `payloadSize + metadataSize` matched `rclone size` to the byte. The rate limit stays unmeasured; one query an hour is far below any limit. The fallback below is not needed.
+- **Query shape that worked.** `viewer.accounts(filter:{accountTag}).r2StorageAdaptiveGroups(limit:10, orderBy:[datetime_DESC], filter:{datetime_geq, datetime_leq, bucketName})`, selecting `dimensions{datetime bucketName}` and `max{payloadSize metadataSize objectCount}`. Use a 7-day window and take the first row.
+- **Fallback (unused).** The nightly backup script writes `rclone size --json` for both buckets to a file in the data directory. The job reads that file. The report shape does not change.
 - **Server Node version.** `fs.statfs` needs Node 18.15 or later. Confirm on the server before the first ticket.
 
 ## Further Notes
