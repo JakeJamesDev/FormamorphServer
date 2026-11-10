@@ -127,6 +127,11 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL`, `API_HOSTNAME`, `SSH_KEY_NAME`, `SERVER_IP`, `SSH_USER`,
 `PORT`, `NODE_ENV`, `JWT_SECRET`, `JWT_EXPIRE`, `DATA_DIR`, `DB_PATH`, `STORAGE_ROOT`, `SIGNAL_SALT`.
 
+⚠️ `CLOUDFLARE_ANALYTICS_TOKEN` is new: a Cloudflare API token with only **Account Analytics: Read**. The storage
+check uses it with `R2_ACCOUNT_ID`, `R2_BUCKET` and `R2_BACKUP_BUCKET` to read the bucket sizes. Add it to the
+server env file by hand before the R2 storage ticket deploys. Without it the check skips R2 and the storage
+report's `r2` is null.
+
 ## Formamorph AI pledge freshness
 
 - A pledge counts only while its `checked_at` is at most 7 days old (`PLEDGE_CONFIRMED_MS`).

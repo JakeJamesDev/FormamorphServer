@@ -2,18 +2,22 @@ const fsp = require('fs/promises');
 const path = require('path');
 const StorageDay = require('../models/StorageDay');
 const paths = require('../config/paths');
-const { DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR } = require('../config/storage');
+const {
+  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
+  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings, r2PartName
+} = require('../config/storage');
 const { hourly } = require('./hourly');
-const { utcDay } = require('../config/time');
+const { utcDay, DAY_MS } = require('../config/time');
 
 /**
  * Storage: how full each filesystem is, and how much the upload directories, the database and the local
  * backups use. The hourly job stores the numbers per UTC day; the report adds the disks, read at request time.
  */
 
-/** What the job reads. Tests replace the disk reading and the locations; nothing else is injected. */
+/** What the job reads. Tests replace the disk reading, the Cloudflare fetch and the locations. */
 const defaults = () => ({
   statfs: (target) => fsp.statfs(target),
+  fetch: (url, init) => fetch(url, init),
   roles: DISK_ROLES,
   directories: DIRECTORY_PARTS,
   dbPath: paths.DB_PATH
@@ -21,7 +25,7 @@ const defaults = () => ({
 
 let probe = defaults();
 
-/** @param {Object} overrides - Any of `statfs`, `roles`, `directories`, `dbPath` */
+/** @param {Object} overrides - Any of `statfs`, `fetch`, `roles`, `directories`, `dbPath` */
 const setProbe = (overrides) => { probe = { ...probe, ...overrides }; };
 const resetProbe = () => { probe = defaults(); };
 
@@ -140,6 +144,49 @@ const measureDatabase = async () => {
 };
 
 /**
+ * The newest stored size of each bucket, from one Cloudflare GraphQL request. A bucket with no row in the
+ * window is absent from the result. Throws on any failed read; the message never holds the token.
+ *
+ * @param {{ token: string, accountId: string, buckets: string[] }} settings - From `r2Settings`
+ * @param {Date} now - The end of the window
+ * @returns {Promise<Map<string, { bytes: number, files: number }>>} By bucket name
+ */
+const readR2Sizes = async ({ token, accountId, buckets }, now) => {
+  const since = new Date(now.getTime() - R2_WINDOW_DAYS * DAY_MS).toISOString();
+  const until = now.toISOString();
+  const fields = buckets.map((bucket, index) => `b${index}: r2StorageAdaptiveGroups(
+      limit: 10, orderBy: [datetime_DESC],
+      filter: { datetime_geq: ${JSON.stringify(since)}, datetime_leq: ${JSON.stringify(until)}, bucketName: ${JSON.stringify(bucket)} }
+    ) { dimensions { datetime bucketName } max { payloadSize metadataSize objectCount } }`);
+  const query = `query { viewer { accounts(filter: { accountTag: ${JSON.stringify(accountId)} }) { ${fields.join('\n')} } } }`;
+
+  const response = await probe.fetch(CLOUDFLARE_GRAPHQL_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+    signal: AbortSignal.timeout(R2_READ_TIMEOUT_MS)
+  });
+  if (!response.ok) throw new Error(`The R2 read answered ${response.status}`);
+
+  const reply = await response.json();
+  if (reply?.errors?.length) throw new Error(`The R2 read returned errors: ${reply.errors.map((e) => e?.message).join('; ')}`);
+  const account = reply?.data?.viewer?.accounts?.[0];
+  if (!account) throw new Error('The R2 reply has no account');
+
+  const sizes = new Map();
+  buckets.forEach((bucket, index) => {
+    const rows = account[`b${index}`];
+    const newest = Array.isArray(rows) ? rows[0]?.max : undefined;
+    if (Array.isArray(rows) && !newest) return;
+    const { payloadSize, metadataSize, objectCount } = newest || {};
+    if (![payloadSize, metadataSize, objectCount].every(Number.isFinite)) throw new Error('The R2 reply is malformed');
+    sizes.set(bucket, { bytes: payloadSize + metadataSize, files: objectCount });
+  });
+
+  return sizes;
+};
+
+/**
  * Measure the disks and every part, and store them under today's UTC day. A part that fails to measure
  * writes nothing, so its last row stands. Never throws: this runs on a timer nobody is watching.
  *
@@ -172,6 +219,16 @@ const checkStorage = async (now = new Date()) => {
       }
     });
 
+    const r2 = r2Settings();
+    if (r2) {
+      try {
+        for (const [bucket, size] of await readR2Sizes(r2, now)) rows.push({ name: r2PartName(bucket), ...size });
+      } catch (error) {
+        failed.push('r2');
+        console.error('Storage check: reading R2 failed:', error.message);
+      }
+    }
+
     StorageDay.replace(utcDay(now), rows, now.toISOString());
 
     return { stored: rows.map((row) => row.name), failed };
@@ -195,10 +252,24 @@ const vacuumFits = async () => {
   }
 };
 
+/** The R2 part: each configured bucket's newest stored size, or null while it has none. Null when R2 is off. */
+const buildR2Report = (stored) => {
+  const settings = r2Settings();
+  if (!settings) return null;
+
+  const buckets = {};
+  for (const bucket of settings.buckets) {
+    const row = stored.get(r2PartName(bucket));
+    buckets[bucket] = row ? { bytes: row.bytes, objects: row.files, checkedAt: row.measuredAt } : null;
+  }
+
+  return { freeTierBytes: R2_FREE_TIER_BYTES, buckets };
+};
+
 /**
  * The admin storage report: the disks now, each part as the last run measured it, and whether a vacuum fits.
  *
- * @returns {Promise<{ disks: Object[], parts: Object, vacuumFits: boolean }>} The report
+ * @returns {Promise<{ disks: Object[], parts: Object, vacuumFits: boolean, r2: (Object|null) }>} The report
  */
 const buildStorageReport = async () => {
   const stored = StorageDay.latestByName();
@@ -206,7 +277,7 @@ const buildStorageReport = async () => {
 
   for (const name of PART_NAMES) parts[name] = stored.get(name) || null;
 
-  return { disks: await readDisks(), parts, vacuumFits: await vacuumFits() };
+  return { disks: await readDisks(), parts, vacuumFits: await vacuumFits(), r2: buildR2Report(stored) };
 };
 
 module.exports = { checkStorage, startStorageMonitor, buildStorageReport, setProbe, resetProbe };

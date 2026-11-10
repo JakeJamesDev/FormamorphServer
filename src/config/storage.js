@@ -24,4 +24,34 @@ const DISK_ROLES = {
 /** A VACUUM writes a full copy beside the file; SQLite documents up to twice the file size. */
 const VACUUM_SPACE_FACTOR = 2;
 
-module.exports = { DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR };
+/** The R2 free tier is account-wide: 10 GB of storage across all buckets. */
+const R2_FREE_TIER_BYTES = 10 * 1000 ** 3;
+
+/** The Cloudflare GraphQL endpoint and how far back the newest storage row is looked for. */
+const CLOUDFLARE_GRAPHQL_URL = 'https://api.cloudflare.com/client/v4/graphql';
+const R2_WINDOW_DAYS = 7;
+const R2_READ_TIMEOUT_MS = 15000;
+
+/**
+ * The R2 read's settings from the server env, or null when any is missing. Read per call so a test can set them.
+ *
+ * @returns {{ token: string, accountId: string, buckets: string[] }|null} The settings, or null when R2 is off
+ */
+const r2Settings = () => {
+  const token = process.env.CLOUDFLARE_ANALYTICS_TOKEN;
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const buckets = [...new Set([process.env.R2_BUCKET, process.env.R2_BACKUP_BUCKET])];
+
+  if (!token || !accountId || buckets.some((bucket) => !bucket)) return null;
+
+  return { token, accountId, buckets };
+};
+
+/** The `storage_days` name of a bucket's row. */
+const r2PartName = (bucket) => `r2:${bucket}`;
+
+module.exports = {
+  r2PartName,
+  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
+  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings
+};

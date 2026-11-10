@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
@@ -169,6 +169,152 @@ describe('the storage report route', () => {
     setProbe({ statfs: async () => ({ bsize: 1, blocks: 100000, bfree: 90000, bavail: freeBytes }) });
 
     expect((await asAdmin()).body.data.vacuumFits).toBe(expected);
+  });
+});
+
+const R2_KEYS = ['CLOUDFLARE_ANALYTICS_TOKEN', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_BACKUP_BUCKET'];
+const TOKEN = 'cf-secret-token-123';
+const GB = 1000 ** 3;
+
+/** A Cloudflare reply: `rows` holds the newest row per alias (b0, b1), or an empty list for no rows. */
+const cloudflareReply = (rows) => ({
+  ok: true,
+  status: 200,
+  json: async () => ({
+    data: { viewer: { accounts: [Object.fromEntries(Object.entries(rows).map(([alias, max]) => [alias, max ? [{ max }] : []]))] } },
+    errors: null
+  })
+});
+
+describe('the R2 read', () => {
+  let saved;
+  let calls;
+  let errors;
+
+  beforeEach(() => {
+    saved = Object.fromEntries(R2_KEYS.map((key) => [key, process.env[key]]));
+    Object.assign(process.env, {
+      CLOUDFLARE_ANALYTICS_TOKEN: TOKEN, R2_ACCOUNT_ID: 'acct1', R2_BUCKET: 'files-bucket', R2_BACKUP_BUCKET: 'backups-bucket'
+    });
+    calls = [];
+    errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    for (const key of R2_KEYS) {
+      if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key];
+    }
+    errors.mockRestore();
+  });
+
+  const serve = (answer) => setProbe({ fetch: async (url, init) => { calls.push({ url, init }); return answer(); } });
+
+  const BOTH = { b0: { payloadSize: 4 * GB, metadataSize: 5, objectCount: 120 }, b1: { payloadSize: 2 * GB, metadataSize: 7, objectCount: 9 } };
+
+  it('reads both buckets with one request and reports size as payload plus metadata, beside the free tier', async () => {
+    serve(() => cloudflareReply(BOTH));
+
+    await checkStorage(NOON);
+    const { r2 } = (await asAdmin()).body.data;
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].init.headers.Authorization).toBe(`Bearer ${TOKEN}`);
+    expect(r2).toEqual({
+      freeTierBytes: 10 * GB,
+      buckets: {
+        'files-bucket': { bytes: 4 * GB + 5, objects: 120, checkedAt: NOON.toISOString() },
+        'backups-bucket': { bytes: 2 * GB + 7, objects: 9, checkedAt: NOON.toISOString() }
+      }
+    });
+    const rows = db.prepare("SELECT day, name, bytes, files FROM storage_days WHERE name LIKE 'r2:%' ORDER BY name").all();
+    expect(rows).toEqual([
+      { day: '2026-03-10', name: 'r2:backups-bucket', bytes: 2 * GB + 7, files: 9 },
+      { day: '2026-03-10', name: 'r2:files-bucket', bytes: 4 * GB + 5, files: 120 }
+    ]);
+  });
+
+  it('keeps the last good value and its time through a failed read, and still stores the disk and directories', async () => {
+    serve(() => cloudflareReply(BOTH));
+    await checkStorage(NOON);
+    put(paths.WORLDS_DIR, 'w.json', 4);
+    const later = new Date(NOON.getTime() + 3600 * 1000);
+    serve(() => ({ ok: false, status: 503, json: async () => ({}) }));
+
+    const result = await checkStorage(later);
+
+    expect(result.failed).toEqual(['r2']);
+    const { r2, parts, disks } = (await asAdmin()).body.data;
+    expect(r2.buckets['files-bucket']).toEqual({ bytes: 4 * GB + 5, objects: 120, checkedAt: NOON.toISOString() });
+    expect(parts.worlds).toMatchObject({ bytes: 4, measuredAt: later.toISOString() });
+    expect(disks).toHaveLength(1);
+    expect(JSON.stringify(errors.mock.calls)).not.toContain(TOKEN);
+  });
+
+  it('keeps the last value when the network call throws or the reply holds errors', async () => {
+    serve(() => cloudflareReply(BOTH));
+    await checkStorage(NOON);
+    const later = new Date(NOON.getTime() + 3600 * 1000);
+
+    serve(() => { throw new Error('socket closed'); });
+    await expect(checkStorage(later)).resolves.toMatchObject({ failed: ['r2'] });
+    serve(() => ({ ok: true, status: 200, json: async () => ({ data: null, errors: [{ message: 'not authorized' }] }) }));
+    await expect(checkStorage(later)).resolves.toMatchObject({ failed: ['r2'] });
+
+    expect((await asAdmin()).body.data.r2.buckets['files-bucket'].checkedAt).toBe(NOON.toISOString());
+  });
+
+  it('skips R2 with no token: no request, no rows, r2 null', async () => {
+    delete process.env.CLOUDFLARE_ANALYTICS_TOKEN;
+    serve(() => cloudflareReply(BOTH));
+
+    const result = await checkStorage(NOON);
+
+    expect(calls).toHaveLength(0);
+    expect(result.failed).toEqual([]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM storage_days WHERE name LIKE 'r2:%'").get().n).toBe(0);
+    expect((await asAdmin()).body.data.r2).toBeNull();
+  });
+
+  it.each(['R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_BACKUP_BUCKET'])('skips R2 when %s is missing', async (key) => {
+    delete process.env[key];
+    serve(() => cloudflareReply(BOTH));
+
+    await checkStorage(NOON);
+
+    expect(calls).toHaveLength(0);
+    expect((await asAdmin()).body.data.r2).toBeNull();
+  });
+
+  it('keeps the token out of the log on a thrown fetch and on a reply with errors', async () => {
+    serve(() => { throw new Error('socket closed'); });
+    await checkStorage(NOON);
+    serve(() => ({ ok: true, status: 200, json: async () => ({ data: null, errors: [{ message: 'not authorized' }] }) }));
+    await checkStorage(NOON);
+
+    expect(errors.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(errors.mock.calls)).not.toContain(TOKEN);
+  });
+
+  it('reports a bucket with no rows as null, writes nothing for it, and still reports the other', async () => {
+    serve(() => cloudflareReply({ b0: BOTH.b0, b1: null }));
+
+    const result = await checkStorage(NOON);
+
+    expect(result.failed).toEqual([]);
+    const { r2 } = (await asAdmin()).body.data;
+    expect(r2.buckets['backups-bucket']).toBeNull();
+    expect(r2.buckets['files-bucket']).toMatchObject({ bytes: 4 * GB + 5, objects: 120 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM storage_days WHERE name = 'r2:backups-bucket'").get().n).toBe(0);
+  });
+
+  it('keeps R2 names out of parts and never returns the token', async () => {
+    serve(() => cloudflareReply(BOTH));
+    await checkStorage(NOON);
+
+    const res = await asAdmin();
+
+    expect(Object.keys(res.body.data.parts)).toEqual(PART_NAMES);
+    expect(JSON.stringify(res.body)).not.toContain(TOKEN);
   });
 });
 
