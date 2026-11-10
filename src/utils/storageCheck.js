@@ -2,9 +2,11 @@ const fsp = require('fs/promises');
 const path = require('path');
 const StorageDay = require('../models/StorageDay');
 const paths = require('../config/paths');
+const World = require('../models/World');
 const {
   DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
-  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings, r2PartName
+  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings, r2PartName,
+  REPORT_DEFAULT_DAYS, FORECAST_WINDOW_DAYS, FORECAST_MIN_DAYS
 } = require('../config/storage');
 const { hourly } = require('./hourly');
 const { utcDay, DAY_MS } = require('../config/time');
@@ -266,18 +268,82 @@ const buildR2Report = (stored) => {
   return { freeTierBytes: R2_FREE_TIER_BYTES, buckets };
 };
 
+const dayOffset = (now, offset) => utcDay(new Date(Date.parse(utcDay(now)) - offset * DAY_MS));
+
+/** One entry per UTC day, newest first: the stored values by name (null for no row) and the day's downloads. */
+const historyDays = (rows, days, now) => {
+  const names = new Set(PART_NAMES);
+  const byDay = new Map();
+  const firstDay = dayOffset(now, days - 1);
+
+  for (const row of rows) {
+    if (row.day < firstDay) continue;
+    names.add(row.name);
+    if (!byDay.has(row.day)) byDay.set(row.day, new Map());
+    byDay.get(row.day).set(row.name, { bytes: row.bytes, files: row.files });
+  }
+
+  const downloads = new Map(World.downloadsPerDaySince(firstDay).map((row) => [row.day, row.downloads]));
+  const columns = [...PART_NAMES, ...[...names].filter((name) => !PART_NAMES.includes(name)).sort()];
+
+  return Array.from({ length: days }, (_, index) => {
+    const day = dayOffset(now, index);
+    const stored = byDay.get(day);
+
+    return {
+      day,
+      values: Object.fromEntries(columns.map((name) => [name, (stored && stored.get(name)) || null])),
+      downloads: downloads.get(day) || 0
+    };
+  });
+};
+
 /**
- * The admin storage report: the disks now, each part as the last run measured it, and whether a vacuum fits.
- *
- * @returns {Promise<{ disks: Object[], parts: Object, vacuumFits: boolean, r2: (Object|null) }>} The report
+ * Days until a disk is full: a least-squares line through its daily `used` values of the last window, read
+ * from the line at today. Null with too few measured days, or when the line does not rise.
  */
-const buildStorageReport = async () => {
+const daysUntilFull = (rows, disk, now) => {
+  const firstDay = dayOffset(now, FORECAST_WINDOW_DAYS - 1);
+  const origin = Date.parse(firstDay);
+  const points = rows
+    .filter((row) => row.name === `disk:${disk.id}:used` && row.day >= firstDay)
+    .map((row) => [(Date.parse(row.day) - origin) / DAY_MS, row.bytes]);
+
+  if (points.length < FORECAST_MIN_DAYS) return null;
+
+  const meanX = points.reduce((sum, [x]) => sum + x, 0) / points.length;
+  const meanY = points.reduce((sum, [, y]) => sum + y, 0) / points.length;
+  const spread = points.reduce((sum, [x]) => sum + (x - meanX) ** 2, 0);
+  const slope = points.reduce((sum, [x, y]) => sum + (x - meanX) * (y - meanY), 0) / spread;
+
+  if (!(slope > 0)) return null;
+
+  const today = FORECAST_WINDOW_DAYS - 1;
+  const usedToday = meanY + slope * (today - meanX);
+
+  // The small bias keeps an exact division from rounding down to the day before.
+  return Math.max(0, Math.floor((disk.total - usedToday) / slope + 1e-9));
+};
+
+/**
+ * The admin storage report: the disks now, each part as the last run measured it, whether a vacuum fits,
+ * the stored history per UTC day with downloads, and the days until each disk is full.
+ *
+ * @param {number} [days] - How many UTC days of history, today included
+ * @param {Date} [now] - The clock
+ * @returns {Promise<{ disks: Object[], parts: Object, vacuumFits: boolean, days: Object[], forecast: Object }>} The report
+ */
+const buildStorageReport = async (days = REPORT_DEFAULT_DAYS, now = new Date()) => {
   const stored = StorageDay.latestByName();
   const parts = {};
 
   for (const name of PART_NAMES) parts[name] = stored.get(name) || null;
 
-  return { disks: await readDisks(), parts, vacuumFits: await vacuumFits(), r2: buildR2Report(stored) };
+  const rows = StorageDay.since(dayOffset(now, Math.max(days, FORECAST_WINDOW_DAYS) - 1));
+  const disks = await readDisks();
+  const forecast = Object.fromEntries(disks.map((disk) => [disk.id, { daysUntilFull: daysUntilFull(rows, disk, now) }]));
+
+  return { disks, parts, vacuumFits: await vacuumFits(), r2: buildR2Report(stored), days: historyDays(rows, days, now), forecast };
 };
 
 module.exports = { checkStorage, startStorageMonitor, buildStorageReport, setProbe, resetProbe };

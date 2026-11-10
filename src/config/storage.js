@@ -50,8 +50,17 @@ const r2Settings = () => {
 /** The `storage_days` name of a bucket's row. */
 const r2PartName = (bucket) => `r2:${bucket}`;
 
+/** The `?days=N` of the report: default and upper bound. Storage rows are kept forever, so the bound is a trend length. */
+const REPORT_DEFAULT_DAYS = 30;
+const REPORT_MAX_DAYS = 365;
+
+/** The forecast fits the last `FORECAST_WINDOW_DAYS` UTC days and needs `FORECAST_MIN_DAYS` of them measured. */
+const FORECAST_WINDOW_DAYS = 30;
+const FORECAST_MIN_DAYS = 7;
+
 module.exports = {
   r2PartName,
   DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
-  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings
+  R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings,
+  REPORT_DEFAULT_DAYS, REPORT_MAX_DAYS, FORECAST_WINDOW_DAYS, FORECAST_MIN_DAYS
 };

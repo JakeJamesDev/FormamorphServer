@@ -397,3 +397,148 @@ describe('the storage check', () => {
     expect(db.prepare('SELECT DISTINCT day FROM storage_days').all()).toEqual([{ day: utcDay(new Date('2026-03-10T00:00:00Z')) }]);
   });
 });
+
+describe('the storage history', () => {
+  const { buildStorageReport } = require('../src/utils/storageCheck');
+  const StorageDay = require('../src/models/StorageDay');
+  const KIB = 1024;
+  const TOTAL = 1000 * KIB;
+
+  const dayAt = (back) => utcDay(new Date(NOON.getTime() - back * DAY_MS));
+  const store = (back, rows) => StorageDay.replace(dayAt(back), rows, NOON.toISOString());
+  const used = (back, kib) => store(back, [{ name: 'disk:storage+data:used', bytes: kib * KIB, files: null }]);
+  const forecastOf = async (days = 30) => (await buildStorageReport(days, NOON)).forecast['storage+data'].daysUntilFull;
+
+  let marker = 0;
+  const download = (back, count) => {
+    const id = `history-world-${(marker += 1)}`;
+    const author = staffer('normal');
+    db.prepare('INSERT INTO worlds (id, name, description, author_id, thumbnail_file, content_file) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, id, 'd', author.id, 't', 'c');
+    db.prepare('INSERT INTO world_download_days (world_id, day, count) VALUES (?, ?, ?)').run(id, dayAt(back), count);
+    return id;
+  };
+
+  afterEach(() => {
+    db.exec('DELETE FROM world_download_days');
+    db.exec("DELETE FROM worlds WHERE id LIKE 'history-world-%'");
+  });
+
+  it('lists one entry per UTC day, newest first, today included', async () => {
+    const { days } = await buildStorageReport(5, NOON);
+
+    expect(days.map((entry) => entry.day)).toEqual([0, 1, 2, 3, 4].map(dayAt));
+  });
+
+  it('shows a day without rows as null values, not zero', async () => {
+    store(1, [{ name: 'worlds', bytes: 0, files: 0 }]);
+
+    const [today, yesterday] = (await buildStorageReport(2, NOON)).days;
+
+    expect(today.values.worlds).toBeNull();
+    expect(yesterday.values.worlds).toEqual({ bytes: 0, files: 0 });
+    expect(Object.values(today.values).every((value) => value === null)).toBe(true);
+  });
+
+  it('holds the same names on every day, the disk rows and any other stored name included', async () => {
+    store(2, [{ name: 'disk:storage+data:total', bytes: TOTAL, files: null }, { name: 'r2:formamorph-files', bytes: 9, files: 3 }]);
+
+    const { days } = await buildStorageReport(3, NOON);
+
+    const keys = days.map((entry) => Object.keys(entry.values));
+    expect(keys[0]).toEqual(keys[2]);
+    expect(keys[0]).toEqual(expect.arrayContaining([...PART_NAMES, 'disk:storage+data:total', 'r2:formamorph-files']));
+    expect(days[2].values['r2:formamorph-files']).toEqual({ bytes: 9, files: 3 });
+    expect(days[0].values['r2:formamorph-files']).toBeNull();
+  });
+
+  it('sums downloads per day over all listings, and gives 0 for a day without any', async () => {
+    download(0, 4);
+    download(0, 3);
+    download(2, 5);
+
+    const { days } = await buildStorageReport(4, NOON);
+
+    expect(days.map((entry) => entry.downloads)).toEqual([7, 0, 5, 0]);
+  });
+
+  it('serves the history over the route, with the default of 30 days', async () => {
+    const res = await asAdmin();
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.days).toHaveLength(30);
+    expect(res.body.data.days[0].day).toBe(utcDay(new Date()));
+  });
+
+  it.each(['0', '-1', '1.5', 'abc', '', '366'])('refuses days=%j', async (value) => {
+    const res = await request(app).get(`${REPORT}?days=${value}`).set(authHeader(staffer('admin')));
+
+    expect(res.status).toBe(400);
+  });
+
+  it.each([['1', 1], ['365', 365]])('accepts days=%s', async (value, length) => {
+    const res = await request(app).get(`${REPORT}?days=${value}`).set(authHeader(staffer('admin')));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.days).toHaveLength(length);
+  });
+
+  describe('the forecast', () => {
+    it('counts the days until full along the line through the daily use', async () => {
+      // 100 KiB growing 10 KiB a day to 190 KiB today; the disk holds 1000 KiB: 810 / 10 days left.
+      for (let back = 9; back >= 0; back -= 1) used(back, 190 - back * 10);
+
+      expect(await forecastOf()).toBe(81);
+    });
+
+    it('fits a line through a sparse set of days, not just the last two', async () => {
+      // 5 KiB a day, measured on 7 of the last 30 days: 245 KiB today, 755 / 5 left.
+      for (const back of [29, 25, 20, 15, 10, 5, 0]) used(back, 245 - back * 5);
+
+      expect(await forecastOf()).toBe(151);
+    });
+
+    it('is the same for a short history list as for a long one', async () => {
+      for (let back = 9; back >= 0; back -= 1) used(back, 190 - back * 10);
+
+      expect(await forecastOf(1)).toBe(81);
+    });
+
+    it('is null with fewer than 7 measured days', async () => {
+      for (let back = 5; back >= 0; back -= 1) used(back, 190 - back * 10);
+
+      expect(await forecastOf()).toBeNull();
+    });
+
+    it('ignores days older than 30 when it counts the measured days', async () => {
+      for (let back = 40; back >= 35; back -= 1) used(back, 100 + (40 - back));
+      for (let back = 3; back >= 0; back -= 1) used(back, 190 - back * 10);
+
+      expect(await forecastOf()).toBeNull();
+    });
+
+    it('is null when use is flat', async () => {
+      for (let back = 9; back >= 0; back -= 1) used(back, 400);
+
+      expect(await forecastOf()).toBeNull();
+    });
+
+    it('is null when use falls', async () => {
+      for (let back = 9; back >= 0; back -= 1) used(back, 300 + back * 10);
+
+      expect(await forecastOf()).toBeNull();
+    });
+
+    it('is 0 when the line is already at the total', async () => {
+      for (let back = 9; back >= 0; back -= 1) used(back, 1000 - back * 10);
+
+      expect(await forecastOf()).toBe(0);
+    });
+
+    it('is keyed by disk id, and null for a disk with no history', async () => {
+      const { forecast } = await buildStorageReport(30, NOON);
+
+      expect(forecast).toEqual({ 'storage+data': { daysUntilFull: null } });
+    });
+  });
+});

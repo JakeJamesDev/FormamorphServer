@@ -325,11 +325,21 @@ the rows it measured for its day. The job never throws.
 - **Parts.** Bytes and file count for `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`,
   `supporter-private`, `backups`, and `database` (the file with its WAL). The walk is asynchronous. A
   missing directory counts as empty. A walk that fails writes nothing, so the part keeps its last row.
-- `GET /api/storage/report` (admin) returns:
+- `GET /api/storage/report?days=N` (admin). `days` is a whole number from 1 to 365 (`REPORT_MAX_DAYS`,
+  default 30); anything else is a 400. It returns:
   - `disks`: `id`, `paths`, `total`, `used`, `free`, `usedFraction`, read at request time.
   - `parts`: by name, `bytes`, `files`, `measuredAt` from the newest stored row; null if never measured.
   - `vacuumFits`: free space on the database's filesystem is at least twice the database file. SQLite
     documents up to twice the file for a `VACUUM`. The WAL does not count.
+  - `days`: newest first, one entry per UTC day, today included: `{ day, values, downloads }`.
+    `values` is keyed by every part name, plus every other stored name in the window (the disk rows,
+    and later `r2:<bucket>`), the same keys on every day. Each value is `{ bytes, files }`, or null when
+    that day has no row for the name: a gap is null, never zero. `downloads` is the day's sum of
+    `world_download_days`, 0 with none.
+  - `forecast`: by disk id, `{ daysUntilFull }`. A least-squares line through the daily
+    `disk:<id>:used` values of the last 30 UTC days, read at today and run out to the disk's total now.
+    A whole number rounded down. Null with fewer than 7 measured days in that window, or when the line
+    does not rise. It does not depend on `?days`.
 
 The local backups directory is `BACKUPS_DIR` in `config/paths`.
 

@@ -876,6 +876,15 @@ const World = {
   },
 
   /**
+   * Downloads summed over all listings, per UTC day, from `firstDay` on.
+   * @param {string} firstDay - A UTC `YYYY-MM-DD`
+   * @returns {{ day: string, downloads: number }[]} Days with at least one download
+   */
+  downloadsPerDaySince: (firstDay) => db.prepare(`
+    SELECT day, SUM(count) AS downloads FROM world_download_days WHERE day >= ? GROUP BY day
+  `).all(firstDay),
+
+  /**
    * Count one download on the listing and in today's UTC bucket, leaving `updated_at` alone. A missing id
    * changes nothing, so its route can still answer 404.
    * @param {string} id - World ID

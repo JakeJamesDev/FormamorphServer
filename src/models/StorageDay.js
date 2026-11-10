@@ -22,6 +22,14 @@ const StorageDay = {
   },
 
   /**
+   * Every row from `firstDay` on.
+   *
+   * @param {string} firstDay - A UTC `YYYY-MM-DD`
+   * @returns {{ day: string, name: string, bytes: number, files: (number|null) }[]} The rows
+   */
+  since: (firstDay) => db.prepare('SELECT day, name, bytes, files FROM storage_days WHERE day >= ?').all(firstDay),
+
+  /**
    * The newest row of each name, from any day.
    *
    * @returns {Map<string, { bytes: number, files: (number|null), measuredAt: string }>} By name
