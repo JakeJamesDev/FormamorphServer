@@ -10,7 +10,7 @@ Admins cannot see how full the server disk is without an SSH session.
 
 - The Admin Panel shows Formamorph AI spend and mail health. It shows nothing about storage.
 - Nobody gets a warning before the disk fills. A full disk stops uploads and can corrupt a database write.
-- A `VACUUM` needs free disk equal to the database file. Nothing tells an admin whether one fits.
+- A `VACUUM` can need free disk of twice the database file. Nothing tells an admin whether one fits.
 - R2 went over its 10 GB free tier once. The bucket sizes are visible only in the Cloudflare dashboard.
 - There is no history, so nobody can tell how fast storage grows.
 
@@ -73,9 +73,11 @@ Rulings from the discussion:
 
 ### Storage
 
-- **One new table, `storage_days`.** Long format: `day`, `name`, `bytes`, `files`, with primary key `(day, name)`.
-- Each hourly run replaces the rows for the current UTC day. The last run of a day is that day's value.
-- Names: `disk:<mount>:total`, `disk:<mount>:used`, one per directory, `database`, `backups`, and `r2:<bucket>`.
+- **One new table, `storage_days`.** Long format: `day`, `name`, `bytes`, `files`, `measured_at`, with primary key `(day, name)`.
+- Each hourly run replaces the rows for the current UTC day. The last run of a day is that day's value. A failed walk of one directory writes nothing for that name, so its last row stays.
+- Names: `disk:<id>:total`, `disk:<id>:used`, `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`, `supporter-private`, `database`, `backups`, and `r2:<bucket>`.
+- **Disk id.** The roles on that filesystem, joined with `+` in the fixed order storage, data, app. One filesystem for all three is `storage+data+app`. The app role is the filesystem of the local backups directory.
+- The backups directory constant moves into the paths module.
 - A new directory needs no schema step. It gets a new name.
 - Rows are kept forever. The table grows by about 15 rows a day.
 - The last R2 read and the alert state live in two settings, as the mail health job does.
@@ -92,9 +94,9 @@ Rulings from the discussion:
 
 - **`GET /api/storage/report?days=N`**, admin only. The path follows `/api/mail/report`. `days` defaults to 30 and has the same bounds as the mail report.
 - Shape:
-  - `disks`: per filesystem, `total`, `used`, `free`, `usedFraction`, and `alertLevels`. Read live at request time.
-  - `parts`: per name, `bytes` and `files` from the last hourly run, plus `measuredAt`.
-  - `vacuumFits`: true when free space is at least the database size.
+  - `disks`: an array. Each entry has `id`, `paths`, `total`, `used`, `free`, `usedFraction`, and `alertLevels`. Read live at request time.
+  - `parts`: an object keyed by name. Each value has `bytes`, `files`, and `measuredAt`, from the newest stored row for that name on any day. Every known name is present; a name never measured is null.
+  - `vacuumFits`: true when free space on the database's filesystem is at least twice the database file, WAL not included. SQLite states that a vacuum can need that much.
   - `r2`: per bucket, `bytes`, `objects`, and `checkedAt`, plus `freeTierBytes`. Null when R2 is not configured.
   - `forecast`: `daysUntilFull` per filesystem, or null.
   - `days`: newest first, one entry per UTC day with that day's values and `downloads`. A day with no rows has null values.
