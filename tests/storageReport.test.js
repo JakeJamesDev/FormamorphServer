@@ -134,7 +134,8 @@ describe('the storage report route', () => {
       total: 1000 * 1024,
       used: 400 * 1024,
       free: 100 * 1024,
-      usedFraction: 0.4
+      usedFraction: 0.4,
+      alertLevels: [0.8, 0.9]
     }]);
   });
 

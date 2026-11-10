@@ -6,6 +6,7 @@ const { NETWORK_KIND, validateNetworkKind } = require('./networkKind');
 const { ACTIVE_INSTALLS, validateActiveInstalls } = require('./activeInstalls');
 const { HOSTED_AI, HOSTED_AI_DEFAULT, HOSTED_BALANCE_ALERTED, validateHostedAi } = require('./hostedAi');
 const { MAIL_SES_ACCOUNT, MAIL_ALERTS } = require('./mail');
+const { STORAGE_ALERTS } = require('./storage');
 const {
   MIN_FLAGGED, FLAGGED_SHARE, BURST_SIZE, BURST_WINDOW_MINUTES,
   validateMinFlagged, validateFlaggedShare, validateBurstSize, validateBurstWindow
@@ -87,7 +88,9 @@ const SETTINGS = {
   // Written only by `utils/mailHealth`: the last good SES account read, kept through a failed one.
   [MAIL_SES_ACCOUNT]: { default: null, internal: true },
   // Written only by `utils/mailHealth`, so a restart neither repeats an alert nor forgets one.
-  [MAIL_ALERTS]: { default: { status: null, bounce: false, complaint: false }, internal: true }
+  [MAIL_ALERTS]: { default: { status: null, bounce: false, complaint: false }, internal: true },
+  // Written only by `utils/storageAlerts`, so a restart neither repeats a disk alert nor forgets one.
+  [STORAGE_ALERTS]: { default: {}, internal: true }
 };
 
 /**

@@ -24,6 +24,12 @@ const DISK_ROLES = {
 /** A VACUUM writes a full copy beside the file; SQLite documents up to twice the file size. */
 const VACUUM_SPACE_FACTOR = 2;
 
+/** The fractions of a filesystem's total at which the admins get one mail each, lowest first. */
+const ALERT_LEVELS = [0.8, 0.9];
+
+/** Internal setting: the highest level each filesystem has reached, `{ [diskId]: level }`. */
+const STORAGE_ALERTS = 'storage_alerts';
+
 /** The R2 free tier is account-wide: 10 GB of storage across all buckets. */
 const R2_FREE_TIER_BYTES = 10 * 1000 ** 3;
 
@@ -60,7 +66,7 @@ const FORECAST_MIN_DAYS = 7;
 
 module.exports = {
   r2PartName,
-  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
+  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR, ALERT_LEVELS, STORAGE_ALERTS,
   R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings,
   REPORT_DEFAULT_DAYS, REPORT_MAX_DAYS, FORECAST_WINDOW_DAYS, FORECAST_MIN_DAYS
 };

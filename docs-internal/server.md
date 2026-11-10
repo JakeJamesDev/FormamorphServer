@@ -325,9 +325,15 @@ the rows it measured for its day. The job never throws.
 - **Parts.** Bytes and file count for `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`,
   `supporter-private`, `backups`, and `database` (the file with its WAL). The walk is asynchronous. A
   missing directory counts as empty. A walk that fails writes nothing, so the part keeps its last row.
+- **Disk-full alerts.** After each run, `utils/storageAlerts` mails the admins (urgent message, plus the staff
+  address when `STAFF_ALERT_EMAIL` is set) once when a filesystem's `usedFraction` reaches a level it had not
+  reached. A rise past both levels in one run sends only the higher mail. A drop below a level arms it again.
+  The state is the highest level per disk id, in the internal setting `storage_alerts`. It is stored before
+  the mail goes out, so a failed mail never repeats. The mail names the disk, the used percent and the free
+  space. To change the levels, edit `ALERT_LEVELS` in `config/storage` (fractions, lowest first).
 - `GET /api/storage/report?days=N` (admin). `days` is a whole number from 1 to 365 (`REPORT_MAX_DAYS`,
   default 30); anything else is a 400. It returns:
-  - `disks`: `id`, `paths`, `total`, `used`, `free`, `usedFraction`, read at request time.
+  - `disks`: `id`, `paths`, `total`, `used`, `free`, `usedFraction`, `alertLevels` (the `ALERT_LEVELS` constants), read at request time.
   - `parts`: by name, `bytes`, `files`, `measuredAt` from the newest stored row; null if never measured.
   - `vacuumFits`: free space on the database's filesystem is at least twice the database file. SQLite
     documents up to twice the file for a `VACUUM`. The WAL does not count.

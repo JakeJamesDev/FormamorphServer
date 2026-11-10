@@ -4,10 +4,11 @@ const StorageDay = require('../models/StorageDay');
 const paths = require('../config/paths');
 const World = require('../models/World');
 const {
-  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR,
+  DIRECTORY_PARTS, PART_NAMES, DISK_ROLES, VACUUM_SPACE_FACTOR, ALERT_LEVELS,
   R2_FREE_TIER_BYTES, CLOUDFLARE_GRAPHQL_URL, R2_WINDOW_DAYS, R2_READ_TIMEOUT_MS, r2Settings, r2PartName,
   REPORT_DEFAULT_DAYS, FORECAST_WINDOW_DAYS, FORECAST_MIN_DAYS
 } = require('../config/storage');
+const { alertOnDisks } = require('./storageAlerts');
 const { hourly } = require('./hourly');
 const { utcDay, DAY_MS } = require('../config/time');
 
@@ -79,7 +80,8 @@ const readDisks = async () => {
         total,
         used,
         free: bavail * bsize,
-        usedFraction: total > 0 ? used / total : 0
+        usedFraction: total > 0 ? used / total : 0,
+        alertLevels: ALERT_LEVELS
       });
     } catch (error) {
       console.error(`Storage check: cannot read the disk of ${locations[0]}:`, error.message);
@@ -200,7 +202,8 @@ const checkStorage = async (now = new Date()) => {
     const rows = [];
     const failed = [];
 
-    for (const disk of await readDisks()) {
+    const disks = await readDisks();
+    for (const disk of disks) {
       rows.push({ name: `disk:${disk.id}:total`, bytes: disk.total, files: null });
       rows.push({ name: `disk:${disk.id}:used`, bytes: disk.used, files: null });
     }
@@ -232,6 +235,7 @@ const checkStorage = async (now = new Date()) => {
     }
 
     StorageDay.replace(utcDay(now), rows, now.toISOString());
+    await alertOnDisks(disks);
 
     return { stored: rows.map((row) => row.name), failed };
   } catch (error) {
