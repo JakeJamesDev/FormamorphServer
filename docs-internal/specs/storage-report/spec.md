@@ -74,7 +74,7 @@ Rulings from the discussion:
 ### Storage
 
 - **One new table, `storage_days`.** Long format: `day`, `name`, `bytes`, `files`, `measured_at`, with primary key `(day, name)`.
-- Each hourly run replaces the rows for the current UTC day. The last run of a day is that day's value. A failed walk of one directory writes nothing for that name, so its last row stays.
+- Each hourly run replaces the rows for the current UTC day. The last run of a day is that day's value. A failed walk of one directory writes nothing for that name, so its last row stays. A missing directory is a failed walk. A run that cannot read one disk role stores no disk row and sends no alert.
 - Names: `disk:<id>:total`, `disk:<id>:used`, `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`, `supporter-private`, `database`, `backups`, and `r2:<bucket>`.
 - **Disk id.** The roles on that filesystem, joined with `+` in the fixed order storage, data, app. One filesystem for all three is `storage+data+app`. The app role is the filesystem of the local backups directory.
 - The backups directory constant moves into the paths module.

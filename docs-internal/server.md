@@ -87,7 +87,8 @@ Expect about **574 MB before and a few MB after**: the column held ~500 MB of ba
 listings, against ~2 MB for everything else, and a `zstd -9` snapshot went from ~430 MB to a fraction of a
 few MB. That was ~6 GB of the ~12 GB in R2, which is what put the bucket over its free tier.
 
-The vacuum needs free disk equal to the current file, because it writes a full copy before swapping it in.
+The vacuum can need free disk of twice the current file: it writes a full copy, then a journal or WAL
+while it swaps the copy in. The storage report's `vacuumFits` checks this.
 The two `ls -l` lines above give the real figures. Record them here in place of the estimate once it has run.
 
 No restore point for this deploy remains. The last copy that still had the column was the nightly R2
@@ -321,10 +322,12 @@ the rows it measured for its day. The job never throws.
 
 - **Disks.** `fs.statfs` on three roles: storage root, data directory, and the local backups directory (`app`;
   its nearest existing parent until the first backup makes it). Roles on one device report once, with an id that joins the roles: `storage+data+app`.
-  Each disk stores `disk:<id>:total` and `disk:<id>:used`.
+  Each disk stores `disk:<id>:total` and `disk:<id>:used`. When a role cannot be read, the ids would miss
+  it, so that run stores no disk row and sends no alert.
 - **Parts.** Bytes and file count for `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`,
   `supporter-private`, `backups`, and `database` (the file with its WAL). The walk is asynchronous. A
-  missing directory counts as empty. A walk that fails writes nothing, so the part keeps its last row.
+  walk that fails writes nothing, so the part keeps its last row. A missing directory is a failed walk, so
+  a dropped mount never stores a zero.
 - **Disk-full alerts.** After each run, `utils/storageAlerts` mails the admins (urgent message, plus the staff
   address when `STAFF_ALERT_EMAIL` is set) once when a filesystem's `usedFraction` reaches a level it had not
   reached. A rise past both levels in one run sends only the higher mail. A drop below a level arms it again.

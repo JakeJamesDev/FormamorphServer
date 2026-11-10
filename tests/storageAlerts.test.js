@@ -101,6 +101,21 @@ describe('the disk-full alerts', () => {
     expect(mail.messages).toHaveLength(1);
   });
 
+  it('sends no mail in a run where a role cannot be read, and none when the role returns', async () => {
+    const admin = staffer('admin');
+    const roles = { storage: paths.STORAGE_ROOT, data: work };
+
+    await runAt(85);
+    // A NUL in a path fails `stat` on every platform with an error that is not ENOENT.
+    setProbe({ roles: { ...roles, data: '\0unreadable' } });
+    await runAt(85);
+    setProbe({ roles });
+    await runAt(85);
+
+    expect(alerts(admin)).toEqual([`Disk ${ID} is 80% full`]);
+    expect(mail.messages).toHaveLength(1);
+  });
+
   it('arms a level again after the disk drops below it', async () => {
     const admin = staffer('admin');
 

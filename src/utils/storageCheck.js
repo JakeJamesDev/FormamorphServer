@@ -49,11 +49,13 @@ const nearestExisting = async (target) => {
 
 /**
  * Every filesystem the roles live on, once. Roles on one device join into one id in role order.
+ * `complete` is false when a role could not be read: the ids then miss that role and match no stored id.
  *
- * @returns {Promise<{ id: string, paths: string[], total: number, used: number, free: number, usedFraction: number }[]>} The disks
+ * @returns {Promise<{ disks: { id: string, paths: string[], total: number, used: number, free: number, usedFraction: number }[], complete: boolean }>} The disks
  */
-const readDisks = async () => {
+const readDiskState = async () => {
   const byDevice = new Map();
+  let complete = true;
 
   for (const [role, wanted] of Object.entries(probe.roles)) {
     try {
@@ -64,6 +66,7 @@ const readDisks = async () => {
       group.paths.push(dir);
       byDevice.set(dev, group);
     } catch (error) {
+      complete = false;
       console.error(`Storage check: cannot read ${role} at ${wanted}:`, error.message);
     }
   }
@@ -88,12 +91,14 @@ const readDisks = async () => {
     }
   }
 
-  return disks;
+  return { disks, complete };
 };
 
+const readDisks = async () => (await readDiskState()).disks;
+
 /**
- * Bytes and file count under a directory. A missing directory holds nothing; any other failure throws.
- * A file that vanishes mid-walk is skipped.
+ * Bytes and file count under a directory. A missing root throws, so a dropped mount never stores a zero.
+ * A subdirectory or file that vanishes mid-walk is skipped.
  *
  * @param {string} root - The directory
  * @returns {Promise<{ bytes: number, files: number }>} The totals
@@ -109,7 +114,7 @@ const walk = async (root) => {
     try {
       entries = await fsp.readdir(current, { withFileTypes: true });
     } catch (error) {
-      if (error.code === 'ENOENT') continue;
+      if (error.code === 'ENOENT' && current !== root) continue;
       throw error;
     }
 
@@ -192,7 +197,8 @@ const readR2Sizes = async ({ token, accountId, buckets }, now) => {
 
 /**
  * Measure the disks and every part, and store them under today's UTC day. A part that fails to measure
- * writes nothing, so its last row stands. Never throws: this runs on a timer nobody is watching.
+ * writes nothing, so its last row stands; so do the disks when a role cannot be read, and that run sends no
+ * alert. Never throws: this runs on a timer nobody is watching.
  *
  * @param {Date} [now] - The instant to measure at, for tests
  * @returns {Promise<{ stored: string[], failed: string[] }|null>} The names written and the names that failed, or null on a failed run
@@ -202,7 +208,9 @@ const checkStorage = async (now = new Date()) => {
     const rows = [];
     const failed = [];
 
-    const disks = await readDisks();
+    const state = await readDiskState();
+    const disks = state.complete ? state.disks : [];
+    if (!state.complete) failed.push('disks');
     for (const disk of disks) {
       rows.push({ name: `disk:${disk.id}:total`, bytes: disk.total, files: null });
       rows.push({ name: `disk:${disk.id}:used`, bytes: disk.used, files: null });

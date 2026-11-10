@@ -36,11 +36,12 @@ const put = (dir, name, bytes) => {
   fs.writeFileSync(file, Buffer.alloc(bytes, 1));
 };
 
+/** Every measured directory, present and empty, as the server has them after boot. */
 const emptyDirectories = () => {
   for (const dir of [...Object.values(DIRECTORY_PARTS), backups]) {
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.mkdirSync(dir, { recursive: true });
   }
-  fs.mkdirSync(backups, { recursive: true });
 };
 
 beforeEach(() => {
@@ -114,12 +115,28 @@ describe('the storage report route', () => {
     expect(parts.database).toMatchObject({ bytes: 1500, files: 2 });
   });
 
-  it('measures a directory that does not exist yet as empty', async () => {
+  it('keeps the last row of a directory that goes missing, and never stores a zero for it', async () => {
+    put(paths.AVATARS_DIR, 'a.webp', 40);
+    put(paths.WORLDS_DIR, 'nested/w.json', 6);
+    await checkStorage(NOON);
+    fs.rmSync(paths.AVATARS_DIR, { recursive: true, force: true });
+    fs.rmSync(path.join(paths.WORLDS_DIR, 'nested'), { recursive: true, force: true });
+    const later = new Date(NOON.getTime() + 3600 * 1000);
+
+    const result = await checkStorage(later);
+
+    expect(result.failed).toEqual(['avatars']);
+    const { parts } = (await asAdmin()).body.data;
+    expect(parts.avatars).toEqual({ bytes: 40, files: 1, measuredAt: NOON.toISOString() });
+    expect(parts.worlds).toEqual({ bytes: 0, files: 0, measuredAt: later.toISOString() });
+  });
+
+  it('leaves a directory that never existed as never measured', async () => {
     fs.rmSync(paths.AVATARS_DIR, { recursive: true, force: true });
 
     await checkStorage(NOON);
 
-    expect((await asAdmin()).body.data.parts.avatars).toMatchObject({ bytes: 0, files: 0 });
+    expect((await asAdmin()).body.data.parts.avatars).toBeNull();
   });
 
   it('reads the disks at request time, not from the last run', async () => {
@@ -376,6 +393,22 @@ describe('the storage check', () => {
     const res = await asAdmin();
     expect(res.body.data.disks).toEqual([]);
     expect(res.body.data.parts.thumbnails).toMatchObject({ bytes: 3 });
+  });
+
+  it('stores no disk row when a role cannot be read, and keeps the last disk rows', async () => {
+    await checkStorage(NOON);
+    // A NUL in a path fails `stat` on every platform with an error that is not ENOENT.
+    setProbe({ roles: { storage: paths.STORAGE_ROOT, data: '\0unreadable' } });
+    const later = new Date(NOON.getTime() + 3600 * 1000);
+
+    const result = await checkStorage(later);
+
+    expect(result.failed).toEqual(['disks']);
+    const disks = db.prepare("SELECT name, measured_at AS at FROM storage_days WHERE name LIKE 'disk:%' ORDER BY name").all();
+    expect(disks).toEqual([
+      { name: 'disk:storage+data:total', at: NOON.toISOString() },
+      { name: 'disk:storage+data:used', at: NOON.toISOString() }
+    ]);
   });
 
   it('walks without holding the event loop', async () => {
