@@ -571,6 +571,10 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-10** — deployed `a3f2dbb`: routine request lines go to daily files in `logs/`, apart from the journal.
+  All 3,686 tests passed in 50.1 s (51.2 s wall). No backup: no schema step. Service active with zero restarts,
+  boot logged `Server running on port`, public route 200. In the first seconds after boot the day file held 22
+  routine lines and no failure, and the journal held no routine success.
 - **2026-11-10** — deployed `e522034`: the disk-full alert mail shows decimal units, as the Storage tab does.
   All 3,674 tests passed in 92.9 s (98.5 s wall), slower than the 41.5 s earlier that day with other sessions
   running on the machine. No backup: no schema step. Service active with zero restarts, boot logged
