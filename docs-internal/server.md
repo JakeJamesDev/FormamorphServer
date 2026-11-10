@@ -547,6 +547,10 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-10** — deployed `e522034`: the disk-full alert mail shows decimal units, as the Storage tab does.
+  All 3,674 tests passed in 92.9 s (98.5 s wall), slower than the 41.5 s earlier that day with other sessions
+  running on the machine. No backup: no schema step. Service active with zero restarts, boot logged
+  `Server running on port`, public route 200.
 - **2026-11-10** — deployed `adf4dd8`: the admin storage report, with hourly disk and directory checks, storage
   history and forecast, disk-full alerts and R2 bucket sizes. All 3,674 tests passed in 41.5 s (42.5 s wall).
   Backup `backups/pre-deploy-06b1db8-2026-11-10T19-04-46.039Z.db`, integrity `ok`. Boot applied `storageDays`,
