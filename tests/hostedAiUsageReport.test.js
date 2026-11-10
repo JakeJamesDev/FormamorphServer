@@ -218,9 +218,10 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     db.prepare('INSERT INTO funnel_totals (day, step, count) VALUES (?, ?, ?)').run(dayOf(daysAgo(1)), 'offer_shown', 3);
     db.prepare('INSERT INTO funnel_totals (day, step, count) VALUES (?, ?, ?)').run(dayOf(daysAgo(5)), 'offer_shown', 50);
     FunnelTotal.increment(dayOf(daysAgo(0)), 'see_levels');
+    FunnelTotal.increment(dayOf(daysAgo(0)), 'local_offer_shown');
 
     expect((await read(2)).offer).toEqual([
-      { step: 'offer_shown', count: 7 }, { step: 'see_levels', count: 1 }, { step: 'patreon_click', count: 0 }, { step: 'checklist_finished', count: 0 }
+      { step: 'offer_shown', count: 7 }, { step: 'local_offer_shown', count: 1 }, { step: 'see_levels', count: 1 }, { step: 'patreon_click', count: 0 }, { step: 'checklist_finished', count: 0 }
     ]);
   });
 

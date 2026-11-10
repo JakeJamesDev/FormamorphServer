@@ -442,7 +442,7 @@ holds a UTC day, a step and a count, and nothing else: no address, Install id or
 
 | Route | Who | What |
 |---|---|---|
-| `POST /api/funnel/:step` | public | Add one to today's total. `:step` is `offer_shown`, `see_levels`, `patreon_click` or `checklist_finished`, else `400`. Answers `204`. |
+| `POST /api/funnel/:step` | public | Add one to today's total. `:step` is `offer_shown`, `local_offer_shown`, `see_levels`, `patreon_click` or `checklist_finished`, else `400`. Answers `204`. |
 | `GET /api/funnel` | admin | `{ data: { days } }`, newest day first. Each day is `{ day, steps }`, with all four steps present and `0` for a step not yet counted. |
 
 The POST has its own limiter: 30 per minute per address, kept in memory (`config/funnel.js`). The privacy

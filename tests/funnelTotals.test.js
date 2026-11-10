@@ -23,9 +23,17 @@ describe('POST /api/funnel/:step', () => {
     const rows = db.prepare('SELECT day, step, count FROM funnel_totals ORDER BY step').all();
     expect(rows).toEqual([
       { day: today(), step: 'checklist_finished', count: 1 },
+      { day: today(), step: 'local_offer_shown', count: 1 },
       { day: today(), step: 'offer_shown', count: 1 },
       { day: today(), step: 'patreon_click', count: 1 },
       { day: today(), step: 'see_levels', count: 2 }
+    ]);
+  });
+
+  it('counts the built-in engine card step', async () => {
+    expect((await send('local_offer_shown')).status).toBe(204);
+    expect(db.prepare('SELECT day, step, count FROM funnel_totals').all()).toEqual([
+      { day: today(), step: 'local_offer_shown', count: 1 }
     ]);
   });
 
@@ -89,8 +97,8 @@ describe('GET /api/funnel', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.days).toEqual([
-      { day: '2026-11-02', steps: { offer_shown: 7, see_levels: 0, patreon_click: 2, checklist_finished: 0 } },
-      { day: '2026-11-01', steps: { offer_shown: 5, see_levels: 0, patreon_click: 0, checklist_finished: 0 } }
+      { day: '2026-11-02', steps: { offer_shown: 7, local_offer_shown: 0, see_levels: 0, patreon_click: 2, checklist_finished: 0 } },
+      { day: '2026-11-01', steps: { offer_shown: 5, local_offer_shown: 0, see_levels: 0, patreon_click: 0, checklist_finished: 0 } }
     ]);
   });
 
