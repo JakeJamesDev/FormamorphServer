@@ -7,14 +7,14 @@ const { ALERT_LEVELS, STORAGE_ALERTS } = require('../config/storage');
  * the highest level each filesystem is at, so a hold at one level is silent and a drop arms the level again.
  */
 
-const UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
 
-/** A byte count in the largest unit that keeps it at 1 or more. */
+/** A byte count in the largest decimal unit that keeps it at 1 or more, as Hetzner and Cloudflare count. */
 const formatBytes = (bytes) => {
   let value = bytes;
   let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && unit < UNITS.length - 1) {
+    value /= 1000;
     unit += 1;
   }
   return `${value.toFixed(1)} ${UNITS[unit]}`;

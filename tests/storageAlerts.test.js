@@ -148,7 +148,8 @@ describe('the disk-full alerts', () => {
     expect(subject).toBe(`Disk ${ID} is 80% full`);
     expect(text).toContain(ID);
     expect(text).toContain('85.0% used');
-    expect(text).toContain('150.0 KiB free');
+    // 150 blocks of 1,024 bytes, in decimal units.
+    expect(text).toContain('153.6 KB free');
   });
 
   it('stores the alert state before the mail goes out, so a failed mail does not repeat', async () => {
