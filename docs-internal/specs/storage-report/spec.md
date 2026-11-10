@@ -80,7 +80,7 @@ Rulings from the discussion:
 - The backups directory constant moves into the paths module.
 - A new directory needs no schema step. It gets a new name.
 - Rows are kept forever. The table grows by about 15 rows a day.
-- The last R2 read and the alert state live in two settings, as the mail health job does.
+- The alert state lives in a setting, as the mail health job does. The last R2 read needs no setting; the stored rows hold it.
 
 ### Alerts
 
@@ -98,7 +98,7 @@ Rulings from the discussion:
   - `disks`: an array. Each entry has `id`, `paths`, `total`, `used`, `free`, `usedFraction`, and `alertLevels`. Read live at request time.
   - `parts`: an object keyed by name. Each value has `bytes`, `files`, and `measuredAt`, from the newest stored row for that name on any day. Every known name is present; a name never measured is null.
   - `vacuumFits`: true when free space on the database's filesystem is at least twice the database file, WAL not included. SQLite states that a vacuum can need that much.
-  - `r2`: per bucket, `bytes`, `objects`, and `checkedAt`, plus `freeTierBytes`. Null when R2 is not configured.
+  - `r2`: `freeTierBytes` and `buckets`, keyed by bucket name. Each bucket has `bytes`, `objects`, and `checkedAt`, or is null when it was never read. `checkedAt` is the time of the newest stored row. `r2` is null when the token, the account id, or a bucket name is missing. The free tier is account-wide.
   - `forecast`: an object keyed by disk id. Each value has `daysUntilFull`, a whole number rounded down, or null.
   - `days`: newest first, one entry per UTC day with `day`, `values`, and `downloads`. `values` is keyed by stored name, disk and R2 rows included, each `{ bytes, files }` or null when that day has no row. `downloads` is 0 on a day with none.
 - **Forecast.** A least-squares line through the daily `used` values of the last 30 days, whatever `days` is. Full is where the line reaches the current total. Null with fewer than 7 measured days, or when use does not grow.
