@@ -208,7 +208,8 @@ not cost somebody the mail they were trying to get.
 it: `emailMarker` becomes `bounce` or `complaint` in every account summary, and the address loses its
 verification. While marked, resend, setting the same address and opening an older verification link
 answer `EMAIL_UNDELIVERABLE` and send nothing, and a reset request gets its usual answer with no mail.
-Setting a new address clears the marker. An event for a mail sent before the address last changed marks
+Setting a new address clears the marker, and so does staff's Clear Bounce, which leaves the address
+unverified. An event for a mail sent before the address last changed marks
 nothing.
 
 The budget follows the account rather than the address it names. An address can only be mailed by the one
@@ -548,6 +549,8 @@ Node's own `require` for that reason; take `app` and `db` from there.
 - `GET /api/users/me/worlds` - Get worlds created by the current user (accepts `?kind=`)
 - `GET /api/users` - Get all users (admin only)
 - `PUT /api/users/:id/status` - Update user status and account type (admin only)
+- `GET /api/users/:id/mail-history` - One account's mail, newest first, and its marker (staff only): `{ emailMarker, emailMarkedAt, mails: [{ kind, status, sentAt, statusAt, bounceType? }] }`. `bounceType` (`hard` or `soft`) is on bounced rows only. No address and no SES message id
+- `DELETE /api/users/:id/email-marker` - Take the address off the SES suppression list, then clear the marker (staff; a mod cannot clear an admin's). Answers `{ cleared }`: `false` for an unmarked account. Verification stays removed. A failed SES call answers 502 `MAIL_PROVIDER_FAILED` and keeps the marker. Each clear writes `email_marker_cleared` to the audit log
 
 ### Patreon
 - `GET /api/patreon/tier-names` - Public. The Patreon title of each supporter tier: `{ supporter, supporter_plus, supporter_top, prices }`, each title a string or `null` when no title is known. `prices` has the same three keys, each the monthly price in US cents (an integer) or `null` when no price is known. The hourly reconcile and a webhook that carries tier resources refresh the stored names and prices; a request never calls Patreon, and a failed refresh keeps the old names
@@ -585,6 +588,7 @@ client has a screen to open rather than a message to print. An older build that 
 | `USERNAME_RENAME_REQUIRED` | 403 | A write from an account flagged for rename, while the `username_rename_gate` setting is on | Opens the rename dialog, or sends the player to the rename page |
 | `USERNAME_TAKEN` | 400 | Registering or renaming with a name another account holds, ignoring case | Asks for another name |
 | `EMAIL_UNDELIVERABLE` | 409 | Resending verification, setting the same address again, or opening a verification link while a bounce or complaint marks the address | Shows the bounce notice for `emailMarker` and asks for a different address |
+| `MAIL_PROVIDER_FAILED` | 502 | Staff clearing a bounce marker when Amazon SES refuses to take the address off its suppression list | Says the bounce is not cleared; the marker stays |
 | `TOKEN_INVALID` | 400 | A verification link that has expired or has already been used | Says the link is spent and points at the account page |
 
 **Username rule.** Registration and rename trim the typed name and collapse each run of spaces into one.

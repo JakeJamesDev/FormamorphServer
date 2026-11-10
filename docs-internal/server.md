@@ -292,6 +292,7 @@ is off when mail is off.
 |---|---|
 | `ses:SendEmail` | Sending, on the mail domain identity and the configuration set |
 | `ses:GetAccount` | The hourly account status and 24-hour quota read |
+| `ses:DeleteSuppressedDestination` | Staff's Clear Bounce, which takes the address off the account suppression list |
 
 🚨 **Alerts** go to every admin as an urgent message, and to `STAFF_ALERT_EMAIL` when set:
 

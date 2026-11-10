@@ -99,6 +99,17 @@ const MailLog = {
     return { row: MailLog.findById(id), moved: true };
   }),
 
+  /**
+   * One account's mails, newest first, without the SES message id.
+   *
+   * @param {string} userId - User ID
+   * @returns {Array<Object>} `{ kind, status, sentAt, statusAt }` per mail, plus `bounceType` on a bounced one
+   */
+  forUser: (userId) => db.prepare(`
+    SELECT kind, status, bounce_type AS bounceType, sent_at AS sentAt, status_at AS statusAt
+    FROM mail_log WHERE user_id = ? ORDER BY sent_at DESC, rowid DESC
+  `).all(userId).map(({ bounceType, ...mail }) => (mail.status === STATUSES.BOUNCED ? { ...mail, bounceType } : mail)),
+
   DAY_COUNTS,
 
   /**

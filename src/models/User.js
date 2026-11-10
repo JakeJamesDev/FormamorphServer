@@ -220,6 +220,17 @@ const User = {
   },
 
   /**
+   * Remove an account's address marker. Verification stays removed.
+   *
+   * @param {string} id - User ID
+   * @returns {boolean} Whether this call removed it
+   */
+  clearEmailMarker: (id) => db.prepare(`
+    UPDATE users SET email_marker = NULL, email_marked_at = NULL, updated_at = @now
+    WHERE id = @id AND email_marker IS NOT NULL
+  `).run({ id, now: new Date().toISOString() }).changes > 0,
+
+  /**
    * Create a new user
    * @param {Object} userData - User data
    * @returns {Object} Created user object

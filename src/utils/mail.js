@@ -1,5 +1,7 @@
 const crypto = require('crypto');
-const { SESv2Client, SendEmailCommand, GetAccountCommand } = require('@aws-sdk/client-sesv2');
+const {
+  SESv2Client, SendEmailCommand, GetAccountCommand, DeleteSuppressedDestinationCommand
+} = require('@aws-sdk/client-sesv2');
 const { MAIL_FROM, MAIL_REPLY_TO, MAIL_ID_TAG, MAIL_KIND_TAG } = require('../config/mail');
 const MailLog = require('../models/MailLog');
 
@@ -27,14 +29,16 @@ const UTF8 = 'UTF-8';
  * never sends mail.
  *
  * @param {{ accessKeyId: string, secretAccessKey: string, region: string }} settings - From the environment
- * @returns {{ sendEmail: (input: Object) => Promise<Object>, getAccount: () => Promise<Object> }} An SES client
+ * @returns {{ sendEmail: (input: Object) => Promise<Object>, getAccount: () => Promise<Object>,
+ *   deleteSuppressedDestination: (input: Object) => Promise<Object> }} An SES client
  */
 const sesClient = ({ accessKeyId, secretAccessKey, region }) => {
   const client = new SESv2Client({ region, credentials: { accessKeyId, secretAccessKey } });
 
   return {
     sendEmail: (input) => client.send(new SendEmailCommand(input)),
-    getAccount: () => client.send(new GetAccountCommand({}))
+    getAccount: () => client.send(new GetAccountCommand({})),
+    deleteSuppressedDestination: (input) => client.send(new DeleteSuppressedDestinationCommand(input))
   };
 };
 
@@ -182,6 +186,25 @@ const readSesAccount = async () => {
 };
 
 /**
+ * Take an address off the SES account suppression list.
+ *
+ * An address that was not on the list is already off it. With mail off there is no list.
+ *
+ * @param {string} address - The address to remove
+ * @returns {Promise<void>} Resolves when the address is off the list
+ * @throws {Error} Without the address in its message, when SES refuses
+ */
+const removeFromSuppressionList = async (address) => {
+  if (!client) return;
+  try {
+    await client.deleteSuppressedDestination({ EmailAddress: address });
+  } catch (error) {
+    if (error.name === 'NotFoundException') return;
+    throw sesError('SES suppression removal failed', error);
+  }
+};
+
+/**
  * Send one message and log it once SES has taken it.
  *
  * The log row's id is the mail's tag, so an SES event finds its row without the address. A refused send
@@ -214,6 +237,7 @@ module.exports = {
   setSesClient,
   resetSesClient,
   readSesAccount,
+  removeFromSuppressionList,
   captureTransport,
   sesTransport,
   transportFromEnv,

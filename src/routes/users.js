@@ -9,6 +9,7 @@ const {
 const {
   startPatreonLink, confirmPatreonLink, getPatreonStatus, setPatreonFlair, unlinkPatreon
 } = require('../controllers/patreonController');
+const { getMailHistory, clearEmailMarker } = require('../controllers/mailHistoryController');
 const { protect, admin, staff, optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -79,6 +80,10 @@ router.delete('/:id/likes', protect, staff, clearUserLikes);
 // Which other accounts share an address with this one (staff only). Every call is written to the audit
 // log: linkage data is the one record that says where a person was, so reading it is accountable too.
 router.get('/:id/linked', protect, staff, getLinkedAccounts);
+
+// One account's mail and address marker, and clearing the marker (staff only).
+router.get('/:id/mail-history', protect, staff, getMailHistory);
+router.delete('/:id/email-marker', protect, staff, clearEmailMarker);
 
 // Suspend or reinstate an account (staff only). The same route also changes what somebody *is*, which
 // is an administrator's alone — enforced in the controller, since one body can carry both.

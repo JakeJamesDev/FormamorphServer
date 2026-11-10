@@ -75,7 +75,9 @@ const ACTIONS = [
   'supporter_access_revoked',
   'supporter_access_restored',
   // An admin lifted the day's Formamorph AI pause.
-  'hosted_pause_lifted'
+  'hosted_pause_lifted',
+  // Staff cleared an account's bounce or complaint marker. The snippet is the reason cleared.
+  'email_marker_cleared'
 ];
 
 /** Enough of what was removed to know what it was; never the whole of it. */
