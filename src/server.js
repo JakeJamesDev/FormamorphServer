@@ -24,6 +24,7 @@ const { monitorProvider, startHostedMonitors } = require('./utils/hostedProvider
 const { rotateHiddenGems, startHiddenGemRotation } = require('./utils/rotateHiddenGems');
 const { mailEnabled, missingMailKeys } = require('./utils/mail');
 const { checkMailHealth, startMailHealthMonitor } = require('./utils/mailHealth');
+const { checkStorage, startStorageMonitor } = require('./utils/storageCheck');
 const app = require('./app');
 
 // Not fatal: the game works without mail. Verification and password reset do not.
@@ -97,6 +98,10 @@ if (mailEnabled) {
   void checkMailHealth();
   startMailHealthMonitor();
 }
+
+// And for storage: measure the disks and the upload directories now, then hourly.
+void checkStorage();
+startStorageMonitor();
 
 // And for Hidden Gems: rotate if one came due while the server was down, then check hourly.
 rotateHiddenGems();

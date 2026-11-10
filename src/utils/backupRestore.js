@@ -12,7 +12,7 @@ const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
 // Define paths (the shared, configurable ones come from config/paths)
-const { PROJECT_ROOT, DB_PATH: DATABASE_PATH } = require('../config/paths');
+const { DB_PATH: DATABASE_PATH, BACKUPS_DIR } = require('../config/paths');
 const {
   worldsStorageDir: WORLDS_DIR,
   thumbnailsStorageDir: THUMBNAILS_DIR,
@@ -20,7 +20,6 @@ const {
   avatarsStorageDir: AVATARS_DIR,
   supporterStorageDir: SUPPORTER_DIR
 } = require('./fileStorage');
-const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
 
 // Utility function to ensure directory exists
 const ensureDir = async (dirPath) => {

@@ -308,6 +308,26 @@ is off when mail is off.
   Amazon's review (5%, 0.1%) and pause (10%, 0.5%) limits, the last SES status, and the last 24 hours'
   sends against the quota.
 
+## Storage report
+
+Every hour, and at start-up, `utils/storageCheck` measures the disks and the directories. It stores one
+set of rows per UTC day in `storage_days` (`day`, `name`, `bytes`, `files`, `measured_at`). A run replaces
+the rows it measured for its day. The job never throws.
+
+- **Disks.** `fs.statfs` on three roles: storage root, data directory, and the local backups directory (`app`;
+  its nearest existing parent until the first backup makes it). Roles on one device report once, with an id that joins the roles: `storage+data+app`.
+  Each disk stores `disk:<id>:total` and `disk:<id>:used`.
+- **Parts.** Bytes and file count for `worlds`, `thumbnails`, `pending`, `avatars`, `event-posters`,
+  `supporter-private`, `backups`, and `database` (the file with its WAL). The walk is asynchronous. A
+  missing directory counts as empty. A walk that fails writes nothing, so the part keeps its last row.
+- `GET /api/storage/report` (admin) returns:
+  - `disks`: `id`, `paths`, `total`, `used`, `free`, `usedFraction`, read at request time.
+  - `parts`: by name, `bytes`, `files`, `measuredAt` from the newest stored row; null if never measured.
+  - `vacuumFits`: free space on the database's filesystem is at least twice the database file. SQLite
+    documents up to twice the file for a `VACUUM`. The WAL does not count.
+
+The local backups directory is `BACKUPS_DIR` in `config/paths`.
+
 ## Backups
 
 A cron job for the `formamorph` user runs `/usr/local/bin/formamorph-backup` daily at **04:17 UTC**.

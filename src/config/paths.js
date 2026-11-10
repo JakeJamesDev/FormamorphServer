@@ -40,6 +40,9 @@ const EVENT_POSTERS_DIR = path.join(STORAGE_ROOT, 'event-posters');
 /** Supporter-only content. No route serves this directory; only the storage interface reaches it. */
 const SUPPORTER_PRIVATE_DIR = path.join(STORAGE_ROOT, 'supporter-private');
 
+/** Local database snapshots and `npm run backup` copies. Overridable so tests can use a scratch directory. */
+const BACKUPS_DIR = process.env.BACKUPS_DIR || path.join(PROJECT_ROOT, 'backups');
+
 /** The bundled fingerprint list, copied in from the client repo. Tests point it at a fixture list. */
 const BUNDLED_FINGERPRINTS_PATH = process.env.BUNDLED_FINGERPRINTS_PATH
   ? path.resolve(PROJECT_ROOT, process.env.BUNDLED_FINGERPRINTS_PATH)
@@ -57,5 +60,6 @@ module.exports = {
   AVATARS_DIR,
   EVENT_POSTERS_DIR,
   SUPPORTER_PRIVATE_DIR,
+  BACKUPS_DIR,
   BUNDLED_FINGERPRINTS_PATH,
 };
