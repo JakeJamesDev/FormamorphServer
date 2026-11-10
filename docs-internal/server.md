@@ -547,6 +547,11 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-10** — deployed `adf4dd8`: the admin storage report, with hourly disk and directory checks, storage
+  history and forecast, disk-full alerts and R2 bucket sizes. All 3,674 tests passed in 41.5 s (42.5 s wall).
+  Backup `backups/pre-deploy-06b1db8-2026-11-10T19-04-46.039Z.db`, integrity `ok`. Boot applied `storageDays`,
+  additive. Service active with zero restarts, boot logged `Server running on port`, public route 200, and
+  3.6.0 and 3.6.2 clients got 200s right after the restart. `CLOUDFLARE_ANALYTICS_TOKEN` is set on the server.
 - **2026-11-09** — deployed `9b9331c`: the usage report measures accounts against the budget week, and the
   live hosted run shows cached tokens and has JSON output. All 3,508 tests passed in 67 s (75 s wall). No
   backup: no schema step. Service active with zero restarts, boot logged `Server running on port`, public
