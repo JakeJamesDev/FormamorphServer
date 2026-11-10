@@ -55,7 +55,7 @@ describe('the seeded row', () => {
     expect(manage.body.privacyPolicy.title).toBe('Privacy Policy');
     expect(manage.body.privacyPolicy.acceptanceVersion).toBe(2);
     expect(manage.body.privacyPolicy.body).toContain('**Your email address is optional.**');
-    expect(manage.body.privacyPolicy.body).toContain('**Resend** delivers verification and password-reset email.');
+    expect(manage.body.privacyPolicy.body).toContain('**Amazon SES** (Amazon Web Services, in the United States) delivers verification and password-reset email.');
   });
 
   it('never overwrites an edited row', async () => {
@@ -413,7 +413,7 @@ describe('reading it signed out', () => {
     expect(res.status).toBe(200);
     expect(res.body.privacyPolicy).toEqual({ title: 'Privacy Policy', body: approved.body });
     expect(res.body.privacyPolicy.body).toContain('Once verified, it can also receive password-reset links.');
-    expect(res.body.privacyPolicy.body).toContain('When we send one, Resend receives your email address and the message.');
+    expect(res.body.privacyPolicy.body).toContain('When we send one, Amazon SES receives your email address and the message.');
   });
 
   it('says nothing about anyone accepting it', async () => {

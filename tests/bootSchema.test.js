@@ -304,10 +304,10 @@ describe('the schema step', () => {
     const seeded = fresh.prepare("SELECT * FROM policies WHERE id = 'privacy_policy'").get();
     expect(seeded.enabled).toBe(0);
     expect(seeded.acceptance_version).toBe(2);
-    expect(seeded.body).toContain('**Last updated: 7 November 2026**');
+    expect(seeded.body).toContain('**Last updated: 9 November 2026**');
     expect(seeded.body).toContain('**Your email address is optional.**');
     expect(seeded.body).toContain('Once verified, it can also receive password-reset links.');
-    expect(seeded.body).toContain('**Resend** delivers verification and password-reset email.');
+    expect(seeded.body).toContain('**Amazon SES** (Amazon Web Services, in the United States) delivers verification and password-reset email.');
 
     // The collection an Anonymous Like makes, which the route may not start before this text is live.
     expect(seeded.body).toContain('\n## Liking while signed out\n');

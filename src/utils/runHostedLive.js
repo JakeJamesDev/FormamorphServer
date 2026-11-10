@@ -35,7 +35,9 @@ process.env.STORAGE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'fms-live-'));
 process.env.JWT_SECRET = crypto.randomBytes(16).toString('hex');
 process.env.SIGNAL_SALT ||= 'live-run-salt';
 process.env.NODE_ENV = 'test';
-delete process.env.RESEND_API_KEY;
+delete process.env.AWS_ACCESS_KEY_ID;
+delete process.env.AWS_SECRET_ACCESS_KEY;
+delete process.env.SES_CONFIGURATION_SET;
 delete process.env.STAFF_ALERT_EMAIL;
 
 const MODES = { stream: ['stream'], whole: ['whole'], both: ['stream', 'whole'] };

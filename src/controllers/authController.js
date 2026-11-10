@@ -507,7 +507,7 @@ exports.requestPasswordReset = async (req, res, next) => {
 
     // Answered before anything is mailed, and with the same body whatever was found. This is what keeps
     // the route from being a way to ask whether somebody has an account here: minting a token and handing
-    // a message to Resend takes far longer than finding nothing, so a response that waited for it would
+    // a message to SES takes far longer than finding nothing, so a response that waited for it would
     // time the answer even while wording it identically.
     res.status(200).json({ success: true });
 

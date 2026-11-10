@@ -22,12 +22,12 @@ const { reconcilePatreon, startPatreonReconciler } = require('./utils/reconcileP
 const { sweepHostedUsage, startHostedUsageSweeper } = require('./utils/sweepHostedUsage');
 const { monitorProvider, startHostedMonitors } = require('./utils/hostedProvider');
 const { rotateHiddenGems, startHiddenGemRotation } = require('./utils/rotateHiddenGems');
-const { mailEnabled } = require('./utils/mail');
+const { mailEnabled, missingMailKeys } = require('./utils/mail');
 const app = require('./app');
 
 // Not fatal: the game works without mail. Verification and password reset do not.
 if (!mailEnabled) {
-  console.error('RESEND_API_KEY is not set: no verification or reset mail will be sent.');
+  console.error(`Mail is off (${missingMailKeys.join(', ')} unset): no verification, reset or alert mail will be sent.`);
 }
 
 // Bring the schema up to date before serving, so a deploy that adds a table or a column needs nothing run

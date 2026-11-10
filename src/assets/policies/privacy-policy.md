@@ -1,4 +1,4 @@
-**Last updated: 7 November 2026**
+**Last updated: 9 November 2026**
 
 This policy says what Formamorph stores about you, why, for how long, and who else handles it. It covers the community server: accounts, published worlds, comments, likes, follows, and feedback. It also covers a daily send that counts active installs, and Formamorph AI, if you choose to use it. The game runs on your device. Unless you use Formamorph AI, nothing about a playthrough reaches us.
 
@@ -13,6 +13,8 @@ You must be **at least 18 years old**, and of legal age to view adult content wh
 **Your account.** Your username, a hash of your password, your email address if you gave one, and your avatar image if you uploaded one. We never store the password itself.
 
 **Your email address is optional.** If you add one, we use it to send you a verification link. Once verified, it can also receive password-reset links. We do not use it for marketing.
+
+**What happens to the mail we send you.** For each account mail, we record whether it was delivered, delayed, bounced, or reported as spam. The record holds your account, the kind of mail, and when it was sent. It never holds your email address.
 
 **What you publish.** Every world you upload, with its description, tags, thumbnail, content file, and update history. Your comments. The listings you like. The accounts you follow. Your contest entries and their placements.
 
@@ -116,7 +118,7 @@ We read our Patreon member list, and Patreon notifies us when a membership chang
 
 **Cloudflare** runs the domain's DNS, sits in front of the server as a proxy, and stores the published files. Cloudflare is the proxy, so **it handles every request you make**, including your network address.
 
-**Resend** delivers verification and password-reset email. When we send one, Resend receives your email address and the message.
+**Amazon SES** (Amazon Web Services, in the United States) delivers verification and password-reset email. When we send one, Amazon SES receives your email address and the message. It tells us whether the mail was delivered, delayed, bounced, or reported as spam.
 
 **Patreon** handles memberships and payments, under its own terms and privacy policy. If you link an account, Patreon tells us your Patreon user id and your membership details.
 
@@ -136,6 +138,7 @@ Your worlds, saves, and settings stay in your own browser or on your own disk. T
 - **Signals:** 90 days.
 - **The address hash and browser family beside a like you gave while signed out:** 90 days. The like itself stays.
 - **The kind of network beside a like:** 90 days. The like itself stays.
+- **Delivery records of account mail:** 90 days.
 - **Your Patreon link:** until you unlink it or delete your account.
 - **Records and refusal totals of Formamorph AI calls:** 30 days. We keep no text from your play.
 - **Daily records of active installs:** until the month closes.

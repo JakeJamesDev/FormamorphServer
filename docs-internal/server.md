@@ -222,6 +222,10 @@ The values live in the local hosted-tier note.
 | `HOSTED_AI_BALANCE_URL` | Provider balance read. Unset skips the read |
 | `HOSTED_AI_USAGE_URL` | Provider per-day usage read. Unset skips the read |
 | `STAFF_ALERT_EMAIL` | Where pause, low-balance and Patreon reconcile alerts are mailed |
+| `AWS_ACCESS_KEY_ID` | Access key of the IAM user that sends mail through Amazon SES. Unset turns mail off |
+| `AWS_SECRET_ACCESS_KEY` | Its secret. Never in settings, responses or logs |
+| `AWS_REGION` | SES region. Defaults to `us-east-2` |
+| `SES_CONFIGURATION_SET` | SES configuration set every mail is sent with. Unset turns mail off |
 | `PATREON_SUPPORTER_TOP_TIER_ID` | Patreon tier ID for the top tier |
 
 Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the

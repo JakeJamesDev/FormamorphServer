@@ -146,7 +146,7 @@ describe('asking for a reset', () => {
 
   it('answers while the mail is still going out', async () => {
     // The bodies are identical, so delivery is the only thing left that could tell a real account from a
-    // made-up one — handing a message to Resend takes far longer than finding nothing does. A transport
+    // made-up one — handing a message to SES takes far longer than finding nothing does. A transport
     // that never finishes stands in for the slowest possible one: the answer has to arrive anyway.
     const user = verifiedUser();
     let deliver;

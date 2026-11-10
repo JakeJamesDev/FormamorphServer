@@ -30,6 +30,10 @@ export default defineConfig({
       PATREON_SUPPORTER_PLUS_TIER_ID: 'tier-10',
       PATREON_SUPPORTER_TOP_TIER_ID: 'tier-top',
       PATREON_WEBHOOK_SECRET: 'test-webhook-secret',
+      // Blank, so a shell holding real AWS keys still boots the suite with mail off.
+      AWS_ACCESS_KEY_ID: '',
+      AWS_SECRET_ACCESS_KEY: '',
+      SES_CONFIGURATION_SET: '',
     },
     coverage: {
       provider: 'v8',

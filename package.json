@@ -36,6 +36,7 @@
     ]
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1165.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^13.0.3",

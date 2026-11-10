@@ -171,7 +171,7 @@ describe('the verification mail', () => {
 
   it('registers the account even when the mail cannot be sent', async () => {
     // Delivery is somebody else's service. An outage there must not cost a player their registration.
-    setMailTransport({ send: () => Promise.reject(new Error('Resend is down')) });
+    setMailTransport({ send: () => Promise.reject(new Error('SES is down')) });
 
     const response = await register({ username: 'unlucky', email: 'unlucky@example.test' });
 
@@ -356,7 +356,7 @@ describe('setting the address on an account already signed in', () => {
   it('saves the address even when the mail cannot be sent, and says the mail did not go', async () => {
     // The address is on file either way, so the client needs to know whether to offer another try.
     const user = createUser({ username: 'offline' });
-    setMailTransport({ send: () => Promise.reject(new Error('Resend is down')) });
+    setMailTransport({ send: () => Promise.reject(new Error('SES is down')) });
 
     const response = await setEmail(user, 'offline@example.test');
 
@@ -425,7 +425,7 @@ describe('asking for the verification mail again', () => {
 
   it('says the mail did not go when the transport refuses it', async () => {
     const user = createUser({ username: 'undelivered', email: 'undelivered@example.test' });
-    setMailTransport({ send: () => Promise.reject(new Error('Resend is down')) });
+    setMailTransport({ send: () => Promise.reject(new Error('SES is down')) });
 
     const response = await resend(user);
 
@@ -433,7 +433,7 @@ describe('asking for the verification mail again', () => {
     expect(response.body.mailSent).toBe(false);
   });
 
-  it('says the mail did not go when the server has no Resend key', async () => {
+  it('says the mail did not go when the server has no mail keys', async () => {
     // The suite runs without a key, so the startup transport is the no-key one.
     const user = createUser({ username: 'keyless', email: 'keyless@example.test' });
     resetMailTransport();

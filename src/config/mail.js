@@ -1,15 +1,15 @@
 /**
  * Where mail comes from, where its links point, and how much of it one account may ask for.
  *
- * The sender and the site are environment values with a default, because a development box has no Resend
- * key and still has to build a link somebody can read. `RESEND_API_KEY` is deliberately not re-exported:
- * the transport is the only thing that ever needs it, and a key that reaches nothing else cannot be
+ * The sender and the site are environment values with a default, because a development box has no mail
+ * keys and still has to build a link somebody can read. The AWS keys are deliberately not re-exported:
+ * the transport is the only thing that ever needs them, and a key that reaches nothing else cannot be
  * logged by accident.
  */
 
 const { HOUR_MS } = require('./time');
 
-/** The sender Resend is configured to sign for. A mail from any other address is refused by the API. */
+/** The sender on the domain SES signs for. A mail from any other address is refused by SES. */
 const MAIL_FROM = process.env.MAIL_FROM || 'Formamorph <account@mail.formamorph.ai>';
 
 /** Where a reply to a mail goes. Unset leaves the header off, so a reply goes back to the sender. */
