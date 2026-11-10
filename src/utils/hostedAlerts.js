@@ -27,7 +27,7 @@ const alertAdmins = async ({ subject, body }) => {
   const to = staffAlertEmail();
   if (!to) return;
   try {
-    await sendMail({ to, subject, text: body });
+    await sendMail({ to, subject, text: body, userId: null, kind: 'alert' });
   } catch (error) {
     console.error('Hosted AI alert mail failed:', error);
   }

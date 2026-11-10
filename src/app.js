@@ -28,6 +28,7 @@ const eventRoutes = require('./routes/events');
 const eventPosterRoutes = require('./routes/eventPosters');
 const settingsRoutes = require('./routes/settings');
 const patreonRoutes = require('./routes/patreon');
+const mailRoutes = require('./routes/mail');
 const supporterContentRoutes = require('./routes/supporterContent');
 const hostedAiRoutes = require('./routes/hostedAi');
 const funnelRoutes = require('./routes/funnel');
@@ -105,6 +106,7 @@ app.use('/api/thumbnails', thumbnailRoutes);
 app.use('/api/avatars', avatarRoutes);
 app.use('/api/event-posters', eventPosterRoutes);
 app.use('/api/patreon', patreonRoutes);
+app.use('/api/mail', mailRoutes);
 app.use('/api/supporter-content', supporterContentRoutes);
 // Parses its own body with a limit sized for the largest window, and answers its own errors so no
 // request body reaches the log (see routes/hostedAi.js).

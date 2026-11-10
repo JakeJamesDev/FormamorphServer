@@ -67,6 +67,8 @@ const sendVerificationEmail = async ({ userId, email }) => {
 
   await sendMail({
     to: email,
+    userId,
+    kind: 'verify',
     subject: 'Verify your Formamorph email address',
     text: [lead, '', link, '', note].join('\n'),
     html: accountMailHtml({ lead, label: 'Verify My Email Address', link, note })
@@ -92,6 +94,8 @@ const sendPasswordResetEmail = async ({ userId, email }) => {
 
   await sendMail({
     to: email,
+    userId,
+    kind: 'reset',
     subject: 'Reset your Formamorph password',
     text: [lead, '', link, '', note].join('\n'),
     html: accountMailHtml({ lead, label: 'Set a New Password', link, note })

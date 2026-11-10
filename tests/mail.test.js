@@ -129,7 +129,7 @@ describe('choosing the transport from the environment', () => {
 
   it('starts the test process with mail off, so no test reaches AWS', async () => {
     expect(mailEnabled).toBe(false);
-    await expect(sendMail(message)).rejects.toThrow(/Mail is off/);
+    await expect(sendMail({ ...message, userId: null, kind: 'alert' })).rejects.toThrow(/Mail is off/);
   });
 });
 

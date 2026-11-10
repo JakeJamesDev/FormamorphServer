@@ -48,4 +48,26 @@ const MAIL_WINDOW_MS = HOUR_MS;
 const RESET_LIMIT = 3;
 const RESET_WINDOW_MS = HOUR_MS;
 
-module.exports = { MAIL_FROM, MAIL_REPLY_TO, SITE_URL, MAIL_LIMIT, MAIL_WINDOW_MS, RESET_LIMIT, RESET_WINDOW_MS };
+/** SES message tags each mail carries: its mail-log row id, and its kind. */
+const MAIL_ID_TAG = 'mail_id';
+const MAIL_KIND_TAG = 'mail_kind';
+
+/** The header EventBridge's connection sends the webhook secret in. */
+const SES_EVENTS_SECRET_HEADER = 'X-SES-Events-Secret';
+
+/** The shared secret SES events must carry. Empty refuses every event. */
+const sesEventsSecret = () => process.env.SES_EVENTS_SECRET || '';
+
+module.exports = {
+  MAIL_FROM,
+  MAIL_REPLY_TO,
+  SITE_URL,
+  MAIL_LIMIT,
+  MAIL_WINDOW_MS,
+  RESET_LIMIT,
+  RESET_WINDOW_MS,
+  MAIL_ID_TAG,
+  MAIL_KIND_TAG,
+  SES_EVENTS_SECRET_HEADER,
+  sesEventsSecret
+};

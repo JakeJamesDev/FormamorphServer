@@ -365,7 +365,7 @@ describe('Month Close', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(Signal, 'cutoff').mockImplementation(() => { throw new Error('no clock'); });
 
-    expect(sweepRetention('2026-04-01T01:00:00.000Z')).toEqual({ signals: 0, marks: 0, kinds: 0, months: 1 });
+    expect(sweepRetention('2026-04-01T01:00:00.000Z')).toEqual({ signals: 0, marks: 0, kinds: 0, months: 1, mails: 0 });
     expect(closedTotals()).toEqual(MARCH_TOTALS);
   });
 

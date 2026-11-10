@@ -1,12 +1,15 @@
+const crypto = require('crypto');
 const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
-const { MAIL_FROM, MAIL_REPLY_TO } = require('../config/mail');
+const { MAIL_FROM, MAIL_REPLY_TO, MAIL_ID_TAG, MAIL_KIND_TAG } = require('../config/mail');
+const MailLog = require('../models/MailLog');
 
 /**
  * The one way this server sends mail, and the seam a test replaces.
  *
- * A transport is any object with `send({ from, replyTo, to, subject, text, html })` returning a promise. Which one
- * the process uses is decided once, here, from the environment: every SES key means Amazon SES, a missing one
- * means refusal. Callers never choose, so nothing can reach AWS from a test or a development box by mistake.
+ * A transport is any object with `send({ from, replyTo, to, subject, text, html, tags })` resolving to
+ * `{ messageId }`. Which one the process uses is decided once, here, from the environment: every SES key
+ * means Amazon SES, a missing one means refusal. Callers never choose, so nothing can reach AWS from a test
+ * or a development box by mistake.
  */
 
 /** The region where this account has SES production access. */
@@ -40,10 +43,10 @@ const withoutAddresses = (text) => String(text || '').replace(/[^\s<>"',;:()]+@[
  *
  * @param {{ sendEmail: (input: Object) => Promise<Object> }} client - From `sesClient`, or a test's fake
  * @param {string} configurationSetName - The SES configuration set every mail is sent with
- * @returns {{send: (message: Object) => Promise<void>}} A transport
+ * @returns {{send: (message: Object) => Promise<{messageId: string|null}>}} A transport
  */
 const sesTransport = (client, configurationSetName) => ({
-  send: async ({ from, replyTo, to, subject, text, html }) => {
+  send: async ({ from, replyTo, to, subject, text, html, tags = {} }) => {
     const body = {};
     if (text !== undefined) body.Text = { Data: text, Charset: UTF8 };
     if (html !== undefined) body.Html = { Data: html, Charset: UTF8 };
@@ -55,14 +58,19 @@ const sesTransport = (client, configurationSetName) => ({
       ConfigurationSetName: configurationSetName
     };
     if (replyTo) input.ReplyToAddresses = [replyTo];
+    const emailTags = Object.entries(tags).map(([Name, Value]) => ({ Name, Value }));
+    if (emailTags.length) input.EmailTags = emailTags;
 
+    let response;
     try {
-      await client.sendEmail(input);
+      response = await client.sendEmail(input);
     } catch (error) {
       // A new error without `cause`, so a logged failure holds no recipient.
       const requestId = error.$metadata?.requestId ? ` [request ${error.$metadata.requestId}]` : '';
       throw new Error(`SES refused the message (${error.name || 'Error'})${requestId}: ${withoutAddresses(error.message)}`);
     }
+
+    return { messageId: response?.MessageId ?? null };
   }
 });
 
@@ -83,12 +91,18 @@ const mailOffTransport = (missing) => ({
 /**
  * Keeps every message instead of sending it, for tests to assert on.
  *
- * @returns {{messages: Object[], send: (message: Object) => Promise<void>}} A transport with its record
+ * @returns {{messages: Object[], send: (message: Object) => Promise<{messageId: string}>}} A transport with its record
  */
 const captureTransport = () => {
   const messages = [];
 
-  return { messages, send: async (message) => { messages.push(message); } };
+  return {
+    messages,
+    send: async (message) => {
+      messages.push(message);
+      return { messageId: `captured-${messages.length}` };
+    }
+  };
 };
 
 /**
@@ -129,13 +143,30 @@ const setMailTransport = (replacement) => { transport = replacement; };
 const resetMailTransport = () => { transport = startup.transport; };
 
 /**
- * Send one message.
+ * Send one message and log it once SES has taken it.
  *
- * @param {Object} message - `{ to, subject, text, html }`; the sender is this server's, not a caller's
+ * The log row's id is the mail's tag, so an SES event finds its row without the address. A refused send
+ * throws before the row is written.
+ *
+ * @param {Object} message - `{ to, subject, text, html, userId, kind }`; the sender is this server's.
+ *   `userId` is null for staff alert mail; `kind` is one of `MailLog.KINDS`
  * @returns {Promise<void>} Resolves when the transport has taken it
  */
-const sendMail = ({ to, subject, text, html }) =>
-  transport.send({ from: MAIL_FROM, replyTo: MAIL_REPLY_TO, to, subject, text, html });
+const sendMail = async ({ to, subject, text, html, userId, kind }) => {
+  if (!MailLog.KINDS.includes(kind)) throw new Error(`Unknown mail kind: ${kind}`);
+  const id = crypto.randomUUID();
+  // A UUID and a known kind: only the letters, digits, dashes and underscores SES allows in a tag.
+  const tags = { [MAIL_ID_TAG]: id, [MAIL_KIND_TAG]: kind };
+
+  const sent = await transport.send({ from: MAIL_FROM, replyTo: MAIL_REPLY_TO, to, subject, text, html, tags });
+
+  // The mail is out, so a failed write must not make the caller report it as unsent.
+  try {
+    MailLog.create({ id, userId: userId ?? null, kind, messageId: sent?.messageId ?? null });
+  } catch (error) {
+    console.error('Mail log write failed:', error.message);
+  }
+};
 
 module.exports = {
   sendMail,

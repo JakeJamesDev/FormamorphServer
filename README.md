@@ -53,6 +53,8 @@ npm install
    AWS_SECRET_ACCESS_KEY=<its secret>
    AWS_REGION=us-east-2
    SES_CONFIGURATION_SET=<the SES configuration set name>
+   # The secret EventBridge sends to https://api.formamorph.ai/api/mail/events. Unset refuses every event
+   SES_EVENTS_SECRET=<long random string>
    MAIL_FROM=Formamorph <account@mail.formamorph.ai>
    MAIL_REPLY_TO=support@formamorph.ai
    SITE_URL=https://formamorph.ai

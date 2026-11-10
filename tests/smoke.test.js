@@ -21,7 +21,7 @@ describe('harness', () => {
       .map((r) => r.name);
     expect(tables).toEqual([
       'account_tokens', 'active_install_days', 'active_install_keys', 'active_install_totals', 'anonymous_likes', 'audit_log', 'comments', 'event_placements', 'events', 'feedback', 'feedback_comments', 'feedback_mentions', 'feedback_reads',
-      'feedback_sequence', 'feedback_votes', 'follows', 'funnel_totals', 'hidden_gem_picks', 'hidden_gem_rotations', 'hosted_grants', 'hosted_pause', 'hosted_provider_spend', 'hosted_refusals', 'hosted_usage', 'hosted_warning_acks', 'install_claims', 'listing_compatibility', 'listing_dependencies', 'message_states', 'messages',
+      'feedback_sequence', 'feedback_votes', 'follows', 'funnel_totals', 'hidden_gem_picks', 'hidden_gem_rotations', 'hosted_grants', 'hosted_pause', 'hosted_provider_spend', 'hosted_refusals', 'hosted_usage', 'hosted_warning_acks', 'install_claims', 'listing_compatibility', 'listing_dependencies', 'mail_log', 'message_states', 'messages',
       'patreon_links', 'patreon_pending_links', 'pending_updates', 'policies', 'policy_acceptances', 'reports', 'settings', 'signals', 'users', 'watermark_marks', 'world_changelog', 'world_download_days', 'world_likes', 'worlds'
     ]);
   });

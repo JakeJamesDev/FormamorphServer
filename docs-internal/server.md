@@ -226,6 +226,7 @@ The values live in the local hosted-tier note.
 | `AWS_SECRET_ACCESS_KEY` | Its secret. Never in settings, responses or logs |
 | `AWS_REGION` | SES region. Defaults to `us-east-2` |
 | `SES_CONFIGURATION_SET` | SES configuration set every mail is sent with. Unset turns mail off |
+| `SES_EVENTS_SECRET` | Shared secret EventBridge sends to the mail-event webhook. Unset answers 503 to every event (see Mail events) |
 | `PATREON_SUPPORTER_TOP_TIER_ID` | Patreon tier ID for the top tier |
 
 Then write the `hosted_ai` setting as admin (`PUT /api/settings/hosted_ai`). Until every value is set, the
@@ -254,6 +255,31 @@ that call while it still runs.
    an end date. Watch spend per subject and the spend-versus-estimate report.
 3. **Open to Supporters.** Staff decide when the beta ends. The proxy route's entry in `client_minimums`
    (see Requiring a newer client on one route) names the first client build that ships Formamorph AI.
+
+## Mail events
+
+SES reports what happened to each mail: delivered, delayed, bounced or complained. EventBridge forwards
+those events to `POST https://api.formamorph.ai/api/mail/events`. Each event moves its row in `mail_log`.
+
+📬 **Setup, once, in `us-east-2`:**
+
+1. Generate a long random secret. Put it in `/srv/formamorph/app/.env` and `.env.production` as
+   `SES_EVENTS_SECRET`, then restart.
+2. On the SES configuration set, add an **EventBridge** event destination for **Delivery**, **Delivery
+   delay**, **Bounce** and **Complaint**. Never turn on Open or Click.
+3. In EventBridge, create a **connection** with **API key** authorization:
+   - Key name: `X-SES-Events-Secret`
+   - Value: the secret from step 1
+4. Create an **API destination**: `POST` to the webhook URL above, with that connection.
+5. Create a **rule** on the default event bus with the pattern `{"source": ["aws.ses"]}`. Target the API
+   destination and send the whole event, with no input transformer.
+6. Prove it: send one mail to `bounce@simulator.amazonses.com` and check that its row moves to `bounced`.
+
+- The webhook answers 401 to a missing or wrong secret. EventBridge retries a 401 for up to 24 hours, so
+  fix a secret mismatch inside that window.
+- An unknown mail or an event type the server does not record gets a 200 and changes nothing.
+- No event stores or logs the recipient address. Rows go after 90 days in the retention sweep, and with
+  the account.
 
 ## Backups
 

@@ -3,6 +3,7 @@ const Signal = require('../models/Signal');
 const AnonymousLike = require('../models/AnonymousLike');
 const World = require('../models/World');
 const ActiveInstall = require('../models/ActiveInstall');
+const MailLog = require('../models/MailLog');
 const { utcDay } = require('../config/time');
 
 /**
@@ -24,22 +25,28 @@ const { utcDay } = require('../config/time');
  * deadline and nothing else, and a table that will not write must not keep another from expiring.
  *
  * A fourth step, the Month Close, runs first, on the calendar month of `now` rather than the deadline, so a
- * deadline that will not read never holds it back.
+ * deadline that will not read never holds it back. The mail log follows, on its own 90-day deadline.
  *
  * Never throws, down to reading the deadline. This runs on a timer nobody is watching; a failure to
  * purge must not take the process down.
  *
  * @param {string} [now] - The instant to measure retention back from, for tests
- * @returns {{signals: number, marks: number, kinds: number, months: number}} Signals deleted, marks
- *   emptied, account Likes that lost their kind, and Active Install months closed
+ * @returns {{signals: number, marks: number, kinds: number, months: number, mails: number}} Signals deleted,
+ *   marks emptied, account Likes that lost their kind, Active Install months closed, and mail-log rows deleted
  */
 const sweepRetention = (now = undefined) => {
-  const swept = { signals: 0, marks: 0, kinds: 0, months: 0 };
+  const swept = { signals: 0, marks: 0, kinds: 0, months: 0, mails: 0 };
 
   try {
     swept.months = ActiveInstall.closeMonthsBefore(utcDay(now ? new Date(now) : new Date()).slice(0, 7));
   } catch (error) {
     console.error('Active Install month close failed:', error);
+  }
+
+  try {
+    swept.mails = MailLog.deleteBefore(MailLog.cutoff(now));
+  } catch (error) {
+    console.error('Mail log sweep failed:', error);
   }
 
   let cutoff;
