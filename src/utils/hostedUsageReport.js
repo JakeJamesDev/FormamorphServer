@@ -51,6 +51,23 @@ const activeFigures = (dayCounts, month, today, yesterday, monthStart) => {
   return { today: dayCounts.get(today) || 0, yesterday: dayCounts.get(yesterday) || 0, month, averageDay };
 };
 
+/** Each platform and version's active installs today, yesterday and this month, most this month first. */
+const buildRows = (days, month, today, yesterday) => {
+  const builds = new Map();
+  const add = (breakdown = [], field) => {
+    for (const { platform, version, count } of breakdown) {
+      const key = `${platform} ${version}`;
+      if (!builds.has(key)) builds.set(key, { platform, version, today: 0, yesterday: 0, month: 0 });
+      builds.get(key)[field] = count;
+    }
+  };
+  add(days.get(today), 'today');
+  add(days.get(yesterday), 'yesterday');
+  add(month, 'month');
+
+  return [...builds.values()].sort((a, b) => b.month - a.month || b.yesterday - a.yesterday || b.today - a.today);
+};
+
 /** Daily and monthly active app installs and Formamorph AI accounts, by UTC calendar month. */
 const activeUsers = (now) => {
   const today = utcDay(now);
@@ -59,9 +76,14 @@ const activeUsers = (now) => {
   const from = yesterday < monthStart ? yesterday : monthStart;
   const accountDays = new Map(HostedUsageReport.accountDays(`${from}T00:00:00.000Z`).map((row) => [row.day, row.count]));
 
+  const installDays = ActiveInstall.daysSince(from);
+  const installMonth = ActiveInstall.months().get(today.slice(0, 7));
+  const installCountsByDay = new Map([...installDays].map(([day, breakdown]) => [day, sumCounts(breakdown)]));
+
   return {
-    installs: activeFigures(installCounts(from), sumCounts(ActiveInstall.months().get(today.slice(0, 7))), today, yesterday, monthStart),
-    accounts: activeFigures(accountDays, HostedUsageReport.accountsSince(`${monthStart}T00:00:00.000Z`), today, yesterday, monthStart)
+    installs: activeFigures(installCountsByDay, sumCounts(installMonth), today, yesterday, monthStart),
+    accounts: activeFigures(accountDays, HostedUsageReport.accountsSince(`${monthStart}T00:00:00.000Z`), today, yesterday, monthStart),
+    builds: buildRows(installDays, installMonth, today, yesterday)
   };
 };
 
@@ -70,10 +92,13 @@ const dayRows = (dayNames, since) => {
   const usage = new Map(HostedUsageReport.days(since).map((row) => [row.day, row]));
   const provider = new Map(HostedUsage.providerDaysSince(dayNames[0]).map((row) => [row.day, row.providerMicros]));
   const installs = installCounts(dayNames[0]);
+  const firstInstallDay = ActiveInstall.firstDay();
 
+  // A day before counting began has no install count, which is not a count of zero.
   return dayNames.map((day) => ({
     day, calls: 0, turns: 0, accounts: 0, costMicros: 0, ...usage.get(day),
-    providerMicros: provider.get(day) ?? null, installs: installs.get(day) || 0
+    providerMicros: provider.get(day) ?? null,
+    installs: firstInstallDay && day >= firstInstallDay ? installs.get(day) || 0 : null
   }));
 };
 

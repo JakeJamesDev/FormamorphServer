@@ -55,6 +55,18 @@ const ActiveInstall = {
   }),
 
   /**
+   * The earliest day with a counted install, live or closed.
+   *
+   * @returns {string|null} 'YYYY-MM-DD', UTC, or null with nothing counted
+   */
+  firstDay: () => db.prepare(`
+    SELECT MIN(day) AS day FROM (
+      SELECT MIN(day) AS day FROM active_install_days
+      UNION ALL SELECT MIN(period) FROM active_install_totals WHERE kind = 'day'
+    )
+  `).get().day,
+
+  /**
    * Each day's distinct installs since a day, inclusive, by platform and version. A closed day reads its totals.
    *
    * @param {string} since - 'YYYY-MM-DD', UTC

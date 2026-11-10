@@ -95,8 +95,8 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     const report = await read(2);
 
     expect(report.days).toEqual([
-      { day: dayOf(daysAgo(1)), calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650, installs: 0 },
-      { day: dayOf(daysAgo(0)), calls: 0, turns: 0, accounts: 0, costMicros: 0, providerMicros: null, installs: 0 }
+      { day: dayOf(daysAgo(1)), calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650, installs: null },
+      { day: dayOf(daysAgo(0)), calls: 0, turns: 0, accounts: 0, costMicros: 0, providerMicros: null, installs: null }
     ]);
     expect(report.totals).toMatchObject({ calls: 3, turns: 2, accounts: 2, costMicros: 600, providerMicros: 650 });
   });
@@ -264,6 +264,46 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     expect(days.map((day) => [day.day, day.installs])).toEqual([['2026-11-10', 2], ['2026-11-11', 1]]);
   });
 
+  it('gives no install count before the first counted day, and zero for an empty day after it', async () => {
+    at('2026-11-11T12:00:00.000Z');
+    install('2026-11-09', 'h1');
+    install('2026-11-11', 'h1');
+
+    const { days } = await read(4);
+
+    expect(days.map((day) => [day.day, day.installs])).toEqual([
+      ['2026-11-08', null], ['2026-11-09', 1], ['2026-11-10', 0], ['2026-11-11', 1]
+    ]);
+  });
+
+  it('starts install counts at a closed day when the first counted month has closed', async () => {
+    at('2026-11-02T12:00:00.000Z');
+    db.prepare("INSERT INTO active_install_totals (kind, period, platform, version, count) VALUES ('day', '2026-10-31', 'web', '3.6.2', 4)").run();
+
+    const { days } = await read(4);
+
+    expect(days.map((day) => [day.day, day.installs])).toEqual([
+      ['2026-10-30', null], ['2026-10-31', 4], ['2026-11-01', 0], ['2026-11-02', 0]
+    ]);
+  });
+
+  it('breaks active installs down by platform and version, most this month first', async () => {
+    at('2026-11-11T12:00:00.000Z');
+    install('2026-10-31', 'old', 'linux');
+    install('2026-11-09', 'h1');
+    install('2026-11-10', 'h1');
+    install('2026-11-10', 'h2', 'web');
+    install('2026-11-10', 'h3', 'web');
+    install('2026-11-11', 'h2', 'web');
+
+    const { activeUsers } = await read(7);
+
+    expect(activeUsers.builds).toEqual([
+      { platform: 'web', version: '3.6.2', today: 1, yesterday: 2, month: 2 },
+      { platform: 'windows', version: '3.6.2', today: 0, yesterday: 1, month: 1 }
+    ]);
+  });
+
   it('reports daily and monthly active installs and accounts for the calendar month', async () => {
     at('2026-11-11T12:00:00.000Z');
     // Last month: out of the month figure and the mean.
@@ -283,7 +323,7 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
 
     const { activeUsers } = await read(7);
 
-    expect(activeUsers).toEqual({
+    expect(activeUsers).toMatchObject({
       installs: { today: 1, yesterday: 3, month: 3, averageDay: 5 / 3 },
       accounts: { today: 1, yesterday: 2, month: 2, averageDay: 3 / 2 }
     });
