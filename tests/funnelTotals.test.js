@@ -21,20 +21,37 @@ describe('POST /api/funnel/:step', () => {
     expect((await send('see_levels')).status).toBe(204);
 
     const rows = db.prepare('SELECT day, step, count FROM funnel_totals ORDER BY step').all();
-    expect(rows).toEqual([
-      { day: today(), step: 'checklist_finished', count: 1 },
-      { day: today(), step: 'engine_offer_shown', count: 1 },
-      { day: today(), step: 'offer_shown', count: 1 },
-      { day: today(), step: 'patreon_click', count: 1 },
-      { day: today(), step: 'see_levels', count: 2 }
-    ]);
+    expect(rows).toHaveLength(FUNNEL_STEPS.length);
+    expect(rows.find((row) => row.step === 'see_levels')).toEqual({ day: today(), step: 'see_levels', count: 2 });
+    expect(rows.filter((row) => row.step !== 'see_levels').every((row) => row.count === 1)).toBe(true);
   });
 
-  it('counts the built-in engine card step', async () => {
-    expect((await send('engine_offer_shown')).status).toBe(204);
-    expect(db.prepare('SELECT day, step, count FROM funnel_totals').all()).toEqual([
-      { day: today(), step: 'engine_offer_shown', count: 1 }
-    ]);
+  it('accepts and counts every valid source and step pair', async () => {
+    const pairs = [
+      'setup_offer_shown', 'setup_see_levels', 'setup_patreon_click', 'setup_checklist_finished',
+      'demo_offer_shown', 'demo_see_levels', 'demo_patreon_click', 'demo_checklist_finished',
+      'engine_offer_shown', 'engine_see_levels', 'engine_patreon_click', 'engine_checklist_finished',
+      'notice_see_levels', 'notice_patreon_click', 'notice_checklist_finished',
+      'locked_see_levels', 'locked_patreon_click', 'locked_checklist_finished'
+    ];
+    for (const step of pairs) expect((await send(step)).status).toBe(204);
+
+    const stored = db.prepare('SELECT step, count FROM funnel_totals ORDER BY step').all();
+    expect(stored).toEqual(pairs.slice().sort().map((step) => ({ step, count: 1 })));
+  });
+
+  it('still accepts the sourceless names v3.6.2 clients send', async () => {
+    for (const step of ['offer_shown', 'see_levels', 'patreon_click', 'checklist_finished']) {
+      expect((await send(step)).status).toBe(204);
+    }
+    expect(db.prepare('SELECT COUNT(*) AS n FROM funnel_totals').get().n).toBe(4);
+  });
+
+  it('refuses a pair the spec leaves out and stores nothing', async () => {
+    for (const step of ['locked_offer_shown', 'notice_offer_shown', 'other_see_levels']) {
+      expect((await send(step)).status).toBe(400);
+    }
+    expect(db.prepare('SELECT COUNT(*) AS n FROM funnel_totals').get().n).toBe(0);
   });
 
   it('refuses the retired local_offer_shown name and stores nothing', async () => {
@@ -103,10 +120,11 @@ describe('GET /api/funnel', () => {
     const res = await request(app).get('/api/funnel').set(authHeader(admin));
 
     expect(res.status).toBe(200);
-    expect(res.body.data.days).toEqual([
-      { day: '2026-11-02', steps: { offer_shown: 7, engine_offer_shown: 0, see_levels: 0, patreon_click: 2, checklist_finished: 0 } },
-      { day: '2026-11-01', steps: { offer_shown: 5, engine_offer_shown: 0, see_levels: 0, patreon_click: 0, checklist_finished: 0 } }
-    ]);
+    const days = res.body.data.days;
+    expect(days.map((d) => d.day)).toEqual(['2026-11-02', '2026-11-01']);
+    expect(Object.keys(days[0].steps).sort()).toEqual([...FUNNEL_STEPS].sort());
+    expect(days[0].steps).toMatchObject({ offer_shown: 7, patreon_click: 2, engine_offer_shown: 0, locked_checklist_finished: 0 });
+    expect(days[1].steps).toMatchObject({ offer_shown: 5, patreon_click: 0 });
   });
 
   it('refuses a guest, a normal account and a moderator', async () => {

@@ -220,9 +220,13 @@ describe('GET /api/hosted-ai/admin/usage-report', () => {
     FunnelTotal.increment(dayOf(daysAgo(0)), 'see_levels');
     FunnelTotal.increment(dayOf(daysAgo(0)), 'engine_offer_shown');
 
-    expect((await read(2)).offer).toEqual([
-      { step: 'offer_shown', count: 7 }, { step: 'engine_offer_shown', count: 1 }, { step: 'see_levels', count: 1 }, { step: 'patreon_click', count: 0 }, { step: 'checklist_finished', count: 0 }
-    ]);
+    const offer = (await read(2)).offer;
+    const counts = Object.fromEntries(offer.map((row) => [row.step, row.count]));
+
+    expect(offer).toHaveLength(22);
+    expect(counts).toMatchObject({ offer_shown: 7, engine_offer_shown: 1, see_levels: 1, patreon_click: 0, checklist_finished: 0, setup_offer_shown: 0, locked_patreon_click: 0, notice_see_levels: 0 });
+    expect(offer.map((row) => row.step)).toContain('locked_see_levels');
+    expect(offer.map((row) => row.step)).not.toContain('locked_offer_shown');
   });
 
   it('answers an empty range with zeros, not a failure', async () => {
