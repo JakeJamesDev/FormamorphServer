@@ -459,7 +459,7 @@ holds a UTC day, a step and a count, and nothing else: no address, Install id or
 | Route | Who | What |
 |---|---|---|
 | `POST /api/funnel/:step` | public | Add one to today's total. `:step` is `<source>_<step>` or a v3.6.2 legacy name, else `400`. Sources: `setup`, `demo`, `engine`, `notice`, `locked`. Steps: `offer_shown` (`setup`, `demo`, `engine`), `see_levels` (all), `patreon_click` and `checklist_finished` (all). Legacy: `offer_shown`, `see_levels`, `patreon_click`, `checklist_finished`. Answers `204`. |
-| `GET /api/funnel` | admin | `{ data: { days } }`, newest day first. Each day is `{ day, steps }`, with all five steps present and `0` for a step not yet counted. |
+| `GET /api/funnel` | admin | `{ data: { days } }`, newest day first. Each day is `{ day, steps }`, with every accepted step present and `0` for a step not yet counted. |
 
 The POST has its own limiter: 30 per minute per address, kept in memory (`config/funnel.js`). The privacy
 policy names these totals; the change needs no re-acceptance.
