@@ -571,6 +571,11 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-12** — deployed `dc9b197`: the funnel counts a step for every offer source. The first test run had
+  1 failure of 3,688 in 45.2 s (46.2 s wall), not captured by name. 21 reruns all passed, about 42 s each. The
+  suspect is the 700 ms reply against a 1 s idle limit in `hostedAiRetry.test.js`, unconfirmed. Deployed on the
+  user's call. No backup: no schema step. Service active with zero restarts, boot logged `Server running on port`
+  with no stack trace, public route 200.
 - **2026-11-10** — deployed `a3f2dbb`: routine request lines go to daily files in `logs/`, apart from the journal.
   All 3,686 tests passed in 50.1 s (51.2 s wall). No backup: no schema step. Service active with zero restarts,
   boot logged `Server running on port`, public route 200. In the first seconds after boot the day file held 22
