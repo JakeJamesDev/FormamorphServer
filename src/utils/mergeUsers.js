@@ -1,3 +1,6 @@
+// From a shell the database path comes from `.env`, and it must load before the db module opens a file.
+if (require.main === module) require('dotenv').config();
+
 const db = require('../config/db');
 const User = require('../models/User');
 const AuditLog = require('../models/AuditLog');

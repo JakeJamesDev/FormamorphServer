@@ -571,6 +571,14 @@ already holds.
 
 ## Deploy log
 
+- **2026-11-13** — deployed `df2bce9`: `mergeUsers.js`, an operator tool that folds one account into another.
+  All 3,698 tests passed in 46.7 s (47.9 s wall). No schema step. Service active with zero restarts, boot
+  logged `Server running on port` with no stack trace, public route 200. Then merged one user's duplicate
+  account into their main one, at the user's request with ownership confirmed. Backup first:
+  `backups/pre-merge-2026-11-13T17-51-28.921Z.db`, integrity `ok`. The live dry run matched the backup dry
+  run; after `--apply` the old profile is 404 and `PRAGMA foreign_key_check` is empty. The first dry run
+  ran without `.env` and left an empty `data/exotic-dangerous.db` in the app checkout; the script now loads
+  `.env` itself.
 - **2026-11-12** — deployed `dc9b197`: the funnel counts a step for every offer source. The first test run had
   1 failure of 3,688 in 45.2 s (46.2 s wall), not captured by name. 21 reruns all passed, about 42 s each. The
   suspect is the 700 ms reply against a 1 s idle limit in `hostedAiRetry.test.js`, unconfirmed. Deployed on the
