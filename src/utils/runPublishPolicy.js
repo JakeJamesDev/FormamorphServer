@@ -7,7 +7,7 @@
  *   npm run publish-policy -- --write --reaccept Store it and ask everyone to accept again
  */
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { publishPrivacyPolicy } = require('./publishPolicy');
 
 const flags = process.argv.slice(2);

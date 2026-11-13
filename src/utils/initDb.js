@@ -1,4 +1,6 @@
-require('dotenv').config();
+require('../config/loadEnv');
+// The one command allowed to create a database.
+process.env.DB_ALLOW_CREATE = '1';
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');

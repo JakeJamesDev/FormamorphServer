@@ -8,6 +8,7 @@
  * node src/utils/runUpdateWorldTags.js
  */
 
+require('../config/loadEnv');
 const { updateWorldTags } = require('./updateWorldTags');
 
 // Run the update function

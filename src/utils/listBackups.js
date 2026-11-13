@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { listBackups, getBackupInfo } = require('./backupRestore');
 
 const main = async () => {

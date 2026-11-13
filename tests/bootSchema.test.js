@@ -224,10 +224,8 @@ const shapeOf = (database) => Object.fromEntries(tableNames(database).sort().map
  * Run one of the two callers as its own process, the way an operator does, and collect what it printed.
  *
  * A key given as `undefined` is *removed* from the environment rather than passed as the string
- * "undefined", so a test can run the server with something the worker has but a deploy might not. `cwd`
- * moves the process off the repo root, which is the only way to keep `dotenv` from putting a developer's
- * own `.env` back — every path the server resolves comes from `__dirname` or an environment variable, so
- * running it from elsewhere changes nothing else.
+ * "undefined", so a test can run the server with something the worker has but a deploy might not. The repo's
+ * `.env` loads from any `cwd`; `ENV_FILE` set to a missing file keeps a developer's own keys out.
  */
 const runScript = (script, env, { until, cwd = ROOT } = {}) => new Promise((resolve, reject) => {
   const childEnv = { ...process.env, ...env };
@@ -720,11 +718,12 @@ describe('the schema step', () => {
   it('refuses to start at all without the Signal salt, before it touches the database', async () => {
     // The one environment check the server makes, and the only one worth stopping for: an unsalted hash of
     // an address is a lookup table away from the address, so a deploy that forgets the salt must not write
-    // one row. Run from a scratch directory so the repo's own `.env` cannot hand the salt back.
+    // one row. `ENV_FILE` names a missing file so the repo's own `.env` cannot hand the salt back.
     const { dir, file } = oldestOnDisk();
 
     const { code, output } = await runScript('src/server.js', {
       SIGNAL_SALT: undefined,
+      ENV_FILE: path.join(dir, '.env'),
       DB_PATH: file,
       STORAGE_ROOT: path.join(dir, 'storage'),
       PORT: '0',

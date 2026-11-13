@@ -5,7 +5,7 @@
  *   npm run read-leak -- <image file>   Print the account a leaked image was marked for
  */
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { readLeak, describeLeak } = require('./readLeak');
 
 const args = process.argv.slice(2);

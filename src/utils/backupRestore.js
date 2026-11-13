@@ -249,13 +249,8 @@ const backupDatabase = async (backupDir) => {
   const dbBackupDir = path.join(backupDir, 'database');
   await ensureDir(dbBackupDir);
   
-  if (fs.existsSync(DATABASE_PATH)) {
-    const destPath = path.join(dbBackupDir, 'exotic-dangerous.db');
-    await copyFile(DATABASE_PATH, destPath);
-    console.log('✓ Database backed up successfully');
-  } else {
-    console.warn('Warning: Database file not found, skipping database backup');
-  }
+  await copyFile(DATABASE_PATH, path.join(dbBackupDir, 'exotic-dangerous.db'));
+  console.log('✓ Database backed up successfully');
 };
 
 // Backup world files
@@ -337,6 +332,11 @@ const createBackup = async (customBackupName = null) => {
     const backupName = customBackupName || `backup-${timestamp}`;
     const backupDir = path.join(BACKUPS_DIR, backupName);
     
+    // A backup without the database looks complete and restores an empty site.
+    if (!fs.existsSync(DATABASE_PATH)) {
+      throw new Error(`No database at ${DATABASE_PATH}; refusing a backup without it`);
+    }
+
     console.log(`Creating backup: ${backupName}`);
     console.log(`Backup location: ${backupDir}`);
     

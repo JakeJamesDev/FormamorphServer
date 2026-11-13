@@ -10,6 +10,7 @@
  * 3. Updates the world's tags in the database with the extracted tags
  */
 
+if (require.main === module) require('../config/loadEnv');
 const db = require('../config/db');
 const { readWorldContent } = require('./fileStorage');
 const path = require('path');

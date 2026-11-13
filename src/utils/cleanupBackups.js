@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { cleanupOldBackups } = require('./backupRestore');
 
 const main = async () => {

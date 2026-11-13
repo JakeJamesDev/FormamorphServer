@@ -8,7 +8,7 @@
  * Backups go in time order, the deploy's pre-deploy backup last.
  */
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { backfillDownloadDays } = require('./backfillDownloadDays');
 
 const args = process.argv.slice(2);

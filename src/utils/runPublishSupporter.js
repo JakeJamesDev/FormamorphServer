@@ -6,7 +6,7 @@
  *     Publish a Mascot tab export as a Supporter-only, pinned listing
  */
 
-require('dotenv').config();
+require('../config/loadEnv');
 const fs = require('fs');
 const { publishSupporter } = require('./publishSupporter');
 

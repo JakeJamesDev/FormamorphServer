@@ -1,18 +1,23 @@
 const Database = require('better-sqlite3');
 const fs = require('fs');
-const { DATA_DIR, DB_PATH } = require('./paths');
+const path = require('path');
+const { DB_PATH } = require('./paths');
 
-// Ensure the data directory exists. An in-memory database has no directory to create.
-if (DB_PATH !== ':memory:' && !fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Only `init-db` may create a database. Anywhere else a missing file means a wrong path, and opening it
+// would serve or write to an empty database in place of the real one.
+const mayCreate = DB_PATH === ':memory:' || Boolean(process.env.DB_ALLOW_CREATE);
+
+if (!mayCreate && !fs.existsSync(DB_PATH)) {
+  throw new Error(`No database at ${DB_PATH}. Load .env, or run \`npm run init-db\` to create one.`);
+}
+if (mayCreate && DB_PATH !== ':memory:') {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 }
 
-// Create and configure the database connection
 const db = new Database(DB_PATH, {
   verbose: process.env.NODE_ENV === 'development' ? console.log : null
 });
 
-// Enable foreign keys
 db.pragma('foreign_keys = ON');
 
 module.exports = db;

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./config/loadEnv');
 
 // Before anything opens a database or serves a request: a Signal's whole protection is that the address is
 // salted before it is hashed, and an unsalted hash of an address is a lookup table away from the address.

@@ -1,3 +1,4 @@
+require('../config/loadEnv');
 const { listSnapshots } = require('./worldSnapshot');
 
 async function main() {

@@ -1,3 +1,4 @@
+if (require.main === module) require('../config/loadEnv');
 const User = require('../models/User');
 const { eraseUser } = require('./eraseUser');
 

@@ -1,3 +1,4 @@
+require('../config/loadEnv');
 const { cleanupOldSnapshots } = require('./worldSnapshot');
 
 async function main() {

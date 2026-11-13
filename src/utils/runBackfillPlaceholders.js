@@ -6,7 +6,7 @@
  *   npm run backfill-placeholders -- --write   Flag them
  */
 
-require('dotenv').config();
+require('../config/loadEnv');
 const { backfillPlaceholders } = require('./backfillPlaceholders');
 
 const flags = process.argv.slice(2);
