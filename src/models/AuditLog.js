@@ -52,6 +52,8 @@ const ACTIONS = [
   'account_deletion_requested',
   'account_deletion_canceled',
   'account_deleted',
+  // An operator folded one account into another. The target is the kept account, the snippet the old name.
+  'account_merged',
   // A flagged account chose a new name. The old name is the target name, the new one the snippet.
   'username_changed',
   // Somebody read the accounts a Signal links to another account. Logged because linkage data is the
