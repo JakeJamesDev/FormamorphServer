@@ -13,13 +13,14 @@ const { deleteWorldContent, deleteThumbnail } = require('./fileStorage');
  * @param {string} contentFile - The stored content file, already in the private area
  * @param {string} thumbnailFile - The stored thumbnail file
  * @param {Object} actor - The admin publishing it, for the audit log
+ * @param {Object} [options] - `{ until }`: the ISO end date, or null for no end
  */
-async function createSupporterListing(row, contentFile, thumbnailFile, actor) {
+async function createSupporterListing(row, contentFile, thumbnailFile, actor, { until = null } = {}) {
   try {
     db.transaction(() => {
       World.create(row, contentFile, thumbnailFile);
       // The content is already private, so the move inside is a no-op.
-      World.setSupporterOnly(row.id, true);
+      World.setSupporterOnly(row.id, true, { until });
       World.pin(row.id);
     })();
   } catch (error) {

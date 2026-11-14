@@ -435,6 +435,14 @@ rclone size r2:formamorph-files
 
 - ⚠️ **Publish as new** with the switch off makes a second, public listing. Keep the preselected listing for a revision.
 
+**End date (Mascot and World only).** `supporter_until` makes a Supporter-only listing open to everyone on a date.
+
+- `POST /api/worlds` takes `supporterDays` (1 to 3650) with `supporterOnly: true`. A non-admin gets 403. Another kind, or no flag, gets 400.
+- `PUT /api/worlds/:id/supporter-only` takes `supporterDays` or `supporterUntil` (a future ISO date). `null` clears the end date. A past date gets 400. Each change writes a `listing_supporter_until` audit entry.
+- Every read goes through `src/utils/supporterWindow.js`, so a listing past its end date is public at once, with no wait for the sweep.
+- `src/utils/sweepSupporterExpiry.js` runs at boot and hourly. It clears the flag, moves the file to the public area, clears the per-account cache, and sets `supporter_expired_at`. It writes a `listing_supporter_expired` audit entry. A clear by hand sets `supporter_expired_at` too.
+- `GET /api/supporter-content/entitlement` returns `expired`: listings with `supporter_expired_at`, plus any past their end date that the sweep has not reached.
+
 **Fallback script.** If the app path fails, export the Mascot from the Mascot tab, copy the `.webp` to the server, and run:
 
 ```bash

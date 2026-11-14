@@ -14,6 +14,17 @@ const { shapeLikes, likesHiddenReaderParams } = require('../utils/likeVisibility
 const { MODERATION_STATES, isApproved, inCirculationClause } = require('../config/listingReview');
 const { hiddenGemClause } = require('./HiddenGem');
 const { utcDay } = require('../config/time');
+const { isSupporterOnlyNow, supporterUntilOf } = require('../utils/supporterWindow');
+
+// The flag and end date a reader sees: past the end date the listing is public, whatever the sweep has done.
+const shapeSupporterWindow = (world) => {
+  const until = supporterUntilOf(world);
+  world.supporter_only = isSupporterOnlyNow(world);
+  // Absent rather than null, so a row with no end date keeps the shape older clients know.
+  if (until) world.supporter_until = until;
+  else delete world.supporter_until;
+  delete world.supporter_expired_at;
+};
 
 /**
  * Ceiling for an author listing. High because the question is "everything I published", not "the first
@@ -171,7 +182,7 @@ const World = {
     // Convert spoiler from INTEGER to boolean
     world.spoiler = world.spoiler === 1;
     world.placeholder = world.placeholder === 1;
-    world.supporter_only = world.supporter_only === 1;
+    shapeSupporterWindow(world);
 
     world.models = parseModels(world.models);
     stripModeration(world, viewer);
@@ -359,7 +370,7 @@ const World = {
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
         world.placeholder = world.placeholder === 1;
-        world.supporter_only = world.supporter_only === 1;
+        shapeSupporterWindow(world);
 
         world.models = parseModels(world.models);
         world.has_pending_update = world.has_pending_update === 1;
@@ -639,28 +650,91 @@ const World = {
    *
    * @param {string} id - World ID
    * @param {boolean} supporterOnly - The new flag
+   * @param {Object} [options] - `{ until }`: the ISO end date when flagging on, or null for no end
    * @returns {Object|undefined} The updated row
    */
-  setSupporterOnly: (id, supporterOnly) => {
+  setSupporterOnly: (id, supporterOnly, { until = null } = {}) => {
     const world = World.findById(id);
     if (!world) return undefined;
 
     moveWorldContent(world.content_file, supporterOnly);
-    db.prepare('UPDATE worlds SET supporter_only = ? WHERE id = ?').run(supporterOnly ? 1 : 0, id);
+    // Setting the flag starts a new window; clearing it ends one. Either way a stale end date is dropped.
+    db.prepare('UPDATE worlds SET supporter_only = ?, supporter_until = ?, supporter_expired_at = ? WHERE id = ?')
+      .run(supporterOnly ? 1 : 0, supporterOnly ? until : null, supporterOnly ? null : world.supporter_expired_at, id);
 
     return World.findById(id);
   },
 
   /**
-   * Every Supporter-only listing a reader could open: the id, kind and revision a client compares.
+   * Set, change or clear the end date of a listing that is Supporter-only.
    *
+   * @param {string} id - World ID
+   * @param {string|null} until - ISO end date, or null for no end
+   * @returns {Object|undefined} The updated row
+   */
+  setSupporterUntil: (id, until) => {
+    db.prepare('UPDATE worlds SET supporter_until = ? WHERE id = ?').run(until, id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Finish a listing's Supporter-only window: clear the flag, move the content public and record when.
+   * Does not touch the per-account cache; the caller clears it.
+   *
+   * @param {string} id - World ID
+   * @param {string} [at] - ISO instant to record
+   * @returns {Object|undefined} The updated row
+   */
+  expireSupporterOnly: (id, at = new Date().toISOString()) => {
+    const world = World.findById(id);
+    if (!world) return undefined;
+
+    moveWorldContent(world.content_file, false);
+    db.prepare('UPDATE worlds SET supporter_only = 0, supporter_until = NULL, supporter_expired_at = ? WHERE id = ?')
+      .run(at, id);
+
+    return World.findById(id);
+  },
+
+  /**
+   * Listings whose end date has passed but whose flag the sweep has not cleared yet.
+   *
+   * @param {number} [now] - Epoch milliseconds
+   * @returns {Object[]} Rows
+   */
+  dueSupporterExpiries: (now = Date.now()) => db.prepare(
+    'SELECT * FROM worlds WHERE supporter_only = 1 AND supporter_until IS NOT NULL AND supporter_until <= ?'
+  ).all(new Date(now).toISOString()),
+
+  /**
+   * Every Supporter-only listing a reader could open: the id, kind and revision a client compares. A
+   * listing past its end date is not current, even before the sweep clears it.
+   *
+   * @param {number} [now] - Epoch milliseconds
    * @returns {Array<{ id: string, kind: string, revision: number }>}
    */
-  supporterOnlyItems: () => db.prepare(`
+  supporterOnlyItems: (now = Date.now()) => db.prepare(`
     SELECT w.id, w.kind, w.revision FROM worlds w
-    WHERE w.supporter_only = 1 AND ${inCirculationClause('w')}
+    WHERE w.supporter_only = 1 AND (w.supporter_until IS NULL OR w.supporter_until > ?)
+      AND ${inCirculationClause('w')}
     ORDER BY w.created_at, w.id
-  `).all(),
+  `).all(new Date(now).toISOString()),
+
+  /**
+   * Listings that were Supporter-only and no longer are, so a client keeps its Supporter Copies of them.
+   * Covers a listing past its end date that the sweep has not reached.
+   *
+   * @param {number} [now] - Epoch milliseconds
+   * @returns {Array<{ id: string, kind: string, revision: number }>}
+   */
+  expiredSupporterItems: (now = Date.now()) => db.prepare(`
+    SELECT w.id, w.kind, w.revision FROM worlds w
+    WHERE (w.supporter_expired_at IS NOT NULL
+        OR (w.supporter_only = 1 AND w.supporter_until IS NOT NULL AND w.supporter_until <= ?))
+      AND ${inCirculationClause('w')}
+    ORDER BY w.created_at, w.id
+  `).all(new Date(now).toISOString()),
 
   /**
    * Mark a listing changed without changing any of its columns. For a change kept in another table that

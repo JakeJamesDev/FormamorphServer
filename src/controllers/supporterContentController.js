@@ -17,7 +17,11 @@ exports.getEntitlement = async (req, res, next) => {
     perReader(res);
     res.status(200).json({
       success: true,
-      data: { qualifies, items: qualifies ? World.supporterOnlyItems() : [] }
+      data: {
+        qualifies,
+        items: qualifies ? World.supporterOnlyItems() : [],
+        expired: qualifies ? World.expiredSupporterItems() : []
+      }
     });
   } catch (error) {
     next(error);

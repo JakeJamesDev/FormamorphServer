@@ -13,6 +13,7 @@ const db = require('./config/db');
 const { migrate } = require('./schema');
 const { initStorage } = require('./utils/fileStorage');
 const { sweepQuarantine, startQuarantineSweeper } = require('./utils/sweepQuarantine');
+const { sweepSupporterExpiry, startSupporterExpirySweeper } = require('./utils/sweepSupporterExpiry');
 const { sweepEvents, startEventSweeper } = require('./utils/sweepEvents');
 const { sweepRetention, startRetentionSweeper } = require('./utils/sweepRetention');
 const { sweepDeletions, startDeletionSweeper } = require('./utils/sweepDeletions');
@@ -53,6 +54,11 @@ initStorage();
 // catalog routes sweep too, so a missed tick can never serve a listing past its deadline.
 void sweepQuarantine();
 startQuarantineSweeper();
+
+// Open any Supporter-only listing whose end date passed while the server was down, then keep checking.
+// Reads check the date themselves, so a late tick is never visible to a player.
+void sweepSupporterExpiry();
+startSupporterExpirySweeper();
 
 // The same arrangement for event windows: open or close anything whose moment passed while the server
 // was down, then keep checking. The events routes sweep too, so a missed tick can never show a banner

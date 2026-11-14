@@ -6,7 +6,9 @@ const { addColumns } = require('../columns');
  */
 const apply = (database) => {
   const listings = addColumns(database, 'worlds', [
-    ['supporter_only', 'INTEGER NOT NULL DEFAULT 0']
+    ['supporter_only', 'INTEGER NOT NULL DEFAULT 0'],
+    ['supporter_until', 'TEXT'],
+    ['supporter_expired_at', 'TEXT']
   ]);
   const accounts = addColumns(database, 'users', [
     ['supporter_content_revoked_at', 'TEXT']

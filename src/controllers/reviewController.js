@@ -9,6 +9,7 @@ const PendingUpdate = require('../models/PendingUpdate');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { THUMBNAIL_CONTENT_TYPES, readPendingContent, readPendingBytes } = require('../utils/fileStorage');
 const { processForAccount } = require('../utils/supporterProcessing');
+const { isSupporterOnlyNow } = require('../utils/supporterWindow');
 const path = require('path');
 
 const NOT_FOUND = { success: false, error: 'World not found' };
@@ -140,7 +141,7 @@ exports.getQueueCount = async (req, res, next) => {
 
 // Supporter-only content leaves through the per-account step on this route as on the gated one; held
 // content is not a live revision, so nothing is cached.
-const forAccount = (req, listing, content) => listing.supporter_only
+const forAccount = (req, listing, content) => isSupporterOnlyNow(listing)
   ? processForAccount({ userId: req.user.id, listing, content, cached: false })
   : content;
 

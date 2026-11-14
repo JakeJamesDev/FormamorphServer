@@ -1,4 +1,5 @@
 const World = require('../models/World');
+const { isSupporterOnlyNow } = require('../utils/supporterWindow');
 const User = require('../models/User');
 const Dependency = require('../models/Dependency');
 const Compatibility = require('../models/Compatibility');
@@ -88,7 +89,7 @@ exports.getDependencyContent = async (req, res, next) => {
       return res.status(404).json(NOT_FOUND);
     }
 
-    if (source.supporter_only) {
+    if (isSupporterOnlyNow(source)) {
       return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
     }
 

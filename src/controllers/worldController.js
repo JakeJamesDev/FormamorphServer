@@ -49,11 +49,32 @@ const PendingUpdate = require('../models/PendingUpdate');
 const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
 const { processForAccount, clearListingCache } = require('../utils/supporterProcessing');
 const { createSupporterListing } = require('../utils/supporterListing');
+const { isSupporterOnlyNow, readEndDate, TIMED_KINDS } = require('../utils/supporterWindow');
 const { linkedImageRefusal } = require('../utils/linkedImages');
-const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
+const { savePendingContent, savePendingThumbnail, deletePendingFile, readPendingContent } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
+
+// Why an end date can't apply, or null. Only a Mascot or World can be timed, and only while Supporter-only.
+const endDateRefusal = (endDate, { supporterOnly, kind }) => {
+  if (endDate.error) return endDate.error;
+  if (!TIMED_KINDS.includes(kind)) return 'Only a Mascot or a World can have a Supporter-only end date';
+  if (!supporterOnly) return 'An end date needs a Supporter-only listing';
+
+  return null;
+};
+
+// The 400 body when a world about to go Supporter-only links images, in its live content or in a pending update.
+const linkedImagesBeforeFlag = async (world) => {
+  if ((world.kind || DEFAULT_KIND) !== 'world') return null;
+
+  const live = linkedImageRefusal((await World.getContent(world.id)).contentData);
+  if (live) return live;
+
+  const update = PendingUpdate.findByWorldId(world.id);
+  return update && update.content_file ? linkedImageRefusal(await readPendingContent(update.content_file)) : null;
+};
 
 /**
  * Write an edit into the listing's pending update instead of onto the listing. The files go to the
@@ -485,7 +506,7 @@ exports.getWorldContent = async (req, res, next) => {
       });
     }
 
-    if (row.supporter_only) {
+    if (isSupporterOnlyNow(row)) {
       return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
     }
 
@@ -523,7 +544,7 @@ exports.getWorldContent = async (req, res, next) => {
 exports.getSupporterContent = async (req, res, next) => {
   try {
     const row = World.findById(req.params.id);
-    if (!row || !row.supporter_only || !World.isVisibleTo(row, req.user)) {
+    if (!row || !isSupporterOnlyNow(row) || !World.isVisibleTo(row, req.user)) {
       return res.status(404).json({ success: false, error: 'World not found' });
     }
 
@@ -561,24 +582,50 @@ exports.setSupporterOnly = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'World not found' });
     }
 
-    if (Boolean(world.supporter_only) !== supporterOnly) {
-      if (supporterOnly && (world.kind || DEFAULT_KIND) === 'world') {
-        const linkedImages = linkedImageRefusal((await World.getContent(world.id)).contentData);
-        if (linkedImages) return res.status(400).json(linkedImages);
-      }
-      World.setSupporterOnly(world.id, supporterOnly);
-      if (!supporterOnly) await clearListingCache(world.id);
-      AuditLog.tryRecord({
-        action: supporterOnly ? 'listing_supporter_only' : 'listing_supporter_only_cleared',
-        actor: req.user,
-        targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
-        targetKind: world.kind || 'world',
-        targetName: world.name,
-        targetId: world.id
-      });
+    const endDate = readEndDate(req.body);
+    if (endDate.provided) {
+      const refusal = endDateRefusal(endDate, { supporterOnly, kind: world.kind || DEFAULT_KIND });
+      if (refusal) return res.status(400).json({ success: false, error: refusal });
     }
 
-    res.status(200).json({ success: true, data: { id: world.id, supporterOnly } });
+    const audit = (action, snippet = null) => AuditLog.tryRecord({
+      action,
+      actor: req.user,
+      targetUser: world.author_id === req.user.id ? null : User.findById(world.author_id),
+      targetKind: world.kind || 'world',
+      targetName: world.name,
+      targetId: world.id,
+      snippet
+    });
+    const untilSnippet = (until) => until || 'none';
+
+    let until = isSupporterOnlyNow(world) ? world.supporter_until : null;
+    if (supporterOnly) {
+      if (!isSupporterOnlyNow(world)) {
+        const linkedImages = await linkedImagesBeforeFlag(world);
+        if (linkedImages) return res.status(400).json(linkedImages);
+
+        // A listing past its end date that the sweep has not cleared yet starts a fresh window here.
+        until = endDate.until || null;
+        World.setSupporterOnly(world.id, true, { until });
+        audit('listing_supporter_only');
+        if (until) audit('listing_supporter_until', untilSnippet(until));
+      } else if (endDate.provided && (endDate.until || null) !== (world.supporter_until || null)) {
+        until = endDate.until || null;
+        World.setSupporterUntil(world.id, until);
+        audit('listing_supporter_until', untilSnippet(until));
+      }
+    } else if (world.supporter_only) {
+      // Opens the listing and records the expiry, as the sweep would have.
+      World.expireSupporterOnly(world.id);
+      await clearListingCache(world.id);
+      audit('listing_supporter_only_cleared');
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { id: world.id, supporterOnly, ...(supporterOnly && until ? { supporterUntil: until } : {}) }
+    });
   } catch (error) {
     next(error);
   }
@@ -619,11 +666,16 @@ exports.createWorld = async (req, res, next) => {
     if (typeof supporterOnly !== 'boolean') {
       return res.status(400).json({ success: false, error: 'supporterOnly must be a boolean' });
     }
-    if (supporterOnly && !isAdmin(req.user)) {
+    const endDate = readEndDate(req.body);
+    if ((supporterOnly || endDate.provided) && !isAdmin(req.user)) {
       return res.status(403).json({ success: false, error: 'Only an admin can publish Supporter-only content' });
     }
     if (supporterOnly && contestEventId) {
       return res.status(400).json({ success: false, error: 'A Supporter-only listing cannot be entered in a contest' });
+    }
+    if (endDate.provided) {
+      const refusal = endDateRefusal(endDate, { supporterOnly, kind });
+      if (refusal) return res.status(400).json({ success: false, error: refusal });
     }
 
     if (contestEventId && !rules.canEnterContest) {
@@ -723,7 +775,7 @@ exports.createWorld = async (req, res, next) => {
         ...submission.columns
       };
       // Supporter-only from the first committed row: the content above went straight to the private area.
-      if (supporterOnly) await createSupporterListing(row, contentFile, thumbnailFile, req.user);
+      if (supporterOnly) await createSupporterListing(row, contentFile, thumbnailFile, req.user, { until: endDate.until || null });
       else World.create(row, contentFile, thumbnailFile);
 
       if (submission.autoApproved) {
@@ -854,7 +906,7 @@ exports.updateWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: BUNDLED_WORLD_ERROR });
     }
 
-    const linkedImages = world.supporter_only && kind === 'world' && contentData ? linkedImageRefusal(contentData) : null;
+    const linkedImages = isSupporterOnlyNow(world) && kind === 'world' && contentData ? linkedImageRefusal(contentData) : null;
     if (linkedImages) return res.status(400).json(linkedImages);
 
     let modelLicense = null;

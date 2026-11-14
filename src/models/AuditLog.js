@@ -73,6 +73,10 @@ const ACTIONS = [
   // Staff marked a listing Supporter-only, or cleared it.
   'listing_supporter_only',
   'listing_supporter_only_cleared',
+  // Staff set, changed or cleared a Supporter-only listing's end date. The snippet is the new date or "none".
+  'listing_supporter_until',
+  // A Supporter-only listing reached its end date and the sweep opened it to everyone.
+  'listing_supporter_expired',
   // Staff took one account's access to Supporter content away, or gave it back.
   'supporter_access_revoked',
   'supporter_access_restored',

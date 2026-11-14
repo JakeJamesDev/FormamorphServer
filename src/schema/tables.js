@@ -115,6 +115,12 @@ const apply = (database) => {
       placeholder INTEGER NOT NULL DEFAULT 0,
       -- Staff-set. Its content lives in the private Supporter area and only the gated route serves it.
       supporter_only INTEGER NOT NULL DEFAULT 0,
+      -- When a Supporter-only listing opens to everyone (ISO). Null means no end. Past it, every read treats
+      -- the listing as public; the hourly sweep then clears the flag.
+      supporter_until TEXT,
+      -- When a listing stopped being Supporter-only, by the sweep or by staff. Clients keep Supporter Copies
+      -- of these listings while the account qualifies.
+      supporter_expired_at TEXT,
       -- Listing review: approved, pending or rejected. Anything but approved is seen only by its
       -- author and staff. The queued time orders the review queue; a re-edit leaves it alone.
       moderation_state TEXT NOT NULL DEFAULT 'approved',
