@@ -49,6 +49,7 @@ const PendingUpdate = require('../models/PendingUpdate');
 const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
 const { processForAccount, clearListingCache } = require('../utils/supporterProcessing');
 const { createSupporterListing } = require('../utils/supporterListing');
+const { linkedImageRefusal } = require('../utils/linkedImages');
 const { savePendingContent, savePendingThumbnail, deletePendingFile } = require('../utils/fileStorage');
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
@@ -561,6 +562,10 @@ exports.setSupporterOnly = async (req, res, next) => {
     }
 
     if (Boolean(world.supporter_only) !== supporterOnly) {
+      if (supporterOnly && (world.kind || DEFAULT_KIND) === 'world') {
+        const linkedImages = linkedImageRefusal((await World.getContent(world.id)).contentData);
+        if (linkedImages) return res.status(400).json(linkedImages);
+      }
       World.setSupporterOnly(world.id, supporterOnly);
       if (!supporterOnly) await clearListingCache(world.id);
       AuditLog.tryRecord({
@@ -666,6 +671,9 @@ exports.createWorld = async (req, res, next) => {
     if (kind === 'world' && isBundledWorld(contentData)) {
       return res.status(400).json({ success: false, error: BUNDLED_WORLD_ERROR });
     }
+
+    const linkedImages = supporterOnly && kind === 'world' ? linkedImageRefusal(contentData) : null;
+    if (linkedImages) return res.status(400).json(linkedImages);
 
     // Held from the gate's own parse, so the terms a reader is shown are stored without decoding the
     // file a second time.
@@ -845,6 +853,9 @@ exports.updateWorld = async (req, res, next) => {
     if (kind === 'world' && isBundledWorld(contentData)) {
       return res.status(400).json({ success: false, error: BUNDLED_WORLD_ERROR });
     }
+
+    const linkedImages = world.supporter_only && kind === 'world' && contentData ? linkedImageRefusal(contentData) : null;
+    if (linkedImages) return res.status(400).json(linkedImages);
 
     let modelLicense = null;
     if (kind === 'model' && contentData) {
