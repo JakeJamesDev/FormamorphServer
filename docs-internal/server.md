@@ -568,6 +568,30 @@ already holds.
 2. Write. Same command with `--write` after `--`. Expect the totals again and `picks=<ids>`, or `picks=none`.
    Record both lines in the deploy log entry.
 
+## Character Mentions contributions
+
+Players who opt in send their Character Mentions corrections to `POST /api/coref-contributions`. Each row
+in `coref_contributions` is one passage: the text, the model id and version, the model's clusters, the
+reading's entity per cluster, and the turn's corrections. Staff accept or reject it.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /api/coref-contributions` | signed-in, age-attested, not suspended | 60 per hour per account; a passage of at most 16,000 characters; no span may start or end inside a word. A resend of the same world and passage replaces the pending row |
+| `GET /api/coref-contributions` | staff | pending rows, oldest first (`?limit=`, default 50, at most 200) |
+| `GET /api/coref-contributions/count` | staff | `{ pending }` |
+| `POST /api/coref-contributions/:id/accept`, `/reject` | staff | a pending row only; anything else is a 404 |
+| `GET /api/coref-contributions/export` | staff | accepted rows as the training kit's annotation format (JSON Lines) |
+
+- **The export** applies each mention correction to its clusters, skips quote-speaker corrections, drops
+  clusters with one mention, and writes code-point offsets. Each line's `id` is `contribution-<row id>`.
+- **Account deletion** drops the account's pending and rejected rows. Accepted rows stay, with the account set null.
+
+To refresh the corpus before a retrain, run from the formamorph checkout:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contributions/export -Headers @{ Authorization = "Bearer $env:STAFF_TOKEN" } -OutFile ..\formamorph-training-data\coref\corpus\accepted.jsonl
+```
+
 ## Cost
 
 | Item | Per month |

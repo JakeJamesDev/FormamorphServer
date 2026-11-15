@@ -5,6 +5,7 @@ const { deleteWorldContent, deleteThumbnail, deleteAvatar, deletePendingFile } =
 const PendingUpdate = require('../models/PendingUpdate');
 const HostedUsage = require('../models/HostedUsage');
 const HostedRefusal = require('../models/HostedRefusal');
+const CorefContribution = require('../models/CorefContribution');
 const { clearListingCache, clearAccountCache } = require('./supporterProcessing');
 const { MODERATION_STATES } = require('../config/listingReview');
 
@@ -72,6 +73,9 @@ const eraseRows = db.transaction((user, removeContent) => {
   // Formamorph AI usage stays with its spend subject, so the week and the day keep their sums.
   HostedUsage.forgetUser(user.id);
   HostedRefusal.forgetUser(user.id);
+
+  // Accepted corrections stay in the corpus with the account set null (Character Mentions spec Q15, Q37).
+  CorefContribution.dropUnaccepted(user.id);
 
   // Last, so every reference to it has already gone or moved. Likes, follows, policy answers, Signals,
   // message state and votes cascade from here; feedback and reports are set null and stay readable.

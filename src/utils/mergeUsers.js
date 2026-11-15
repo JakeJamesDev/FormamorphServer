@@ -39,6 +39,8 @@ const RULES = {
   'hosted_grants.user_id': 'move',
   'hosted_grants.created_by': 'move',
   'mail_log.user_id': 'move',
+  'coref_contributions.user_id': 'move',
+  'coref_contributions.reviewed_by': 'move',
   'account_tokens.user_id': 'drop',
   'patreon_pending_links.user_id': 'drop',
   'hosted_warning_acks.user_id': 'drop',
