@@ -603,6 +603,13 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-15** — deployed `3f897f7`: the Character Mentions contribution queue, timed Supporter-only end
+  dates, the linked-image refusal on Supporter-only worlds, and the missing-database refusal. Checked first
+  that the released 3.7.0 client is unaffected: every API change is additive. All 3,772 tests passed in
+  53.2 s (56.1 s wall). Schema steps `supporterContent` (two new columns) and `corefContributions` (new
+  table) applied on boot. Backup first: `backups/pre-deploy-df2bce9-2026-11-15T21-45-05.953Z.db`, integrity
+  `ok`. Service active with zero restarts, boot logged `Server running on port` with no stack trace, public
+  route 200.
 - **2026-11-13** — deployed `df2bce9`: `mergeUsers.js`, an operator tool that folds one account into another.
   All 3,698 tests passed in 46.7 s (47.9 s wall). No schema step. Service active with zero restarts, boot
   logged `Server running on port` with no stack trace, public route 200. Then merged one user's duplicate
