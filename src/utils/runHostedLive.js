@@ -118,6 +118,7 @@ const rowLine = (row) => [
       console.log(`${call.mode}: HTTP ${call.status} in ${call.ms.toFixed(0)} ms${call.code ? `, ${call.code}` : ''}`);
       if (call.thinkingChars) console.log(`  Thinking: ${call.thinkingChars} characters`);
       if (call.reply) console.log(`  Reply: ${call.reply}`);
+      for (const tool of call.toolCalls || []) console.log(`  Tool call: ${tool.name}(${tool.arguments})`);
       if (call.usage) console.log(`  Usage: ${JSON.stringify(call.usage)}`);
       for (const row of call.rows) console.log(`  Row: ${rowLine(row)}`);
     }

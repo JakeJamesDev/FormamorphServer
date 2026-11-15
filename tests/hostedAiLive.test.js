@@ -118,6 +118,23 @@ describe('the live run', () => {
     expect(slots).toBe(0);
   });
 
+  it('reports each tool call, whole and streamed in pieces', async () => {
+    const { calls } = await run((res, body) => {
+      if (!body.stream) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: '', tool_calls: [{ id: 'a', type: 'function', function: { name: 'mark', arguments: '{"x":1}' } }] }, finish_reason: 'tool_calls' }], usage: USAGE }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(frame({ choices: [{ delta: { tool_calls: [{ index: 0, function: { name: 'mark', arguments: '{"x"' } }] } }] }));
+      res.write(frame({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':1}' } }] }, finish_reason: 'tool_calls' }] }));
+      res.write(frame({ choices: [], usage: USAGE }));
+      res.end('data: [DONE]\n\n');
+    });
+
+    expect(calls.map((call) => call.toolCalls)).toEqual([[{ name: 'mark', arguments: '{"x":1}' }], [{ name: 'mark', arguments: '{"x":1}' }]]);
+  });
+
   it('sends only the requested mode', async () => {
     const report = await run(answers, { modes: ['whole'] });
 

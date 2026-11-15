@@ -54,7 +54,7 @@ const parseJson = (text) => {
 
 /** Text, thinking, usage state and error code from a whole reply or a stream's text. */
 const readStream = (text) => {
-  const read = { reply: '', thinkingChars: 0, usage: null, code: null };
+  const read = { reply: '', thinkingChars: 0, usage: null, code: null, toolCalls: [] };
   for (const event of text.split(/\r\n\r\n|\n\n|\r\r/)) {
     const lines = event.split(/\r\n|\r|\n/);
     const name = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
@@ -65,6 +65,13 @@ const readStream = (text) => {
       const delta = data.choices?.[0]?.delta;
       read.reply += delta?.content || '';
       read.thinkingChars += (delta?.reasoning || delta?.reasoning_content || '').length;
+      // A streamed call arrives in pieces, keyed by index.
+      for (const call of delta?.tool_calls || []) {
+        const at = call.index ?? read.toolCalls.length;
+        read.toolCalls[at] ??= { name: '', arguments: '' };
+        read.toolCalls[at].name += call.function?.name || '';
+        read.toolCalls[at].arguments += call.function?.arguments || '';
+      }
     }
   }
 
@@ -82,7 +89,7 @@ const callOnce = async (origin, account, requestBody, stream) => {
     });
     const text = await res.text();
     const base = { mode: stream ? 'stream' : 'whole', status: res.status, turnId: res.headers.get(TURN_HEADER), ms: performance.now() - started };
-    if (res.status !== 200) return { ...base, code: parseJson(text)?.code || null, reply: '', thinkingChars: 0, usage: null };
+    if (res.status !== 200) return { ...base, code: parseJson(text)?.code || null, reply: '', thinkingChars: 0, usage: null, toolCalls: [] };
     if (stream) return { ...base, ...readStream(text) };
 
     const message = parseJson(text)?.choices?.[0]?.message;
@@ -91,7 +98,8 @@ const callOnce = async (origin, account, requestBody, stream) => {
       code: null,
       reply: message?.content || '',
       thinkingChars: (message?.reasoning || message?.reasoning_content || '').length,
-      usage: parseJson(res.headers.get(USAGE_HEADER) || '') ?? null
+      usage: parseJson(res.headers.get(USAGE_HEADER) || '') ?? null,
+      toolCalls: (message?.tool_calls || []).map((call) => ({ name: call.function?.name || '', arguments: call.function?.arguments || '' }))
     };
   } catch (error) {
     return {
@@ -102,7 +110,8 @@ const callOnce = async (origin, account, requestBody, stream) => {
       ms: performance.now() - started,
       reply: '',
       thinkingChars: 0,
-      usage: null
+      usage: null,
+      toolCalls: []
     };
   }
 };
