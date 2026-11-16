@@ -603,6 +603,10 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-15** — deployed `425c0c3`: Character Mentions contributions accept a non-mention correction. All
+  3,791 tests passed in 57.6 s (60.5 s wall). No schema, env, or policy change, so no backup. Service active
+  with zero restarts, boot logged `Server running on port` with no stack trace, public route 200. The old
+  process took 92 s from `SIGTERM` to the new boot, which matches the 90 s `TimeoutStopSec`.
 - **2026-11-15** — deployed `63e9a44`: Character Mentions contributions now store the name of each entity
   they reference. All 3,788 tests passed in 67.4 s (70.6 s wall). Schema step `corefEntityNames` (one new
   column) applied on boot. Backup first: `backups/pre-deploy-3f897f7-2026-11-16T04-47-50.524Z.db`, integrity
