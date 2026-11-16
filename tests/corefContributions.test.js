@@ -102,6 +102,15 @@ describe('submitting', () => {
     expect(JSON.parse(stored.corrections)).toEqual(payload().corrections);
   });
 
+  it('stores a non-mention correction and the queue returns it', async () => {
+    const correction = { kind: 'nonMention', start: SHE[0], end: SHE[1], entityId: null };
+    const { body } = await submit(adult(), payload({ corrections: [correction] }));
+
+    expect(JSON.parse(row(body.data.id).corrections)).toEqual([correction]);
+    const item = (await queue(mod())).body.data.find((entry) => entry.id === body.data.id);
+    expect(item.corrections).toEqual([correction]);
+  });
+
   it('replaces the pending row for the same account, world and passage', async () => {
     const user = adult();
     const first = await submit(user);
@@ -304,6 +313,11 @@ describe('what a submit must hold', () => {
       .toMatch(/kind/);
   });
 
+  it('refuses a non-mention that names an entity', async () => {
+    expect(await refused({ corrections: [{ kind: 'nonMention', start: SHE[0], end: SHE[1], entityId: 'mira' }] }))
+      .toMatch(/non-mention/);
+  });
+
   it('needs the model id and version and the world', async () => {
     expect(await refused({ modelId: '' })).toMatch(/model/);
     expect(await refused({ modelVersion: 0 })).toMatch(/version/);
@@ -391,6 +405,21 @@ describe('the export', () => {
     }));
 
     expect((await exported(staff, id)).clusters).toEqual([[MIRA, HE]]);
+  });
+
+  it('exports a non-mention exactly as a mention corrected to nobody', async () => {
+    const base = { clusterEntities: ['mira', null] };
+    const asNull = await acceptOne(payload({
+      ...base, corrections: [{ kind: 'mention', start: SHE[0], end: SHE[1], entityId: null }]
+    }));
+    const asNon = await acceptOne(payload({
+      ...base, worldId: 'world-non', corrections: [{ kind: 'nonMention', start: SHE[0], end: SHE[1], entityId: null }]
+    }));
+
+    const { id: _a, ...expected } = await exported(asNull.staff, asNull.id);
+    const { id: _b, ...actual } = await exported(asNon.staff, asNon.id);
+    expect(actual.clusters).toEqual([[MIRA, HE]]);
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
   });
 
   it('merges every cluster named the corrected entity', async () => {

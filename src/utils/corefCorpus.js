@@ -10,7 +10,7 @@ const CORRECTIONS_MAX = 200;
 const ID_MAX = 200;
 const MODEL_ID_MAX = 64;
 const NAME_MAX = 200;
-const CORRECTION_KINDS = ['mention', 'quote'];
+const CORRECTION_KINDS = ['mention', 'quote', 'nonMention'];
 
 const isHighSurrogate = (code) => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code) => code >= 0xdc00 && code <= 0xdfff;
@@ -96,6 +96,7 @@ const readSubmission = (body = {}) => {
     const { kind, start, end, entityId } = correction || {};
     if (!CORRECTION_KINDS.includes(kind)) return { error: 'Unknown correction kind' };
     if (!validSpan(passage, start, end)) return { error: 'A correction span falls outside the passage' };
+    if (kind === 'nonMention' && entityId !== null) return { error: 'A non-mention names no entity' };
     if (entityId !== null && !boundedString(entityId)) return { error: 'A correction names no entity' };
     normalized.push({ kind, start, end, entityId });
   }
@@ -119,7 +120,7 @@ const readSubmission = (body = {}) => {
 
 /**
  * The clusters after every mention correction: the span leaves its cluster, then joins the clusters named
- * its entity (merged when several) or starts a new one; a null entity leaves it out. Quote corrections are
+ * its entity (merged when several) or starts a new one; a null entity or a nonMention leaves it out. Quote corrections are
  * skipped (Character Mentions spec Q36). Singletons drop.
  *
  * @param {Array} clusters - `[[[start, end], ...], ...]`
@@ -131,12 +132,12 @@ const applyCorrections = (clusters, clusterEntities, corrections) => {
   let groups = clusters.map((spans, i) => ({ entity: clusterEntities[i], spans: spans.map((s) => [...s]) }));
 
   for (const { kind, start, end, entityId } of corrections) {
-    if (kind !== 'mention') continue;
+    if (kind !== 'mention' && kind !== 'nonMention') continue;
 
     for (const group of groups) {
       group.spans = group.spans.filter(([s, e]) => e <= start || s >= end);
     }
-    if (entityId === null) continue;
+    if (kind === 'nonMention' || entityId === null) continue;
 
     const named = groups.filter((group) => group.entity === entityId);
     const merged = { entity: entityId, spans: [...named.flatMap((group) => group.spans), [start, end]] };
