@@ -3,7 +3,7 @@ const { tableExists } = require('../columns');
 /**
  * Character Mentions corrections that players contributed, one row per passage, waiting for staff review.
  *
- * `clusters`, `cluster_entities` and `corrections` are JSON. Offsets are UTF-16 code units, as the client
+ * `clusters`, `cluster_entities`, `corrections` and `entity_names` are JSON. Offsets are UTF-16 code units, as the client
  * sent them. Account deletion keeps only accepted rows, with the account set null.
  */
 const apply = (database) => {
@@ -21,6 +21,7 @@ const apply = (database) => {
       clusters TEXT NOT NULL,
       cluster_entities TEXT NOT NULL,
       corrections TEXT NOT NULL,
+      entity_names TEXT NOT NULL DEFAULT '{}',
       state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'accepted', 'rejected')),
       reviewed_by TEXT,
       reviewed_at TEXT,

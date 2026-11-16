@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
+import Database from 'better-sqlite3';
 import { app, request, db, migrate } from './context.js';
 import { createUser, authHeader } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 const Policy = require('../src/models/Policy');
 const { eraseUser } = require('../src/utils/eraseUser');
-const { PASSAGE_MAX } = require('../src/utils/corefCorpus');
+const { PASSAGE_MAX, NAME_MAX } = require('../src/utils/corefCorpus');
+const corefEntityNames = require('../src/schema/steps/corefEntityNames');
 
 /**
  * Character Mentions contributions: a player's corrected passage, the staff queue that reviews it, and the
@@ -132,6 +134,101 @@ describe('submitting', () => {
     const other = await submit(user, payload({ worldId: 'world-other' }));
 
     expect(other.status).toBe(201);
+  });
+});
+
+describe('entity names', () => {
+  const NAMES = { mira: 'Mira Vance', courier: 'The courier' };
+
+  it('stores the names and the queue returns them', async () => {
+    const { body } = await submit(adult(), payload({ entityNames: NAMES }));
+
+    expect(JSON.parse(row(body.data.id).entity_names)).toEqual(NAMES);
+    const item = (await queue(mod())).body.data.find((entry) => entry.id === body.data.id);
+    expect(item.entityNames).toEqual(NAMES);
+  });
+
+  it('takes a submit without names', async () => {
+    const res = await submit(adult());
+
+    expect(res.status).toBe(201);
+    const item = (await queue(mod())).body.data.find((entry) => entry.id === res.body.data.id);
+    expect(item.entityNames).toEqual({});
+  });
+
+  it('keeps the names of entities only a correction references', async () => {
+    const names = { ...NAMES, guard: 'Gate guard' };
+    const { body } = await submit(adult(), payload({
+      entityNames: names,
+      corrections: [{ kind: 'mention', start: HE[0], end: HE[1], entityId: 'guard' }]
+    }));
+
+    expect(JSON.parse(row(body.data.id).entity_names)).toEqual(names);
+  });
+
+  it('drops names of entities the contribution does not reference', async () => {
+    const { body } = await submit(adult(), payload({
+      entityNames: { ...NAMES, stranger: 'Nobody here', ['__proto__']: 'x', constructor: 'y' }
+    }));
+
+    expect(JSON.parse(row(body.data.id).entity_names)).toEqual(NAMES);
+  });
+
+  it('keeps the name of an entity whose id is an object property name', async () => {
+    const { body } = await submit(adult(), payload({
+      clusterEntities: ['__proto__', 'courier'],
+      entityNames: JSON.parse('{"__proto__": "Mira", "courier": "The courier"}')
+    }));
+
+    const item = (await queue(mod())).body.data.find((entry) => entry.id === body.data.id);
+    expect(Object.entries(item.entityNames)).toEqual([['__proto__', 'Mira'], ['courier', 'The courier']]);
+  });
+
+  it('replaces the names with a replacing send', async () => {
+    const user = adult();
+    const first = await submit(user, payload({ entityNames: NAMES }));
+    await submit(user, payload({ entityNames: { mira: 'Mira' } }));
+
+    expect(JSON.parse(row(first.body.data.id).entity_names)).toEqual({ mira: 'Mira' });
+  });
+
+  it.each([
+    ['an array', ['Mira']],
+    ['a string', 'Mira'],
+    ['a number', 7]
+  ])('refuses a map sent as %s', async (_, entityNames) => {
+    const res = await submit(adult(), payload({ entityNames }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/as a map/);
+  });
+
+  it.each([
+    ['a number', 7],
+    ['an object', { first: 'Mira' }],
+    ['an empty string', '  '],
+    ['an oversized string', 'M'.repeat(NAME_MAX + 1)]
+  ])('refuses a referenced name that is %s', async (_, name) => {
+    const res = await submit(adult(), payload({ entityNames: { ...NAMES, mira: name } }));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/empty or too long/);
+  });
+
+  it('takes a name at the length limit', async () => {
+    const res = await submit(adult(), payload({ entityNames: { mira: 'M'.repeat(NAME_MAX) } }));
+    expect(res.status).toBe(201);
+  });
+
+  it('leaves the export byte-identical', async () => {
+    const { staff, id } = await acceptOne(payload({ entityNames: NAMES }));
+    const download = async () => (await request(app).get('/api/coref-contributions/export').set(authHeader(staff))).text;
+
+    const withNames = await download();
+    db.prepare("UPDATE coref_contributions SET entity_names = '{}' WHERE id = ?").run(id);
+    const without = await download();
+
+    expect(withNames).toContain(`contribution-${id}`);
+    expect(withNames).toBe(without);
+    expect(withNames).not.toContain('Mira Vance');
   });
 });
 
@@ -372,5 +469,18 @@ describe('account deletion', () => {
     expect(row(accepted)).toMatchObject({ state: 'accepted', user_id: null, passage: PASSAGE });
     expect(row(rejected)).toBeUndefined();
     expect(await exported(staff, accepted)).toBeDefined();
+  });
+});
+
+describe('corefEntityNames schema step', () => {
+  it('gives a deployed table an empty name map per row, once', () => {
+    const old = new Database(':memory:');
+    old.exec('CREATE TABLE coref_contributions (id TEXT PRIMARY KEY)');
+    old.exec("INSERT INTO coref_contributions (id) VALUES ('a')");
+
+    expect(corefEntityNames.apply(old)).toBe(true);
+    expect(old.prepare('SELECT entity_names FROM coref_contributions').get()).toEqual({ entity_names: '{}' });
+    expect(corefEntityNames.apply(old)).toBe(false);
+    old.close();
   });
 });

@@ -69,6 +69,7 @@ const STEPS = [
   require('./steps/emailMarker'),
   require('./steps/storageDays'),
   require('./steps/corefContributions'),
+  require('./steps/corefEntityNames'),
   require('./indexes')
 ];
 

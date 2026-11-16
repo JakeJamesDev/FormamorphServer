@@ -9,6 +9,7 @@ const MENTIONS_MAX = 4000;
 const CORRECTIONS_MAX = 200;
 const ID_MAX = 200;
 const MODEL_ID_MAX = 64;
+const NAME_MAX = 200;
 const CORRECTION_KINDS = ['mention', 'quote'];
 
 const isHighSurrogate = (code) => code >= 0xd800 && code <= 0xdbff;
@@ -35,13 +36,34 @@ const validSpan = (text, start, end) => Number.isInteger(start) && Number.isInte
 const boundedString = (value, max = ID_MAX) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 
 /**
+ * Keep the optional `{ entityId: name }` map to the entities the contribution references (spec Q71).
+ *
+ * @param {*} entityNames - The submitted map, or undefined/null when the client sent none
+ * @param {Array<string|null>} referenced - Every entity id the clusters and corrections name
+ * @returns {{error: string}|{value: Object}} The refusal, or the map without unreferenced keys
+ */
+const readEntityNames = (entityNames, referenced) => {
+  if (entityNames === undefined || entityNames === null) return { value: {} };
+  if (typeof entityNames !== 'object' || Array.isArray(entityNames)) return { error: 'Send entity names as a map' };
+
+  const entries = [];
+  for (const id of new Set(referenced)) {
+    if (id === null || !Object.hasOwn(entityNames, id)) continue;
+    if (!boundedString(entityNames[id], NAME_MAX)) return { error: 'An entity name is empty or too long' };
+    entries.push([id, entityNames[id]]);
+  }
+  // fromEntries defines own keys, so an id such as "__proto__" keeps its name.
+  return { value: Object.fromEntries(entries) };
+};
+
+/**
  * Check a submitted contribution.
  *
  * @param {Object} body - The request body
  * @returns {{error: string}|{value: Object}} The refusal, or the normalized contribution
  */
 const readSubmission = (body = {}) => {
-  const { worldId, passage, modelId, modelVersion, clusters, clusterEntities, corrections } = body;
+  const { worldId, passage, modelId, modelVersion, clusters, clusterEntities, corrections, entityNames } = body;
 
   if (!boundedString(worldId)) return { error: 'Name the world' };
   if (typeof passage !== 'string' || passage.length === 0) return { error: 'Send the passage' };
@@ -78,6 +100,9 @@ const readSubmission = (body = {}) => {
     normalized.push({ kind, start, end, entityId });
   }
 
+  const names = readEntityNames(entityNames, [...clusterEntities, ...normalized.map((c) => c.entityId)]);
+  if (names.error) return names;
+
   return {
     value: {
       worldId,
@@ -86,7 +111,8 @@ const readSubmission = (body = {}) => {
       modelVersion,
       clusters: clusters.map((cluster) => cluster.map(([start, end]) => [start, end])),
       clusterEntities,
-      corrections: normalized
+      corrections: normalized,
+      entityNames: names.value
     }
   };
 };
@@ -140,4 +166,4 @@ const toAnnotation = (row) => ({
     .map((spans) => spans.map(([s, e]) => [codePointOffset(row.passage, s), codePointOffset(row.passage, e)]))
 });
 
-module.exports = { PASSAGE_MAX, readSubmission, toAnnotation };
+module.exports = { PASSAGE_MAX, NAME_MAX, readSubmission, toAnnotation };

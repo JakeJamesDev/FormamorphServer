@@ -21,6 +21,7 @@ const present = (row) => row && ({
   clusters: JSON.parse(row.clusters),
   clusterEntities: JSON.parse(row.cluster_entities),
   corrections: JSON.parse(row.corrections),
+  entityNames: JSON.parse(row.entity_names),
   state: row.state,
   reviewedBy: row.reviewed_by,
   reviewerUsername: row.reviewer_username || null,
@@ -53,6 +54,7 @@ const CorefContribution = {
       clusters: JSON.stringify(value.clusters),
       clusterEntities: JSON.stringify(value.clusterEntities),
       corrections: JSON.stringify(value.corrections),
+      entityNames: JSON.stringify(value.entityNames),
       createdAt: new Date().toISOString()
     };
 
@@ -65,7 +67,8 @@ const CorefContribution = {
       db.prepare(`
         UPDATE coref_contributions
         SET passage = @passage, model_id = @modelId, model_version = @modelVersion, clusters = @clusters,
-            cluster_entities = @clusterEntities, corrections = @corrections, created_at = @createdAt
+            cluster_entities = @clusterEntities, corrections = @corrections, entity_names = @entityNames,
+            created_at = @createdAt
         WHERE id = @id
       `).run({ ...fields, id: pending.id });
       return { contribution: CorefContribution.findById(pending.id), replaced: true };
@@ -75,10 +78,10 @@ const CorefContribution = {
     db.prepare(`
       INSERT INTO coref_contributions (
         id, user_id, world_id, passage, passage_sha256, model_id, model_version,
-        clusters, cluster_entities, corrections, state, created_at
+        clusters, cluster_entities, corrections, entity_names, state, created_at
       )
       VALUES (@id, @userId, @worldId, @passage, @passageSha, @modelId, @modelVersion,
-              @clusters, @clusterEntities, @corrections, 'pending', @createdAt)
+              @clusters, @clusterEntities, @corrections, @entityNames, 'pending', @createdAt)
     `).run({ ...fields, id });
     return { contribution: CorefContribution.findById(id), replaced: false };
   }),
