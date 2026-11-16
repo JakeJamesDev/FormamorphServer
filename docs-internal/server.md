@@ -603,6 +603,11 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-15** — deployed `63e9a44`: Character Mentions contributions now store the name of each entity
+  they reference. All 3,788 tests passed in 67.4 s (70.6 s wall). Schema step `corefEntityNames` (one new
+  column) applied on boot. Backup first: `backups/pre-deploy-3f897f7-2026-11-16T04-47-50.524Z.db`, integrity
+  `ok`. Service active with zero restarts, boot logged `Server running on port` with no stack trace, public
+  route 200.
 - **2026-11-15** — deployed `3f897f7`: the Character Mentions contribution queue, timed Supporter-only end
   dates, the linked-image refusal on Supporter-only worlds, and the missing-database refusal. Checked first
   that the released 3.7.0 client is unaffected: every API change is additive. All 3,772 tests passed in
