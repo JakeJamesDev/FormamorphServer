@@ -26,6 +26,7 @@ const { rotateHiddenGems, startHiddenGemRotation } = require('./utils/rotateHidd
 const { mailEnabled, missingMailKeys } = require('./utils/mail');
 const { checkMailHealth, startMailHealthMonitor } = require('./utils/mailHealth');
 const { checkStorage, startStorageMonitor } = require('./utils/storageCheck');
+const { gracefulShutdown } = require('./utils/gracefulShutdown');
 const app = require('./app');
 
 // Not fatal: the game works without mail. Verification and password reset do not.
@@ -121,19 +122,7 @@ const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
-});
+// The grace stays under systemd's 90 s stop timeout, so a stream still open is cut cleanly, not killed.
+const shutdown = gracefulShutdown(server);
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
