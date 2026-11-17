@@ -138,6 +138,40 @@ describe('refusing a linked image on a Supporter-only world', () => {
     expect((await flag(created.id)).status).toBe(200);
   });
 
+  describe('with a Media List', () => {
+    const LINK_SOUND = 'https://cdn.example.com/theme.mp3';
+    const listed = (mediaList) => richContent({
+      worldOverview: { name: 'Listed', mediaList },
+      entities: [{ id: 'e1', name: 'Mira', images: [{ mediaId: 'm1' }] }]
+    });
+
+    it('refuses a linked image that sits only in the list, keyed by id, and skips the { mediaId } gallery value', async () => {
+      const refused = await publish(staff(), listed({
+        m1: { id: 'm1', name: 'Wren', kind: 'image', data: LINK },
+        m2: { id: 'm2', name: 'Fern', kind: 'image', data: TINY_PNG }
+      }), { supporterOnly: true });
+      expect(refused.status).toBe(400);
+      expect(refused.body.linkedImages).toEqual([{ where: 'Media List image "Wren"', url: LINK }]);
+    });
+
+    it('refuses a linked sound and an unnamed entry, used or not', async () => {
+      const refused = await publish(staff(), listed({
+        m1: { id: 'm1', kind: 'image', data: LINK },
+        m2: { id: 'm2', name: 'Theme', kind: 'sound', data: LINK_SOUND }
+      }), { supporterOnly: true });
+      expect(refused.status).toBe(400);
+      expect(refused.body.linkedImages.map((l) => l.where)).toEqual(['Media List image #1', 'Media List sound "Theme"']);
+    });
+
+    it('accepts a list that holds only data URLs', async () => {
+      const ok = await publish(staff(), listed({
+        m1: { id: 'm1', name: 'Wren', kind: 'image', data: TINY_PNG },
+        m2: { id: 'm2', name: 'Theme', kind: 'sound', data: AUDIO }
+      }), { supporterOnly: true });
+      expect(ok.status).toBe(201);
+    });
+  });
+
   it('flags a world with no linked images, and a Mascot never goes through the world check', async () => {
     const author = createUser();
     const mascot = await request(app).post('/api/worlds').set(authHeader(author))

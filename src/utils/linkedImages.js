@@ -1,5 +1,6 @@
 /**
- * Linked images in world content: an image slot that holds an http(s) link instead of embedded bytes.
+ * Linked media in world content: a slot that holds an http(s) link instead of embedded bytes.
+ * Galleries linking by `{ mediaId }` hold no URL; their Media List entry is checked instead.
  * The slots mirror the client's `remoteWorldImages` and its Media tab: world thumbnail, entity and location
  * galleries, Map Background gallery, Custom Image Backdrops and Dictionary covers.
  */
@@ -15,6 +16,9 @@ const gallery = (holder) => {
   const legacy = holder.image ?? holder.backgroundImage;
   return legacy ? [legacy] : [];
 };
+
+// The Media List is an object keyed by id; an array is read too.
+const mediaListEntries = (list) => (list && typeof list === 'object' ? Object.values(list) : []).filter((e) => e && typeof e === 'object');
 
 const named = (kind, item, index) => `${kind} ${item && item.name ? `"${item.name}"` : `#${index + 1}`}`;
 
@@ -46,6 +50,10 @@ const linkedImageLocations = (content) => {
     if (dictionary) check(`${named('Dictionary', dictionary, i)}, cover image`, dictionary.thumbnail);
   });
 
+  mediaListEntries(world.worldOverview?.mediaList).forEach((entry, i) => {
+    check(named(`Media List ${entry.kind === 'sound' ? 'sound' : 'image'}`, entry, i), entry.data);
+  });
+
   return found;
 };
 
@@ -60,7 +68,7 @@ const linkedImageRefusal = (content) => {
   return {
     success: false,
     code: 'SUPPORTER_LINKED_IMAGES',
-    error: `A Supporter-only world cannot link images. Embed these first: ${linkedImages.map((l) => l.where).join('; ')}`,
+    error: `A Supporter-only world cannot link images or sounds. Embed these first: ${linkedImages.map((l) => l.where).join('; ')}`,
     linkedImages
   };
 };
