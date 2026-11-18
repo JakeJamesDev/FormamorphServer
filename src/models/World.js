@@ -656,7 +656,8 @@ const World = {
    *
    * @param {string} id - World ID
    * @param {boolean} supporterOnly - The new flag
-   * @param {Object} [options] - `{ until }`: the ISO end date when flagging on, or null for no end
+   * @param {Object} [options] - `{ until, scheduleRows }`: the ISO public date when flagging on (null for no
+   *   end), and the tier schedule rows
    * @returns {Object|undefined} The updated row
    */
   setSupporterOnly: (id, supporterOnly, { until = null, scheduleRows = [] } = {}) => {
@@ -690,7 +691,7 @@ const World = {
    * A listing's tier schedule rows.
    *
    * @param {string} id - World ID
-   * @returns {Array<{ tier: string, opens_at: string }>}
+   * @returns {Array<{ tier: string, opens_at: string|null }>}
    */
   scheduleRows: (id) => db.prepare('SELECT tier, opens_at FROM supporter_schedule WHERE world_id = ?').all(id),
 
@@ -698,7 +699,7 @@ const World = {
    * The tier schedule rows of several listings, in one query.
    *
    * @param {string[]} ids - World IDs
-   * @returns {Map<string, Array<{ tier: string, opens_at: string }>>} Only listings that have rows
+   * @returns {Map<string, Array<{ tier: string, opens_at: string|null }>>} Only listings that have rows
    */
   schedulesFor: (ids) => {
     const byId = new Map();
@@ -733,7 +734,7 @@ const World = {
    * Replace a listing's tier schedule rows.
    *
    * @param {string} id - World ID
-   * @param {Array<{ tier: string, opens_at: string }>} rows - The new rows; none clears the schedule
+   * @param {Array<{ tier: string, opens_at: string|null }>} rows - The new rows; none clears the schedule
    */
   setSchedule: (id, rows) => {
     db.transaction(() => {

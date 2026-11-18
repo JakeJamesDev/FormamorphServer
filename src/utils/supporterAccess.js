@@ -22,6 +22,12 @@ const supporterTierOf = (userId) => {
   return row && QUALIFYING_TIERS.has(row.tier) && !row.revoked_at ? row.tier : null;
 };
 
+/**
+ * Whether an account holds a live Supporter tier, whichever one.
+ *
+ * @param {string} userId - The account
+ * @returns {boolean}
+ */
 const qualifiesForSupporterContent = (userId) => supporterTierOf(userId) !== null;
 
 /**
@@ -31,7 +37,7 @@ const qualifiesForSupporterContent = (userId) => supporterTierOf(userId) !== nul
  *
  * @param {Object} user - The signed-in account
  * @param {Object} listing - The worlds row
- * @param {Array<{ tier: string, opens_at: string }>} rows - The listing's schedule rows
+ * @param {Array<{ tier: string, opens_at: string|null }>} rows - The listing's schedule rows
  * @param {number} [now] - Epoch milliseconds; tests inject it
  * @returns {{ ok: boolean, requiredTier?: string, opensAt?: string|null }} A refusal names the tier open now
  *   and the date this account's own tier opens, or null when it never does

@@ -13,7 +13,8 @@ const { deleteWorldContent, deleteThumbnail } = require('./fileStorage');
  * @param {string} contentFile - The stored content file, already in the private area
  * @param {string} thumbnailFile - The stored thumbnail file
  * @param {Object} actor - The admin publishing it, for the audit log
- * @param {Object} [options] - `{ until }`: the ISO end date, or null for no end
+ * @param {Object} [options] - `{ until, scheduleRows }`: the ISO public date (null for no end), and the tier
+ *   schedule rows
  */
 async function createSupporterListing(row, contentFile, thumbnailFile, actor, { until = null, scheduleRows = [] } = {}) {
   try {

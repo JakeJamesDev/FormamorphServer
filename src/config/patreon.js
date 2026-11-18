@@ -30,7 +30,7 @@ const TIER_MAP = [
 const TIER_KEYS = [SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP];
 
 /**
- * A tier's rank: higher is a bigger tier, so a route compares ranks and never names a tier.
+ * A tier's rank: higher is a bigger tier, so a route compares ranks instead of listing tier keys.
  *
  * @param {string|null|undefined} key - A tier key
  * @returns {number} The rank, or -1 for no tier or an unknown key

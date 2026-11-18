@@ -36,7 +36,7 @@ const openTimes = (row, rows) => {
  * The lowest tier that may download a listing now, or null when the listing is public.
  *
  * @param {Object} row - A worlds row
- * @param {Array<{ tier: string, opens_at: string }>} rows - The listing's schedule rows
+ * @param {Array<{ tier: string, opens_at: string|null }>} rows - The listing's schedule rows
  * @param {number} [now] - Epoch milliseconds; tests inject it
  * @returns {string|null}
  */
@@ -54,7 +54,7 @@ const openTierNow = (row, rows, now = Date.now()) => {
  *
  * @param {string|null} tier - The account's tier key
  * @param {Object} row - A worlds row
- * @param {Array<{ tier: string, opens_at: string }>} rows - The listing's schedule rows
+ * @param {Array<{ tier: string, opens_at: string|null }>} rows - The listing's schedule rows
  * @param {number} [now] - Epoch milliseconds
  * @returns {{ ok: boolean, requiredTier: string|null, opensAt: string|null }} `opensAt` is when this
  *   account's own tier opens, or null when it never does
@@ -71,7 +71,7 @@ const tierAdmission = (tier, row, rows, now = Date.now()) => {
 /**
  * The schedule a reader sees: each row, highest tier first, passed rows included.
  *
- * @param {Array<{ tier: string, opens_at: string }>} rows - The listing's schedule rows
+ * @param {Array<{ tier: string, opens_at: string|null }>} rows - The listing's schedule rows
  * @returns {Array<{ tier: string, opensAt: string }>}
  */
 const schedulePayload = (rows) => STAGES
@@ -141,7 +141,7 @@ const readDates = (schedule, now) => {
 /**
  * No lower tier opens before a higher one, and none opens after the public date.
  *
- * @param {Array<{ tier: string, opens_at: string }>} rows - The new rows
+ * @param {Array<{ tier: string, opens_at: string|null }>} rows - The new rows
  * @param {string|null} until - The new public date
  * @returns {string|null} A refusal, or null when the order holds
  */
@@ -205,7 +205,6 @@ const scheduleSnippet = (rows, until) => [
 ].join(' ');
 
 module.exports = {
-  openTierNow,
   tierAdmission,
   schedulePayload,
   readSchedule,
