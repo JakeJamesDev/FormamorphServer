@@ -30,6 +30,14 @@ const TIER_MAP = [
 const TIER_KEYS = [SUPPORTER, SUPPORTER_PLUS, SUPPORTER_TOP];
 
 /**
+ * A tier's rank: higher is a bigger tier, so a route compares ranks and never names a tier.
+ *
+ * @param {string|null|undefined} key - A tier key
+ * @returns {number} The rank, or -1 for no tier or an unknown key
+ */
+const tierRank = (key) => TIER_KEYS.indexOf(key);
+
+/**
  * Our tier for a Patreon tier ID.
  *
  * @param {string} tierId - A Patreon tier ID
@@ -104,6 +112,7 @@ module.exports = {
   SUPPORTER_PLUS,
   SUPPORTER_TOP,
   TIER_KEYS,
+  tierRank,
   tierKeyOf,
   patreonConfigured,
   tierFor,

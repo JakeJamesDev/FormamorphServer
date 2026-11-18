@@ -396,7 +396,7 @@ describe('the entitlement route', () => {
     const res = await entitlement(make());
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ qualifies: false, items: [], expired: [] });
+    expect(res.body.data).toEqual({ qualifies: false, tier: null, items: [], expired: [] });
   });
 
   it('lists each Supporter-only listing with its id, kind and revision', async () => {
@@ -431,7 +431,7 @@ describe('the entitlement route', () => {
     const member = supporter();
 
     await revoke(staffUser(), member);
-    expect((await entitlement(member)).body.data).toEqual({ qualifies: false, items: [], expired: [] });
+    expect((await entitlement(member)).body.data).toEqual({ qualifies: false, tier: null, items: [], expired: [] });
 
     await restore(staffUser(), member);
     expect((await entitlement(member)).body.data.items.map((item) => item.id)).toContain(id);
@@ -440,7 +440,7 @@ describe('the entitlement route', () => {
   it('is tier-based for staff and authors, who get no special items', async () => {
     await listing();
 
-    expect((await entitlement(staffUser())).body.data).toEqual({ qualifies: false, items: [], expired: [] });
+    expect((await entitlement(staffUser())).body.data).toEqual({ qualifies: false, tier: null, items: [], expired: [] });
   });
 
   it('leaves out a quarantined listing', async () => {

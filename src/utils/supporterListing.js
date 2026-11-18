@@ -15,12 +15,12 @@ const { deleteWorldContent, deleteThumbnail } = require('./fileStorage');
  * @param {Object} actor - The admin publishing it, for the audit log
  * @param {Object} [options] - `{ until }`: the ISO end date, or null for no end
  */
-async function createSupporterListing(row, contentFile, thumbnailFile, actor, { until = null } = {}) {
+async function createSupporterListing(row, contentFile, thumbnailFile, actor, { until = null, scheduleRows = [] } = {}) {
   try {
     db.transaction(() => {
       World.create(row, contentFile, thumbnailFile);
       // The content is already private, so the move inside is a no-op.
-      World.setSupporterOnly(row.id, true, { until });
+      World.setSupporterOnly(row.id, true, { until, scheduleRows });
       World.pin(row.id);
     })();
   } catch (error) {

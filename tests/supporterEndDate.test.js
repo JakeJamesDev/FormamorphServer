@@ -206,7 +206,7 @@ describe('read-time expiry, with no sweep run', () => {
     await timed(1);
     later(2 * DAY);
 
-    expect((await entitlement(createUser())).body.data).toEqual({ qualifies: false, items: [], expired: [] });
+    expect((await entitlement(createUser())).body.data).toEqual({ qualifies: false, tier: null, items: [], expired: [] });
   });
 
   it('closes the gated route', async () => {

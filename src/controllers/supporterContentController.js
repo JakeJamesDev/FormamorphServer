@@ -1,5 +1,5 @@
 const World = require('../models/World');
-const { qualifiesForSupporterContent } = require('../utils/supporterAccess');
+const { supporterTierOf } = require('../utils/supporterAccess');
 const { perReader } = require('../utils/perReader');
 
 /**
@@ -12,13 +12,15 @@ const { perReader } = require('../utils/perReader');
  */
 exports.getEntitlement = async (req, res, next) => {
   try {
-    const qualifies = qualifiesForSupporterContent(req.user.id);
+    const tier = supporterTierOf(req.user.id);
+    const qualifies = tier !== null;
 
     perReader(res);
     res.status(200).json({
       success: true,
       data: {
         qualifies,
+        tier,
         items: qualifies ? World.supporterOnlyItems() : [],
         expired: qualifies ? World.expiredSupporterItems() : []
       }

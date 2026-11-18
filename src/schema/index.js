@@ -70,6 +70,7 @@ const STEPS = [
   require('./steps/storageDays'),
   require('./steps/corefContributions'),
   require('./steps/corefEntityNames'),
+  require('./steps/supporterSchedule'),
   require('./indexes')
 ];
 

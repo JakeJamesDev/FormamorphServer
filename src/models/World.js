@@ -15,11 +15,15 @@ const { MODERATION_STATES, isApproved, inCirculationClause } = require('../confi
 const { hiddenGemClause } = require('./HiddenGem');
 const { utcDay } = require('../config/time');
 const { isSupporterOnlyNow, supporterUntilOf } = require('../utils/supporterWindow');
+const { schedulePayload } = require('../utils/supporterSchedule');
 
 // The flag and end date a reader sees: past the end date the listing is public, whatever the sweep has done.
-const shapeSupporterWindow = (world) => {
+const shapeSupporterWindow = (world, schedules) => {
   const until = supporterUntilOf(world);
   world.supporter_only = isSupporterOnlyNow(world);
+  // Only while Supporter-only, and absent when the listing has no rows.
+  const rows = world.supporter_only ? (schedules ? schedules.get(world.id) : World.scheduleRows(world.id)) : null;
+  if (rows && rows.length > 0) world.supporterSchedule = schedulePayload(rows);
   // Absent rather than null, so a row with no end date keeps the shape older clients know.
   if (until) world.supporter_until = until;
   else delete world.supporter_until;
@@ -362,6 +366,8 @@ const World = {
       // select list, which would have to sit ahead of every positional param the WHERE clause appends.
       const likedIds = viewer ? World.likedAmong(worlds.map(w => w.id), viewer.id) : new Set();
 
+      const schedules = World.schedulesFor(worlds.filter((w) => w.supporter_only).map((w) => w.id));
+
       // Process worlds
       const processedWorlds = worlds.map(world => {
         // Parse tags
@@ -370,7 +376,7 @@ const World = {
         // Convert spoiler from INTEGER to boolean
         world.spoiler = world.spoiler === 1;
         world.placeholder = world.placeholder === 1;
-        shapeSupporterWindow(world);
+        shapeSupporterWindow(world, schedules);
 
         world.models = parseModels(world.models);
         world.has_pending_update = world.has_pending_update === 1;
@@ -653,11 +659,13 @@ const World = {
    * @param {Object} [options] - `{ until }`: the ISO end date when flagging on, or null for no end
    * @returns {Object|undefined} The updated row
    */
-  setSupporterOnly: (id, supporterOnly, { until = null } = {}) => {
+  setSupporterOnly: (id, supporterOnly, { until = null, scheduleRows = [] } = {}) => {
     const world = World.findById(id);
     if (!world) return undefined;
 
     moveWorldContent(world.content_file, supporterOnly);
+    // A new window starts with its own schedule, and a cleared one leaves none behind.
+    World.setSchedule(id, supporterOnly ? scheduleRows : []);
     // Setting the flag starts a new window; clearing it ends one. Either way a stale end date is dropped.
     db.prepare('UPDATE worlds SET supporter_only = ?, supporter_until = ?, supporter_expired_at = ? WHERE id = ?')
       .run(supporterOnly ? 1 : 0, supporterOnly ? until : null, supporterOnly ? null : world.supporter_expired_at, id);
@@ -676,6 +684,63 @@ const World = {
     db.prepare('UPDATE worlds SET supporter_until = ? WHERE id = ?').run(until, id);
 
     return World.findById(id);
+  },
+
+  /**
+   * A listing's tier schedule rows.
+   *
+   * @param {string} id - World ID
+   * @returns {Array<{ tier: string, opens_at: string }>}
+   */
+  scheduleRows: (id) => db.prepare('SELECT tier, opens_at FROM supporter_schedule WHERE world_id = ?').all(id),
+
+  /**
+   * The tier schedule rows of several listings, in one query.
+   *
+   * @param {string[]} ids - World IDs
+   * @returns {Map<string, Array<{ tier: string, opens_at: string }>>} Only listings that have rows
+   */
+  schedulesFor: (ids) => {
+    const byId = new Map();
+    if (ids.length === 0) return byId;
+
+    const marks = ids.map(() => '?').join(', ');
+    for (const { world_id: id, tier, opens_at: opensAt } of db.prepare(
+      `SELECT world_id, tier, opens_at FROM supporter_schedule WHERE world_id IN (${marks})`
+    ).all(...ids)) {
+      if (!byId.has(id)) byId.set(id, []);
+      byId.get(id).push({ tier, opens_at: opensAt });
+    }
+
+    return byId;
+  },
+
+  /**
+   * Replace a listing's tier schedule rows and set its public date in one transaction.
+   *
+   * @param {string} id - World ID
+   * @param {Array<{ tier: string, opens_at: string|null }>} rows - The new rows
+   * @param {string|null|undefined} until - The new public date; undefined leaves it
+   */
+  setScheduleWindow: (id, rows, until) => {
+    db.transaction(() => {
+      World.setSchedule(id, rows);
+      if (until !== undefined) World.setSupporterUntil(id, until);
+    })();
+  },
+
+  /**
+   * Replace a listing's tier schedule rows.
+   *
+   * @param {string} id - World ID
+   * @param {Array<{ tier: string, opens_at: string }>} rows - The new rows; none clears the schedule
+   */
+  setSchedule: (id, rows) => {
+    db.transaction(() => {
+      db.prepare('DELETE FROM supporter_schedule WHERE world_id = ?').run(id);
+      const insert = db.prepare('INSERT INTO supporter_schedule (world_id, tier, opens_at) VALUES (?, ?, ?)');
+      for (const { tier, opens_at: opensAt } of rows) insert.run(id, tier, opensAt);
+    })();
   },
 
   /**

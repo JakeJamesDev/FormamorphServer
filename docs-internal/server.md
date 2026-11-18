@@ -439,6 +439,15 @@ rclone size r2:formamorph-files
 
 - `POST /api/worlds` takes `supporterDays` (1 to 3650) with `supporterOnly: true`. A non-admin gets 403. Another kind, or no flag, gets 400.
 - `PUT /api/worlds/:id/supporter-only` takes `supporterDays` or `supporterUntil` (a future ISO date). `null` clears the end date. A past date gets 400. Each change writes a `listing_supporter_until` audit entry.
+- **Tier schedule.** `supporterSchedule` on `POST /api/worlds` and `PUT /api/worlds/:id/supporter-only` opens the listing to the Supporter tiers in stages: `supporter_top`, then `supporter_plus`, then `supporter`, then everyone. It replaces `supporterDays` and `supporterUntil`; sending both is a 400. `null` clears the rows and keeps the public date.
+  - **Days form:** `{ days: { supporter_top?, supporter_plus?, supporter? }, goPublic }`. Each value is 1 to 3650 days, counted from the request. A missing key skips that stage. `goPublic: true` sets `supporter_until` after the last stage. `false` keeps the last stage open with no end.
+  - **Dates form** (for editing one stage): `{ opensAt: { supporter_plus, supporter }, publicAt }`. Both tiers are required. A date is an ISO string, and a past date is fine. `null` means the public date, or never when `publicAt` is null. `publicAt` is an ISO date in the future, or `null`.
+  - A lower tier cannot open before a higher one, or after the public date (400). Admins only. Mascot and World only. The listing must be Supporter-only.
+  - Rows live in `supporter_schedule` (`world_id`, `tier`, `opens_at`, one per lower tier). A listing with no rows opens to every tier at once, as it did before schedules. Moving a passed date into the future re-gates the listing until it goes public.
+  - Each change writes a `listing_supporter_schedule` audit entry.
+  - `GET /api/worlds/:id/supporter-content` admits an account whose tier ranks at or above the tier open now. Staff and the author always pass. A refusal for a qualifying account carries `requiredTier` and `opensAt` (the date its own tier opens, or null). The tier order comes from `TIER_KEYS` in `src/config/patreon.js`.
+  - Catalog and details carry `supporterSchedule: [{ tier, opensAt }]`, highest tier first, passed rows included, only while the listing is Supporter-only. `opensAt` null means the public date, or not scheduled.
+  - The entitlement reply adds `tier` (the account's tier key, or null) beside `qualifies`. Its lists are not filtered by tier.
 - Every read goes through `src/utils/supporterWindow.js`, so a listing past its end date is public at once, with no wait for the sweep.
 - `src/utils/sweepSupporterExpiry.js` runs at boot and hourly. It clears the flag, moves the file to the public area, clears the per-account cache, and sets `supporter_expired_at`. It writes a `listing_supporter_expired` audit entry. A clear by hand sets `supporter_expired_at` too.
 - `GET /api/supporter-content/entitlement` returns `expired`: listings with `supporter_expired_at`, plus any past their end date that the sweep has not reached.

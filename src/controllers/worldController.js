@@ -46,7 +46,10 @@ const { judgingContest, contestLockedBody } = require('../utils/judgingContest')
 const { submissionFor, reviewEnabled, holdsEdit, pendingFields } = require('../utils/listingReview');
 const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
-const { SUPPORTER_ONLY_ERROR, mayReceiveSupporterContent } = require('../utils/supporterAccess');
+const { SUPPORTER_ONLY_ERROR, supporterAdmission, tierNotOpenError } = require('../utils/supporterAccess');
+const {
+  readSchedule, scheduleRefusal, scheduleSnippet, schedulePayload, scheduleOrderRefusal
+} = require('../utils/supporterSchedule');
 const { processForAccount, clearListingCache } = require('../utils/supporterProcessing');
 const { createSupporterListing } = require('../utils/supporterListing');
 const { isSupporterOnlyNow, readEndDate, TIMED_KINDS } = require('../utils/supporterWindow');
@@ -55,6 +58,9 @@ const { savePendingContent, savePendingThumbnail, deletePendingFile, readPending
 const {
   idList, dependencyRefusal, compatibilityRefusal, visibilityError, attachRelationships
 } = require('../utils/linkedContent');
+
+// Whether two schedules hold the same rows, whatever their order.
+const rowsKey = (list) => JSON.stringify([...list].sort((a, b) => a.tier.localeCompare(b.tier)));
 
 // Why an end date can't apply, or null. Only a Mascot or World can be timed, and only while Supporter-only.
 const endDateRefusal = (endDate, { supporterOnly, kind }) => {
@@ -548,8 +554,16 @@ exports.getSupporterContent = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'World not found' });
     }
 
-    if (!mayReceiveSupporterContent(req.user, row)) {
-      return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
+    const admission = supporterAdmission(req.user, row, World.scheduleRows(row.id));
+    if (!admission.ok) {
+      if (!admission.requiredTier) return res.status(403).json({ success: false, error: SUPPORTER_ONLY_ERROR });
+
+      return res.status(403).json({
+        success: false,
+        error: tierNotOpenError(admission),
+        requiredTier: admission.requiredTier,
+        opensAt: admission.opensAt
+      });
     }
 
     World.incrementDownloads(row.id);
@@ -587,6 +601,11 @@ exports.setSupporterOnly = async (req, res, next) => {
       const refusal = endDateRefusal(endDate, { supporterOnly, kind: world.kind || DEFAULT_KIND });
       if (refusal) return res.status(400).json({ success: false, error: refusal });
     }
+    const schedule = readSchedule(req.body);
+    if (schedule.provided) {
+      const refusal = scheduleRefusal(schedule, { supporterOnly, kind: world.kind || DEFAULT_KIND });
+      if (refusal) return res.status(400).json({ success: false, error: refusal });
+    }
 
     const audit = (action, snippet = null) => AuditLog.tryRecord({
       action,
@@ -600,20 +619,43 @@ exports.setSupporterOnly = async (req, res, next) => {
     const untilSnippet = (until) => until || 'none';
 
     let until = isSupporterOnlyNow(world) ? world.supporter_until : null;
+    let rows = [];
     if (supporterOnly) {
-      if (!isSupporterOnlyNow(world)) {
+      const fresh = !isSupporterOnlyNow(world);
+      const before = fresh ? [] : World.scheduleRows(world.id);
+      // A `null` schedule clears the rows and leaves the public date alone.
+      const nextUntil = schedule.provided && !schedule.clear ? schedule.until : endDate.until;
+      const nextRows = schedule.provided ? schedule.rows : before;
+      const dateChanged = (schedule.provided && !schedule.clear) || endDate.provided;
+
+      // A new public date can still strand a stage that opens after it.
+      const stranded = !schedule.provided && endDate.provided && !fresh
+        ? scheduleOrderRefusal(nextRows, nextUntil || null)
+        : null;
+      if (stranded) return res.status(400).json({ success: false, error: stranded });
+
+      if (fresh) {
         const linkedImages = await linkedImagesBeforeFlag(world);
         if (linkedImages) return res.status(400).json(linkedImages);
 
         // A listing past its end date that the sweep has not cleared yet starts a fresh window here.
-        until = endDate.until || null;
-        World.setSupporterOnly(world.id, true, { until });
+        until = nextUntil || null;
+        rows = nextRows;
+        World.setSupporterOnly(world.id, true, { until, scheduleRows: rows });
         audit('listing_supporter_only');
         if (until) audit('listing_supporter_until', untilSnippet(until));
-      } else if (endDate.provided && (endDate.until || null) !== (world.supporter_until || null)) {
-        until = endDate.until || null;
-        World.setSupporterUntil(world.id, until);
-        audit('listing_supporter_until', untilSnippet(until));
+        if (schedule.provided && !schedule.clear) audit('listing_supporter_schedule', scheduleSnippet(rows, until));
+      } else {
+        rows = nextRows;
+        const untilChanged = dateChanged && (nextUntil || null) !== (world.supporter_until || null);
+        const rowsChanged = schedule.provided && rowsKey(rows) !== rowsKey(before);
+        if (untilChanged) until = nextUntil || null;
+
+        if (untilChanged || rowsChanged) {
+          World.setScheduleWindow(world.id, rows, untilChanged ? until : undefined);
+        }
+        if (untilChanged) audit('listing_supporter_until', untilSnippet(until));
+        if (rowsChanged) audit('listing_supporter_schedule', scheduleSnippet(rows, until));
       }
     } else if (world.supporter_only) {
       // Opens the listing and records the expiry, as the sweep would have.
@@ -624,7 +666,12 @@ exports.setSupporterOnly = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: { id: world.id, supporterOnly, ...(supporterOnly && until ? { supporterUntil: until } : {}) }
+      data: {
+        id: world.id,
+        supporterOnly,
+        ...(supporterOnly && until ? { supporterUntil: until } : {}),
+        ...(supporterOnly && rows.length > 0 ? { supporterSchedule: schedulePayload(rows) } : {})
+      }
     });
   } catch (error) {
     next(error);
@@ -667,7 +714,8 @@ exports.createWorld = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'supporterOnly must be a boolean' });
     }
     const endDate = readEndDate(req.body);
-    if ((supporterOnly || endDate.provided) && !isAdmin(req.user)) {
+    const schedule = readSchedule(req.body);
+    if ((supporterOnly || endDate.provided || schedule.provided) && !isAdmin(req.user)) {
       return res.status(403).json({ success: false, error: 'Only an admin can publish Supporter-only content' });
     }
     if (supporterOnly && contestEventId) {
@@ -675,6 +723,10 @@ exports.createWorld = async (req, res, next) => {
     }
     if (endDate.provided) {
       const refusal = endDateRefusal(endDate, { supporterOnly, kind });
+      if (refusal) return res.status(400).json({ success: false, error: refusal });
+    }
+    if (schedule.provided) {
+      const refusal = scheduleRefusal(schedule, { supporterOnly, kind });
       if (refusal) return res.status(400).json({ success: false, error: refusal });
     }
 
@@ -775,7 +827,21 @@ exports.createWorld = async (req, res, next) => {
         ...submission.columns
       };
       // Supporter-only from the first committed row: the content above went straight to the private area.
-      if (supporterOnly) await createSupporterListing(row, contentFile, thumbnailFile, req.user, { until: endDate.until || null });
+      if (supporterOnly) {
+        const until = (schedule.provided ? schedule.until : endDate.until) || null;
+        const scheduleRows = schedule.provided ? schedule.rows : [];
+        await createSupporterListing(row, contentFile, thumbnailFile, req.user, { until, scheduleRows });
+        if (schedule.provided && !schedule.clear) {
+          AuditLog.tryRecord({
+            action: 'listing_supporter_schedule',
+            actor: req.user,
+            targetKind: kind,
+            targetName: name,
+            targetId: worldId,
+            snippet: scheduleSnippet(scheduleRows, until)
+          });
+        }
+      }
       else World.create(row, contentFile, thumbnailFile);
 
       if (submission.autoApproved) {

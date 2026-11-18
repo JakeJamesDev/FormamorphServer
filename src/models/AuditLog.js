@@ -75,6 +75,8 @@ const ACTIONS = [
   'listing_supporter_only_cleared',
   // Staff set, changed or cleared a Supporter-only listing's end date. The snippet is the new date or "none".
   'listing_supporter_until',
+  // Staff set, changed or cleared a Supporter-only listing's tier schedule. The snippet is each tier's opening date.
+  'listing_supporter_schedule',
   // A Supporter-only listing reached its end date and the sweep opened it to everyone.
   'listing_supporter_expired',
   // Staff took one account's access to Supporter content away, or gave it back.
