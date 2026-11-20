@@ -613,6 +613,10 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-19** — deployed `36f088b`: the storage check reads the `formamorph-assets` bucket. All 3,830 tests
+  passed in 51.8 s (53 s wall). Env: added `R2_ASSETS_BUCKET=formamorph-assets`. No schema change, so no
+  backup. Service active, boot logged `Server running on port` with no stack trace, public route 200.
+
 - **2026-11-15** — deployed `425c0c3`: Character Mentions contributions accept a non-mention correction. All
   3,791 tests passed in 57.6 s (60.5 s wall). No schema, env, or policy change, so no backup. Service active
   with zero restarts, boot logged `Server running on port` with no stack trace, public route 200. The old
