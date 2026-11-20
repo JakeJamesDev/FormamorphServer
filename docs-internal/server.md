@@ -131,7 +131,8 @@ Env keys present on the server (values omitted): `R2_ACCOUNT_ID`, `R2_BUCKET`, `
 ⚠️ `CLOUDFLARE_ANALYTICS_TOKEN` is new: a Cloudflare API token with only **Account Analytics: Read**. The storage
 check uses it with `R2_ACCOUNT_ID`, `R2_BUCKET` and `R2_BACKUP_BUCKET` to read the bucket sizes. Add it to the
 server env file by hand before the R2 storage ticket deploys. Without it the check skips R2 and the storage
-report's `r2` is null.
+report's `r2` is null. Optional `R2_ASSETS_BUCKET=formamorph-assets` adds the public assets bucket
+(`assets.formamorph.ai`: coref weights, the web build's ORT runtime) to that read.
 
 ## Formamorph AI pledge freshness
 

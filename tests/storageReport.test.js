@@ -190,7 +190,7 @@ describe('the storage report route', () => {
   });
 });
 
-const R2_KEYS = ['CLOUDFLARE_ANALYTICS_TOKEN', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_BACKUP_BUCKET'];
+const R2_KEYS = ['CLOUDFLARE_ANALYTICS_TOKEN', 'R2_ACCOUNT_ID', 'R2_BUCKET', 'R2_BACKUP_BUCKET', 'R2_ASSETS_BUCKET'];
 const TOKEN = 'cf-secret-token-123';
 const GB = 1000 ** 3;
 
@@ -249,6 +249,18 @@ describe('the R2 read', () => {
       { day: '2026-03-10', name: 'r2:backups-bucket', bytes: 2 * GB + 7, files: 9 },
       { day: '2026-03-10', name: 'r2:files-bucket', bytes: 4 * GB + 5, files: 120 }
     ]);
+  });
+
+  it('adds the assets bucket to the same request when R2_ASSETS_BUCKET is set', async () => {
+    process.env.R2_ASSETS_BUCKET = 'assets-bucket';
+    serve(() => cloudflareReply({ ...BOTH, b2: { payloadSize: 1 * GB, metadataSize: 3, objectCount: 11 } }));
+
+    await checkStorage(NOON);
+    const { r2 } = (await asAdmin()).body.data;
+
+    expect(calls).toHaveLength(1);
+    expect(Object.keys(r2.buckets)).toEqual(['files-bucket', 'backups-bucket', 'assets-bucket']);
+    expect(r2.buckets['assets-bucket']).toEqual({ bytes: 1 * GB + 3, objects: 11, checkedAt: NOON.toISOString() });
   });
 
   it('keeps the last good value and its time through a failed read, and still stores the disk and directories', async () => {

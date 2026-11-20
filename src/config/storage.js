@@ -50,7 +50,9 @@ const r2Settings = () => {
 
   if (!token || !accountId || buckets.some((bucket) => !bucket)) return null;
 
-  return { token, accountId, buckets };
+  // The public assets bucket (coref weights, the web build's ORT runtime) is optional.
+  const assets = process.env.R2_ASSETS_BUCKET;
+  return { token, accountId, buckets: assets && !buckets.includes(assets) ? [...buckets, assets] : buckets };
 };
 
 /** The `storage_days` name of a bucket's row. */
