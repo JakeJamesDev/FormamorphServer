@@ -635,6 +635,11 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-20** — deployed `dbb158a`: a Supporter world marks only its cover and 4 largest images, so large
+  worlds download (report #231). All 3,850 tests passed in 46 s wall. No schema, env, or policy change, so no
+  backup. Service active with zero restarts, boot logged `Server running on port` with no stack trace, public
+  route 200. `clear-world-cache` dry run found 0 files, so no write was needed.
+
 - **2026-11-19** — deployed `36f088b`: the storage check reads the `formamorph-assets` bucket. All 3,830 tests
   passed in 51.8 s (53 s wall). Env: added `R2_ASSETS_BUCKET=formamorph-assets`. No schema change, so no
   backup. Service active, boot logged `Server running on port` with no stack trace, public route 200.
