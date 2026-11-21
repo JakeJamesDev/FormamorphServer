@@ -85,6 +85,7 @@ Technical decisions:
   - Only `data:image/*;base64` strings count. Sound entries, http(s) linked entries and undecodable strings pass through unchanged and are never eligible.
   - A missing, linked or undecodable cover counts as no cover. The 4 are the largest eligible images, excluding the cover.
   - Animated images (GIF, animated WebP) are never marked. An animated cover counts as no cover.
+  - SVG images are never marked, so vector art stays vector. An SVG cover counts as no cover.
   - A marked Media Entry drops its `hash` and gets `type: image/webp`. The client re-hashes an entry that has no hash.
   - The deploy cleanup follows the repo's existing one-shot step pattern. It looks up each listing's kind from the database.
 - **Mark only.** A marked world image is the source decoded, the account's mark embedded, and the result encoded as lossless WebP. The scramble module is not called.

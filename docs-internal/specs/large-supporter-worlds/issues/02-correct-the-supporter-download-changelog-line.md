@@ -1,6 +1,6 @@
 # 02: Correct the Supporter download changelog line
 
-Status: ready-for-agent
+Status: ready-for-human
 Blocked by: 01
 Recommended model: Claude Haiku 5.5 (`claude-haiku-5-5`)
 Reasoning effort: low
@@ -13,5 +13,9 @@ The changelog tells players the real fix. The In Progress entry from `2d66c416f`
 
 ## Acceptance criteria
 
-- [ ] The entry is replaced with one that states the outcome: large Supporter-only worlds such as Sunmeadow Town now download from Community Creations. The lead stands alone and follows the changelog lead rules.
-- [ ] The client idle-timeout code from `2d66c416f` is untouched.
+- [x] The entry is replaced with one that states the outcome: large Supporter-only worlds such as Sunmeadow Town now download from Community Creations. The lead stands alone and follows the changelog lead rules.
+- [x] The client idle-timeout code from `2d66c416f` is untouched.
+
+## Landed
+
+formamorph 0f98f4887, made by the spec session as a main-checkout quick change: a ticket worktree cannot replace an existing changelog line. The idle-timeout code is untouched.
