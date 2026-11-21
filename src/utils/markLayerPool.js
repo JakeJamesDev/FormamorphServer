@@ -59,8 +59,8 @@ function pump() {
  * @param {{ width: number, height: number, data: Uint8ClampedArray }} image - Raw RGBA; its buffer is
  *   transferred, so the caller must not reuse it
  * @param {number} mark - The account's mark number
- * @param {number} seed - The scramble seed
- * @returns {Promise<Object>} What `scramble` returns
+ * @param {number|null} seed - The scramble seed; null marks without scrambling
+ * @returns {Promise<Object>} What `scramble` returns, or `{ width, height, data }` for a null seed
  */
 const markLayer = (image, mark, seed) => new Promise((resolve, reject) => {
   waiting.push({ job: { ...image, mark, seed }, resolve, reject });

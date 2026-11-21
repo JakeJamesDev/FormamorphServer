@@ -97,7 +97,7 @@ The words the code uses, so a reader and a reviewer mean the same thing by them.
 | **Creator token** | The token pair that reads the member list. It starts from the environment. After its first refresh, the server's settings store holds it, and staff cannot read it. |
 | **Supporter Flair** | What a linked account with a tier shows other people. The account turns it off with one toggle. |
 | **Mark number** | A random 32-bit number, one per account for good, made the first time the account gets a watermarked copy. Erasure deletes it. |
-| **Watermark** | The invisible mark that carries an account's mark number in each image of its Supporter download. |
+| **Watermark** | The invisible mark that carries an account's mark number in the images of its Supporter download: every layer of a Mascot, but only the cover and the 4 largest images (310k pixels or more) of a world. |
 | **Leak read** | Staff reading the watermark out of a leaked image with `npm run read-leak`, which names the account. |
 
 ## Formamorph AI

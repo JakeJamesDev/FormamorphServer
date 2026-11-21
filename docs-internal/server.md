@@ -513,7 +513,8 @@ cd /srv/formamorph/app && npm run read-leak -- /tmp/leak.png
 
 ## Scrambled layers
 
-Supporter layers leave the server as shuffled tiles. `src/utils/scramble.js` is the server half; the client
+Supporter Mascot layers leave the server as shuffled tiles. A world's images are never scrambled: see
+[Per-account processing](#per-account-processing). `src/utils/scramble.js` is the server half; the client
 copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 - **Format version 1:** pad the layer with transparent pixels to a multiple of 8 on each axis, cut it into
@@ -528,6 +529,10 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 
 `src/utils/supporterProcessing.js` runs on the gated route and the staff review route.
 
+The listing's kind picks the path.
+
+**Mascot** (`kind = 'mascot'`):
+
 - **What it touches:** every `data:image/...;base64,` string in the content, at any depth. Each becomes
   `{ dataUrl, seed, version, sourceWidth, sourceHeight }` in the same place: marked with the account's mark,
   scrambled, encoded as lossless PNG. Other content, and an image that will not decode, passes through.
@@ -536,6 +541,23 @@ copies the inverse. Both test against `tests/fixtures/scramble-vectors.json`.
 - **Cache:** one file per account and revision in the private area, `processed-<listing>-r<revision>-<user>.json`.
   The first miss after a revision change deletes that listing's older files. The review route never caches.
 - **Cost:** a cold Morphie-sized request (26 layers plus the Initial render) takes about 1.5 s.
+
+**World** (every other kind):
+
+- **Marked images:** the cover plus the 4 largest eligible images, the same set for every account in a
+  revision. The cover is `worldOverview.thumbnail`: a data URL, or `{ mediaId }` into
+  `worldOverview.mediaList`. Eligible: a non-animated `data:image/...` string of at least 310,000 pixels by
+  its header's width × height (`sharp` metadata, no pixel decode), not the cover. Ties keep first-appearance
+  order. A missing, linked, animated or undecodable cover counts as no cover.
+- **Output:** a marked image is a plain `data:image/webp;base64,...` string, lossless, in the source string's
+  place, in every place that string appears. No scramble, no seed. A Media Entry whose data was marked drops
+  its `hash` and takes `type: 'image/webp'`.
+- **Everything else** passes through byte for byte. No unmarked image is ever decoded.
+- **No cache.** The gated and the review routes process on each request. A Sunmeadow-scale world takes about
+  1–2 s. `PROCESSING_VERSION` includes a constant for this path.
+- **Deploy step (once):** `npm run clear-world-cache -- --write` deletes the old per-account cache files of
+  every non-Mascot listing, and of listings that no longer exist. Without `--write` it only counts them. Mascot
+  files stay. A second run finds nothing.
 
 ## Hidden Gems
 

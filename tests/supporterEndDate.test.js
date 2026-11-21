@@ -266,6 +266,8 @@ describe('the expiry sweep', () => {
     const id = await timed(1);
     const fan = supporter();
     await gated(id, fan);
+    // A world writes no cache; a copy left before the one-time cleanup is what the sweep must still remove.
+    fs.writeFileSync(path.join(paths.SUPPORTER_PRIVATE_DIR, `processed-${id}-vold-r1-${fan.id}.json`), '{}');
     expect(cacheFiles(id)).toHaveLength(1);
     expect(inDir(paths.SUPPORTER_PRIVATE_DIR, id)).toBe(true);
 

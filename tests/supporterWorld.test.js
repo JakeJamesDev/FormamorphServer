@@ -61,23 +61,23 @@ const flagged = async (contentData = richContent()) => {
   return { id: created.body.data.id, author };
 };
 
-const isProcessed = (value) => value && typeof value === 'object' && /^data:image\/png;base64,/.test(value.dataUrl) && typeof value.seed === 'number';
+const isMarkedWebp = (value) => typeof value === 'string' && /^data:image\/webp;base64,/.test(value);
 
 describe('the gated route serving a world', () => {
-  it('replaces every embedded image with a processed object and leaves other media byte-equal', async () => {
+  it('marks the cover wherever it appears as a plain WebP string and leaves other media byte-equal', async () => {
     const { id } = await flagged();
 
     const res = await gated(id, supporter());
     expect(res.status).toBe(200);
     const content = res.body.data.contentData;
 
-    expect(isProcessed(content.worldOverview.thumbnail)).toBe(true);
-    expect(isProcessed(content.worldOverview.mapBackground.images[0].data)).toBe(true);
-    expect(isProcessed(content.entities[0].images[0].data)).toBe(true);
-    expect(isProcessed(content.entities[0].images[1])).toBe(true);
-    expect(isProcessed(content.locations[0].images[0].data)).toBe(true);
-    expect(isProcessed(content.bodies[0].backdrop.image.data)).toBe(true);
-    expect(isProcessed(content.dictionaries[0].thumbnail)).toBe(true);
+    expect(isMarkedWebp(content.worldOverview.thumbnail)).toBe(true);
+    expect(isMarkedWebp(content.worldOverview.mapBackground.images[0].data)).toBe(true);
+    expect(isMarkedWebp(content.entities[0].images[0].data)).toBe(true);
+    expect(isMarkedWebp(content.entities[0].images[1])).toBe(true);
+    expect(isMarkedWebp(content.locations[0].images[0].data)).toBe(true);
+    expect(isMarkedWebp(content.bodies[0].backdrop.image.data)).toBe(true);
+    expect(isMarkedWebp(content.dictionaries[0].thumbnail)).toBe(true);
 
     expect(content.worldOverview.bgm).toBe(AUDIO);
     expect(content.worldOverview.vrmStore.v1.file.data).toBe(AVATAR);
