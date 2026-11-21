@@ -205,6 +205,23 @@ describe('a world on the gated route', () => {
     expect(out.mediaList.m2).toEqual(mediaList.m2);
   }, 120000);
 
+  it('never marks an SVG, an SVG cover counting as no cover', async () => {
+    const svg = (width) => `data:image/svg+xml;base64,${Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="1000"><rect width="${width}" height="1000" fill="#36c"/></svg>`
+    ).toString('base64')}`;
+    const cover = svg(1600);
+    const large = svg(1700);
+    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(700 + i * 50, 500, i)));
+    const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail: cover }, entities: [entityWith([large, ...sources])] }));
+
+    const out = (await gated(id, supporter())).body.data.contentData;
+    const served = out.entities[0].images.map((image) => image.data);
+
+    expect(out.worldOverview.thumbnail).toBe(cover);
+    expect(served[0]).toBe(large);
+    expect(served.slice(1).map(isMarked)).toEqual([false, true, true, true, true]);
+  }, 120000);
+
   it('counts an image string once toward the 4 and marks every place it appears the same way', async () => {
     const repeated = await picture(1000, 500, 1);
     const others = await Promise.all([2, 3, 4, 5].map((i) => picture(800 + i, 500, i)));

@@ -546,9 +546,9 @@ The listing's kind picks the path.
 
 - **Marked images:** the cover plus the 4 largest eligible images, the same set for every account in a
   revision. The cover is `worldOverview.thumbnail`: a data URL, or `{ mediaId }` into
-  `worldOverview.mediaList`. Eligible: a non-animated `data:image/...` string of at least 310,000 pixels by
-  its header's width × height (`sharp` metadata, no pixel decode), not the cover. Ties keep first-appearance
-  order. A missing, linked, animated or undecodable cover counts as no cover.
+  `worldOverview.mediaList`. Eligible: a non-animated, non-SVG `data:image/...` string of at least 310,000
+  pixels by its header's width × height (`sharp` metadata, no pixel decode), not the cover. Ties keep
+  first-appearance order. A missing, linked, animated, SVG or undecodable cover counts as no cover.
 - **Output:** a marked image is a plain `data:image/webp;base64,...` string, lossless, in the source string's
   place, in every place that string appears. No scramble, no seed. A Media Entry whose data was marked drops
   its `hash` and takes `type: 'image/webp'`.

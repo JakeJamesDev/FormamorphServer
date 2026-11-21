@@ -73,13 +73,13 @@ const processValue = async (value, mark, seed) => {
 
 // --- worlds ---
 
-/** The string's pixel count and whether it can carry a mark, from its header alone; null when it will not read. */
+/** The string's pixel count and whether it is animated, from its header alone; null when it will not read or is a vector. */
 const imageInfo = async (value) => {
   const match = DATA_URL.exec(value);
   if (!match) return null;
   try {
-    const { width, height, pages } = await sharp(Buffer.from(match[1], 'base64')).metadata();
-    if (!width || !height) return null;
+    const { width, height, pages, format } = await sharp(Buffer.from(match[1], 'base64')).metadata();
+    if (!width || !height || format === 'svg') return null;
     return { pixels: width * height, animated: pages > 1 };
   } catch {
     return null;
