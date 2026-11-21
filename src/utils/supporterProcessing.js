@@ -140,7 +140,8 @@ const markWorldImage = async (value, mark) => {
   const marked = await pool.markLayer({ width: info.width, height: info.height, data: new Uint8ClampedArray(data) }, mark, null);
   const webp = await sharp(Buffer.from(marked.data.buffer, marked.data.byteOffset, marked.data.length), {
     raw: { width: marked.width, height: marked.height, channels: info.channels }
-  }).webp({ lossless: true }).toBuffer();
+  // Effort 0: 3x faster than the default on the API box, about 6% larger, same pixels.
+  }).webp({ lossless: true, effort: 0 }).toBuffer();
   return `data:image/webp;base64,${webp.toString('base64')}`;
 };
 
