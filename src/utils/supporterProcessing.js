@@ -112,26 +112,31 @@ const coverOf = (content) => {
   return typeof entry?.data === 'string' ? entry.data : null;
 };
 
-// The strings that carry the mark: the cover, then the largest eligible images, ties in first-appearance order.
-const markedStrings = async (content) => {
+// The cover when it can carry the mark, and the other eligible images, largest first, ties in first-appearance order.
+const markCandidates = async (content) => {
   const infos = new Map();
   for (const value of imageStrings(content)) infos.set(value, await imageInfo(value));
 
   const cover = coverOf(content);
   const coverInfo = cover && infos.get(cover);
-  const chosen = coverInfo && !coverInfo.animated ? [cover] : [];
 
-  const eligible = [...infos]
+  const ranked = [...infos]
     .filter(([value, info]) => value !== cover && info && !info.animated && info.pixels >= WORLD_MIN_PIXELS)
     .map(([value, info], order) => ({ value, pixels: info.pixels, order }))
-    .sort((a, b) => b.pixels - a.pixels || a.order - b.order);
-  return [...chosen, ...eligible.slice(0, WORLD_MARKED_EXTRAS).map(({ value }) => value)];
+    .sort((a, b) => b.pixels - a.pixels || a.order - b.order)
+    .map(({ value }) => value);
+  return { cover: coverInfo && !coverInfo.animated ? cover : null, ranked };
 };
 
-// The lossless WebP of one marked image, as a data URL.
+// The lossless WebP of one marked image, as a data URL, or null when the body does not decode.
 const markWorldImage = async (value, mark) => {
-  const { data, info } = await sharp(Buffer.from(DATA_URL.exec(value)[1], 'base64'))
-    .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let decoded;
+  try {
+    decoded = await sharp(Buffer.from(DATA_URL.exec(value)[1], 'base64')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  } catch {
+    return null;
+  }
+  const { data, info } = decoded;
   const marked = await pool.markLayer({ width: info.width, height: info.height, data: new Uint8ClampedArray(data) }, mark, null);
   const webp = await sharp(Buffer.from(marked.data.buffer, marked.data.byteOffset, marked.data.length), {
     raw: { width: marked.width, height: marked.height, channels: info.channels }
@@ -156,8 +161,16 @@ const replaceStrings = (value, replacements) => {
 };
 
 const processWorld = async (content, mark) => {
-  const sources = await markedStrings(content);
-  const replacements = new Map(await Promise.all(sources.map(async (source) => [source, await markWorldImage(source, mark)])));
+  const { cover, ranked } = await markCandidates(content);
+  const replacements = new Map();
+  const markedCover = cover && await markWorldImage(cover, mark);
+  if (markedCover) replacements.set(cover, markedCover);
+  // A candidate that fails to decode passes through, and the next one takes its place.
+  for (const value of ranked) {
+    if (replacements.size - (markedCover ? 1 : 0) === WORLD_MARKED_EXTRAS) break;
+    const marked = await markWorldImage(value, mark);
+    if (marked) replacements.set(value, marked);
+  }
   return replaceStrings(content, replacements);
 };
 

@@ -118,6 +118,36 @@ describe('a world on the gated route', () => {
     expect(out.worldOverview.thumbnail).not.toBe(cover);
   }, 120000);
 
+  it('sends each marked image as lossless WebP', async () => {
+    const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail: await picture(400, 400, 1) } }));
+
+    const thumbnail = (await gated(id, supporter())).body.data.contentData.worldOverview.thumbnail;
+
+    // A WebP file's first chunk is VP8L when lossless, VP8 when lossy.
+    expect(Buffer.from(thumbnail.split(',')[1], 'base64').subarray(12, 16).toString('ascii')).toBe('VP8L');
+  }, 120000);
+
+  it('passes an image whose body does not decode through unchanged and marks the next largest in its place', async () => {
+    const { sources, contentData } = await sixImageWorld();
+    const whole = await picture(1400, 500, 50);
+    const bytes = Buffer.from(whole.split(',')[1], 'base64');
+    // The header still reads as the largest image; the body is cut short.
+    const broken = `data:image/jpeg;base64,${bytes.subarray(0, Math.floor(bytes.length / 2)).toString('base64')}`;
+    contentData.entities.push({ ...entityWith([broken]), id: 'e3' });
+    const { id } = await flagged(contentData);
+    const member = supporter();
+
+    const res = await gated(id, member);
+
+    expect(res.status).toBe(200);
+    const out = res.body.data.contentData;
+    expect(out.entities[2].images[0].data).toBe(broken);
+    const served = [...out.entities[0].images, ...out.entities[1].images].map((image) => image.data);
+    // Without the broken one, the four widest are sources[2..5]; sources[1] stays plain.
+    expect(served.slice(0, 2)).toEqual(sources.slice(0, 2));
+    for (const url of served.slice(2)) expect(await markOf(url)).toBe(WatermarkMark.markFor(member.id));
+  }, 120000);
+
   it('gives a second account the same marked images, each with its own mark', async () => {
     const { contentData } = await sixImageWorld();
     const { id } = await flagged(contentData);
