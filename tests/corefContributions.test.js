@@ -9,6 +9,7 @@ const Policy = require('../src/models/Policy');
 const { eraseUser } = require('../src/utils/eraseUser');
 const { PASSAGE_MAX, NAME_MAX } = require('../src/utils/corefCorpus');
 const corefEntityNames = require('../src/schema/steps/corefEntityNames');
+const corefQuoteSpeakerData = require('../src/schema/steps/corefQuoteSpeakerData');
 
 /**
  * Character Mentions contributions: a player's corrected passage, the staff queue that reviews it, and the
@@ -238,6 +239,153 @@ describe('entity names', () => {
     expect(withNames).toContain(`contribution-${id}`);
     expect(withNames).toBe(without);
     expect(withNames).not.toContain('Mira Vance');
+  });
+});
+
+describe('quote speaker data', () => {
+  const KEY_LINE = span(PASSAGE, 'She drew a brass key');
+  const DOOR_LINE = span(PASSAGE, 'The courier waited by the door');
+  const FULL = {
+    playerId: 'mira',
+    cast: [
+      { id: 'mira', name: 'Mira Vance', aliases: ['Mira'], strangerName: null, kind: null },
+      { id: 'courier', name: 'The courier', aliases: [], strangerName: 'a courier', kind: 'unique' }
+    ],
+    quotes: [
+      {
+        start: KEY_LINE[0],
+        end: KEY_LINE[1],
+        speakerId: 'courier',
+        rule: 'after-subject-verb',
+        mention: { start: COURIER[0], end: COURIER[1] },
+        firstPerson: [{ start: MIRA[0], end: MIRA[1] }]
+      },
+      { start: DOOR_LINE[0], end: DOOR_LINE[1], speakerId: null, rule: 'none', mention: null, firstPerson: [] }
+    ],
+    clientVersion: '1.9.0',
+    readingVersion: 4
+  };
+  const refused = async (over) => {
+    const res = await submit(adult(), payload(over));
+    expect(res.status).toBe(400);
+    return res.body.error;
+  };
+  const queued = async (id) => (await queue(mod())).body.data.find((entry) => entry.id === id);
+
+  it('stores every field and the queue returns them', async () => {
+    const { body } = await submit(adult(), payload(FULL));
+
+    const stored = row(body.data.id);
+    expect(stored).toMatchObject({ player_id: 'mira', client_version: '1.9.0', reading_version: 4 });
+    expect(JSON.parse(stored.cast_members)).toEqual(FULL.cast);
+    expect(JSON.parse(stored.quotes)).toEqual(FULL.quotes);
+    expect(await queued(body.data.id)).toMatchObject({
+      playerId: 'mira', cast: FULL.cast, quotes: FULL.quotes, clientVersion: '1.9.0', readingVersion: 4
+    });
+  });
+
+  it('takes a submit without them and reads them back absent', async () => {
+    const res = await submit(adult());
+
+    expect(res.status).toBe(201);
+    expect(row(res.body.data.id)).toMatchObject({
+      player_id: null, cast_members: null, quotes: null, client_version: null, reading_version: null
+    });
+    expect(await queued(res.body.data.id)).toMatchObject({
+      playerId: null, cast: null, quotes: null, clientVersion: null, readingVersion: null
+    });
+  });
+
+  it('takes a null persona and an empty quote list', async () => {
+    const { body } = await submit(adult(), payload({ playerId: null, quotes: [], cast: [] }));
+
+    expect(await queued(body.data.id)).toMatchObject({ playerId: null, quotes: [], cast: [] });
+  });
+
+  it('takes a rule this server has not met', async () => {
+    const quote = { ...FULL.quotes[0], rule: 'newer-rule' };
+    expect((await submit(adult(), payload({ quotes: [quote] }))).status).toBe(201);
+  });
+
+  it('clears the fields when a replacing send omits them', async () => {
+    const user = adult();
+    const first = await submit(user, payload(FULL));
+    await submit(user);
+
+    expect(row(first.body.data.id)).toMatchObject({ player_id: null, cast_members: null, quotes: null, reading_version: null });
+  });
+
+  it('leaves the export byte-identical', async () => {
+    const { staff, id } = await acceptOne(payload(FULL));
+    const download = async () => (await request(app).get('/api/coref-contributions/export').set(authHeader(staff))).text;
+
+    const withData = await download();
+    db.prepare('UPDATE coref_contributions SET player_id = NULL, cast_members = NULL, quotes = NULL WHERE id = ?').run(id);
+
+    expect(withData).toContain(`contribution-${id}`);
+    expect(withData).toBe(await download());
+  });
+
+  const quoteWith = (over) => ({ quotes: [{ ...FULL.quotes[0], ...over }] });
+  it.each([
+    ['playerId', { playerId: 7 }, /playerId/],
+    ['playerId length', { playerId: 'p'.repeat(201) }, /playerId/],
+    ['cast not a list', { cast: {} }, /cast/],
+    ['cast too long', { cast: Array.from({ length: 201 }, (_, i) => ({ ...FULL.cast[0], id: `e${i}` })) }, /cast/],
+    ['cast id', { cast: [{ ...FULL.cast[0], id: '' }] }, /cast record needs an id/],
+    ['cast name', { cast: [{ ...FULL.cast[0], name: 'N'.repeat(NAME_MAX + 1) }] }, /cast name/],
+    ['cast aliases not a list', { cast: [{ ...FULL.cast[0], aliases: 'Mira' }] }, /aliases/],
+    ['cast alias count', { cast: [{ ...FULL.cast[0], aliases: Array.from({ length: 21 }, (_, i) => `a${i}`) }] }, /aliases/],
+    ['cast alias length', { cast: [{ ...FULL.cast[0], aliases: ['A'.repeat(NAME_MAX + 1)] }] }, /aliases/],
+    ['cast stranger name', { cast: [{ ...FULL.cast[0], strangerName: '' }] }, /stranger name/],
+    ['cast kind', { cast: [{ ...FULL.cast[0], kind: 'group' }] }, /cast kind/],
+    ['quotes not a list', { quotes: 'x' }, /quotes/],
+    ['quotes too long', { quotes: Array.from({ length: 501 }, () => FULL.quotes[0]) }, /quotes/],
+    ['quote speakerId', quoteWith({ speakerId: 3 }), /speakerId/],
+    ['quote rule shape', quoteWith({ rule: 'After Verb' }), /quote rule/],
+    ['quote rule length', quoteWith({ rule: 'a'.repeat(41) }), /quote rule/],
+    ['quote mention', quoteWith({ mention: { start: 0, end: 9999 } }), /quote mention/],
+    ['quote firstPerson not a list', quoteWith({ firstPerson: null }), /firstPerson/],
+    ['quote firstPerson count', quoteWith({ firstPerson: Array.from({ length: 51 }, () => ({ start: MIRA[0], end: MIRA[1] })) }), /firstPerson/],
+    ['quote firstPerson span', quoteWith({ firstPerson: [{ start: 0, end: 9999 }] }), /firstPerson span/],
+    ['clientVersion type', { clientVersion: 2 }, /clientVersion/],
+    ['clientVersion length', { clientVersion: 'v'.repeat(65) }, /clientVersion/],
+    ['readingVersion zero', { readingVersion: 0 }, /readingVersion/],
+    ['readingVersion fraction', { readingVersion: 1.5 }, /readingVersion/]
+  ])('refuses a bad %s with an error that names it', async (_, over, message) => {
+    expect(await refused(over)).toMatch(message);
+  });
+
+  it('takes the fields at their bounds', async () => {
+    const quote = {
+      ...FULL.quotes[0],
+      firstPerson: Array.from({ length: 50 }, () => ({ start: MIRA[0], end: MIRA[1] })),
+      rule: 'a'.repeat(40)
+    };
+    const cast = [{ ...FULL.cast[0], aliases: Array.from({ length: 20 }, (_, i) => `a${i}`) }];
+    const res = await submit(adult(), payload({ quotes: [quote], cast, clientVersion: 'v'.repeat(64) }));
+    expect(res.status).toBe(201);
+  });
+
+  it('refuses a quote span that splits a word, a code point or leaves the passage', async () => {
+    expect(await refused(quoteWith({ start: KEY_LINE[0] + 1 }))).toMatch(/quote span/);
+    expect(await refused(quoteWith({ end: KEY_LINE[1] - 1 }))).toMatch(/quote span/);
+    expect(await refused(quoteWith({ end: 9999 }))).toMatch(/quote span/);
+    const passage = '🙂 Mira waved.';
+    const emoji = {
+      passage,
+      clusters: [[[3, 7]]],
+      clusterEntities: ['mira'],
+      corrections: [{ kind: 'mention', start: 3, end: 7, entityId: 'mira' }]
+    };
+    const wave = { ...FULL.quotes[0], end: 7, mention: null, firstPerson: [] };
+    expect((await submit(adult(), payload({ ...emoji, quotes: [{ ...wave, start: 3 }] }))).status).toBe(201);
+    expect(await refused({ ...emoji, quotes: [{ ...wave, start: 1 }] })).toMatch(/quote span/);
+  });
+
+  it('refuses a mention or first-person span that splits a word', async () => {
+    expect(await refused(quoteWith({ mention: { start: COURIER[0] + 1, end: COURIER[1] } }))).toMatch(/quote mention/);
+    expect(await refused(quoteWith({ firstPerson: [{ start: MIRA[0], end: MIRA[1] - 1 }] }))).toMatch(/firstPerson span/);
   });
 });
 
@@ -498,6 +646,20 @@ describe('account deletion', () => {
     expect(row(accepted)).toMatchObject({ state: 'accepted', user_id: null, passage: PASSAGE });
     expect(row(rejected)).toBeUndefined();
     expect(await exported(staff, accepted)).toBeDefined();
+  });
+});
+
+describe('corefQuoteSpeakerData schema step', () => {
+  it('gives a deployed table null speaker-data columns, once', () => {
+    const old = new Database(':memory:');
+    old.exec('CREATE TABLE coref_contributions (id TEXT PRIMARY KEY)');
+    old.exec("INSERT INTO coref_contributions (id) VALUES ('a')");
+
+    expect(corefQuoteSpeakerData.apply(old)).toBe(true);
+    expect(old.prepare('SELECT player_id, cast_members, quotes, client_version, reading_version FROM coref_contributions').get())
+      .toEqual({ player_id: null, cast_members: null, quotes: null, client_version: null, reading_version: null });
+    expect(corefQuoteSpeakerData.apply(old)).toBe(false);
+    old.close();
   });
 });
 

@@ -614,6 +614,20 @@ reading's entity per cluster, and the turn's corrections. Staff accept or reject
 | `POST /api/coref-contributions/:id/accept`, `/reject` | staff | a pending row only; anything else is a 404 |
 | `GET /api/coref-contributions/export` | staff | accepted rows as the training kit's annotation format (JSON Lines) |
 
+- **Speaker data.** A submit may also carry these optional fields. A refused one returns a 400 that names it.
+  A row or resend without them stores null, and the queue returns null. A replacing send overwrites all of them.
+
+  | Field | Shape and bounds |
+  |---|---|
+  | `playerId` | the persona's entity id, or null |
+  | `cast` | at most 200 records `{id, name, aliases, strangerName, kind}`; at most 20 aliases; names at most 200 characters; `kind` is `unique`, `generic` or null |
+  | `quotes` | at most 500 records `{start, end, speakerId, rule, mention, firstPerson}`; `speakerId` is an id or null; `rule` matches `^[a-z-]{1,40}$` (not a closed list); `mention` is `{start, end}` or null; at most 50 `firstPerson` spans |
+  | `clientVersion` | a string of at most 64 characters |
+  | `readingVersion` | a positive whole number |
+
+  Every span in `quotes` follows the correction span rule (inside the passage, never inside a word or code point).
+  Columns: `player_id`, `cast_members`, `quotes`, `client_version`, `reading_version`, added by the
+  `corefQuoteSpeakerData` schema step. The export ignores them until ticket 05.
 - **The export** applies each mention correction to its clusters, skips quote-speaker corrections, drops
   clusters with one mention, and writes code-point offsets. Each line's `id` is `contribution-<row id>`.
 - **Account deletion** drops the account's pending and rejected rows. Accepted rows stay, with the account set null.

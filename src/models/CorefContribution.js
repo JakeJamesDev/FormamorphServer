@@ -22,6 +22,11 @@ const present = (row) => row && ({
   clusterEntities: JSON.parse(row.cluster_entities),
   corrections: JSON.parse(row.corrections),
   entityNames: JSON.parse(row.entity_names),
+  playerId: row.player_id,
+  cast: row.cast_members === null ? null : JSON.parse(row.cast_members),
+  quotes: row.quotes === null ? null : JSON.parse(row.quotes),
+  clientVersion: row.client_version,
+  readingVersion: row.reading_version,
   state: row.state,
   reviewedBy: row.reviewed_by,
   reviewerUsername: row.reviewer_username || null,
@@ -55,6 +60,11 @@ const CorefContribution = {
       clusterEntities: JSON.stringify(value.clusterEntities),
       corrections: JSON.stringify(value.corrections),
       entityNames: JSON.stringify(value.entityNames),
+      playerId: value.playerId,
+      cast: value.cast === null ? null : JSON.stringify(value.cast),
+      quotes: value.quotes === null ? null : JSON.stringify(value.quotes),
+      clientVersion: value.clientVersion,
+      readingVersion: value.readingVersion,
       createdAt: new Date().toISOString()
     };
 
@@ -68,6 +78,8 @@ const CorefContribution = {
         UPDATE coref_contributions
         SET passage = @passage, model_id = @modelId, model_version = @modelVersion, clusters = @clusters,
             cluster_entities = @clusterEntities, corrections = @corrections, entity_names = @entityNames,
+            player_id = @playerId, cast_members = @cast, quotes = @quotes,
+            client_version = @clientVersion, reading_version = @readingVersion,
             created_at = @createdAt
         WHERE id = @id
       `).run({ ...fields, id: pending.id });
@@ -78,10 +90,12 @@ const CorefContribution = {
     db.prepare(`
       INSERT INTO coref_contributions (
         id, user_id, world_id, passage, passage_sha256, model_id, model_version,
-        clusters, cluster_entities, corrections, entity_names, state, created_at
+        clusters, cluster_entities, corrections, entity_names,
+        player_id, cast_members, quotes, client_version, reading_version, state, created_at
       )
       VALUES (@id, @userId, @worldId, @passage, @passageSha, @modelId, @modelVersion,
-              @clusters, @clusterEntities, @corrections, @entityNames, 'pending', @createdAt)
+              @clusters, @clusterEntities, @corrections, @entityNames,
+              @playerId, @cast, @quotes, @clientVersion, @readingVersion, 'pending', @createdAt)
     `).run({ ...fields, id });
     return { contribution: CorefContribution.findById(id), replaced: false };
   }),

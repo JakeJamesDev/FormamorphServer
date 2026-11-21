@@ -56,6 +56,90 @@ const readEntityNames = (entityNames, referenced) => {
   return { value: Object.fromEntries(entries) };
 };
 
+const CAST_MAX = 200;
+const ALIASES_MAX = 20;
+const QUOTES_MAX = 500;
+const FIRST_PERSON_MAX = 50;
+const CLIENT_VERSION_MAX = 64;
+const CAST_KINDS = ['unique', 'generic'];
+// A newer client may send a rule this server does not know, so the rule is a shape, not a list.
+const RULE_SHAPE = /^[a-z-]{1,40}$/;
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** A `{start, end}` span of the passage, or null when it is not a valid one. */
+const readSpan = (passage, value) => (isObject(value) && validSpan(passage, value.start, value.end)
+  ? { start: value.start, end: value.end }
+  : null);
+
+/** The optional persona id: absent and null both read as no persona. */
+const readPlayerId = (playerId) => {
+  if (playerId === undefined || playerId === null) return { value: null };
+  return boundedString(playerId) ? { value: playerId } : { error: 'playerId is empty or too long' };
+};
+
+/** The optional cast snapshot, one record per entity. */
+const readCast = (cast) => {
+  if (cast === undefined || cast === null) return { value: null };
+  if (!Array.isArray(cast) || cast.length > CAST_MAX) return { error: `cast must be a list of at most ${CAST_MAX} records` };
+
+  const records = [];
+  for (const record of cast) {
+    const { id, name, aliases, strangerName, kind } = isObject(record) ? record : {};
+    if (!boundedString(id)) return { error: 'A cast record needs an id' };
+    if (!boundedString(name, NAME_MAX)) return { error: 'A cast name is empty or too long' };
+    if (!Array.isArray(aliases) || aliases.length > ALIASES_MAX
+      || !aliases.every((alias) => boundedString(alias, NAME_MAX))) {
+      return { error: `A cast record needs at most ${ALIASES_MAX} aliases, each non-empty and not too long` };
+    }
+    if (strangerName !== null && !boundedString(strangerName, NAME_MAX)) {
+      return { error: 'A cast stranger name is empty or too long' };
+    }
+    if (kind !== null && !CAST_KINDS.includes(kind)) return { error: 'A cast kind is not known' };
+    records.push({ id, name, aliases, strangerName, kind });
+  }
+  return { value: records };
+};
+
+/** The optional per-quote records: the shown speaker, the rule and its mentions. */
+const readQuotes = (passage, quotes) => {
+  if (quotes === undefined || quotes === null) return { value: null };
+  if (!Array.isArray(quotes) || quotes.length > QUOTES_MAX) {
+    return { error: `quotes must be a list of at most ${QUOTES_MAX} records` };
+  }
+
+  const records = [];
+  for (const record of quotes) {
+    const { speakerId, rule, mention, firstPerson } = isObject(record) ? record : {};
+    const quote = readSpan(passage, record);
+    if (!quote) return { error: 'A quote span falls outside the passage' };
+    if (speakerId !== null && !boundedString(speakerId)) return { error: 'A quote speakerId is empty or too long' };
+    if (typeof rule !== 'string' || !RULE_SHAPE.test(rule)) return { error: 'A quote rule is not a lowercase name' };
+
+    const mentionSpan = mention === null ? null : readSpan(passage, mention);
+    if (mention !== null && !mentionSpan) return { error: 'A quote mention span falls outside the passage' };
+
+    if (!Array.isArray(firstPerson) || firstPerson.length > FIRST_PERSON_MAX) {
+      return { error: `A quote needs a firstPerson list of at most ${FIRST_PERSON_MAX} spans` };
+    }
+    const firstPersonSpans = firstPerson.map((span) => readSpan(passage, span));
+    if (firstPersonSpans.includes(null)) return { error: 'A quote firstPerson span falls outside the passage' };
+
+    records.push({ ...quote, speakerId, rule, mention: mentionSpan, firstPerson: firstPersonSpans });
+  }
+  return { value: records };
+};
+
+const readVersions = ({ clientVersion, readingVersion }) => {
+  if (clientVersion !== undefined && clientVersion !== null && !boundedString(clientVersion, CLIENT_VERSION_MAX)) {
+    return { error: 'clientVersion is empty or too long' };
+  }
+  if (readingVersion !== undefined && readingVersion !== null && !(Number.isInteger(readingVersion) && readingVersion >= 1)) {
+    return { error: 'readingVersion must be a positive whole number' };
+  }
+  return { value: { clientVersion: clientVersion ?? null, readingVersion: readingVersion ?? null } };
+};
+
 /**
  * Check a submitted contribution.
  *
@@ -104,6 +188,15 @@ const readSubmission = (body = {}) => {
   const names = readEntityNames(entityNames, [...clusterEntities, ...normalized.map((c) => c.entityId)]);
   if (names.error) return names;
 
+  const player = readPlayerId(body.playerId);
+  if (player.error) return player;
+  const cast = readCast(body.cast);
+  if (cast.error) return cast;
+  const quoteRecords = readQuotes(passage, body.quotes);
+  if (quoteRecords.error) return quoteRecords;
+  const versions = readVersions(body);
+  if (versions.error) return versions;
+
   return {
     value: {
       worldId,
@@ -113,7 +206,11 @@ const readSubmission = (body = {}) => {
       clusters: clusters.map((cluster) => cluster.map(([start, end]) => [start, end])),
       clusterEntities,
       corrections: normalized,
-      entityNames: names.value
+      entityNames: names.value,
+      playerId: player.value,
+      cast: cast.value,
+      quotes: quoteRecords.value,
+      ...versions.value
     }
   };
 };
