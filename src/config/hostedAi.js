@@ -87,7 +87,7 @@ const PROMPT_TYPES = Object.freeze([
   'narration',
   'thinking', 'director', 'character', 'storyboard',
   'choices',
-  'statUpdates', 'locationChange', 'entityLocation', 'discoverEntity', 'timePassed', 'openingTime', 'sceneTags',
+  'statUpdates', 'locationChange', 'entityLocation', 'discoverEntity', 'timePassed', 'openingTime', 'weather', 'sceneTags',
   'inventory',
   'summary', 'milestoneSelect', 'diary',
   'help', 'descriptionSummary', 'descriptionBridge', 'imageTags'

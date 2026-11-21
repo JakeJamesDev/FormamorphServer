@@ -102,14 +102,14 @@ afterEach(() => {
 });
 
 describe('the prompt type list', () => {
-  it('holds the 21 prompt types', () => {
+  it('holds the 22 prompt types', () => {
     expect(new Set(PROMPT_TYPES)).toEqual(new Set([
       'narration', 'thinking', 'director', 'character', 'storyboard', 'choices',
-      'statUpdates', 'locationChange', 'entityLocation', 'discoverEntity', 'timePassed', 'openingTime', 'sceneTags',
+      'statUpdates', 'locationChange', 'entityLocation', 'discoverEntity', 'timePassed', 'openingTime', 'weather', 'sceneTags',
       'inventory', 'summary', 'milestoneSelect', 'diary',
       'help', 'descriptionSummary', 'descriptionBridge', 'imageTags'
     ]));
-    expect(PROMPT_TYPES).toHaveLength(21);
+    expect(PROMPT_TYPES).toHaveLength(22);
   });
 });
 
@@ -242,6 +242,6 @@ describe('the breakdown in the admin spend read', () => {
     const { data } = (await adminSpend('p-nobody')).body;
 
     expect(Object.values(data.breakdown).every((share) => share === 0)).toBe(true);
-    expect(Object.keys(data.breakdown)).toHaveLength(22);
+    expect(Object.keys(data.breakdown)).toHaveLength(23);
   });
 });
