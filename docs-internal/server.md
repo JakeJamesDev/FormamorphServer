@@ -635,6 +635,11 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-20** — deployed `9f377cb`: marked world images encode at WebP effort 0. All 3,850 tests passed in
+  51.9 s (53 s wall). No schema, env, or policy change, so no backup. Service active with zero restarts, boot
+  logged `Server running on port` with no stack trace, public route 200. Sunmeadow processing on the box
+  dropped from 25.7 s to 13.2 s; the response is 59.0 MB.
+
 - **2026-11-20** — deployed `dbb158a`: a Supporter world marks only its cover and 4 largest images, so large
   worlds download (report #231). All 3,850 tests passed in 46 s wall. No schema, env, or policy change, so no
   backup. Service active with zero restarts, boot logged `Server running on port` with no stack trace, public
