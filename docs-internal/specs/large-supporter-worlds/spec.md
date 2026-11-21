@@ -1,6 +1,7 @@
 # Spec: Large Supporter Worlds
 
-Status: ready-for-agent
+Status: done
+Status note: Closed 2026-11-20. Tickets 01–02; last landing 19506dd (01 in 4c83ac6, SVG follow-up 6f2ce73). Review: one gap fixed in c5d4920 (undecodable world images now pass through). Gates green on 2026-11-20. Not deployed.
 Spec session: large-supporter-worlds — spec
 
 ## Problem Statement

@@ -1,6 +1,6 @@
 # 02: Correct the Supporter download changelog line
 
-Status: ready-for-human
+Status: done
 Blocked by: 01
 Recommended model: Claude Haiku 5.5 (`claude-haiku-5-5`)
 Reasoning effort: low
