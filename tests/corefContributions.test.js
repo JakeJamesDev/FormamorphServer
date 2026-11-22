@@ -605,12 +605,21 @@ describe('the export', () => {
     expect((await exported(staff, id)).clusters).toEqual([[MIRA, SHE], [COURIER, HE]]);
   });
 
-  it('skips quote-speaker corrections', async () => {
+  it('leaves out an accepted quote-only row without speaker data, and keeps it stored', async () => {
     const { staff, id } = await acceptOne(payload({
       corrections: [{ kind: 'quote', start: SHE[0], end: HE[1], entityId: 'courier' }]
     }));
 
-    expect((await exported(staff, id)).clusters).toEqual([[MIRA, SHE, HE]]);
+    expect(await exported(staff, id)).toBeUndefined();
+    expect(row(id).state).toBe('accepted');
+  });
+
+  it('leaves out a row whose mention correction changes no label', async () => {
+    const { staff, id } = await acceptOne(payload({
+      corrections: [{ kind: 'mention', start: SHE[0], end: SHE[1], entityId: 'mira' }]
+    }));
+
+    expect(await exported(staff, id)).toBeUndefined();
   });
 
   it('writes code-point offsets for a passage with characters outside the BMP', async () => {
@@ -627,6 +636,224 @@ describe('the export', () => {
     });
 
     expect((await exported(staff, id)).clusters).toEqual([[[2, 6], [14, 17]]]);
+  });
+});
+
+describe('labels derived from quote corrections', () => {
+  const TEXT = 'Mira watched the Alpha. "I warned you," she says. Mira sighs.';
+  const LINE = span(TEXT, '"I warned you,"');
+  const M1 = span(TEXT, 'Mira');
+  const ALPHA = span(TEXT, 'the Alpha');
+  const I = span(TEXT, 'I');
+  const YOU = span(TEXT, 'you');
+  const SHE_SAYS = span(TEXT, 'she');
+  const M2 = span(TEXT, 'Mira', LINE[1]);
+  const at = ([start, end]) => ({ start, end });
+  const CAST = [
+    { id: 'mira', name: 'Mira Vance', aliases: ['Mira'], strangerName: null, kind: null },
+    { id: 'alpha', name: 'Rook', aliases: [], strangerName: 'the Alpha', kind: 'unique' },
+    { id: 'pack', name: 'The pack', aliases: [], strangerName: null, kind: 'generic' }
+  ];
+  const quote = (over = {}) => ({
+    start: LINE[0], end: LINE[1], speakerId: 'mira', rule: 'after-subject-verb',
+    mention: at(SHE_SAYS), firstPerson: [at(I)], ...over
+  });
+  const speakerFix = (entityId, over = {}) => ({ kind: 'quote', start: LINE[0], end: LINE[1], entityId, ...over });
+
+  /** The model put "she" in Mira's cluster and has the Alpha alone; the player says the Alpha speaks. */
+  const body = (over = {}) => ({
+    worldId: `world-${tag()}`,
+    passage: TEXT,
+    modelId: 'small',
+    modelVersion: 3,
+    clusters: [[M1, SHE_SAYS, M2], [ALPHA]],
+    clusterEntities: ['mira', 'alpha'],
+    corrections: [speakerFix('alpha')],
+    playerId: 'mira',
+    cast: CAST,
+    quotes: [quote()],
+    ...over
+  });
+  const clustersOf = async (over) => {
+    const { staff, id } = await acceptOne(body(over));
+    return (await exported(staff, id))?.clusters;
+  };
+
+  it('puts the speech-tag "she" and the quote\'s own "I" in the named speaker\'s cluster', async () => {
+    expect(await clustersOf()).toEqual([[M1, M2], [ALPHA, I, SHE_SAYS]]);
+  });
+
+  it('names a whole unnamed cluster that holds the tagged mention', async () => {
+    expect(await clustersOf({
+      clusters: [[ALPHA, SHE_SAYS], [M1, M2]],
+      clusterEntities: [null, 'mira']
+    })).toEqual([[M1, M2], [ALPHA, I, SHE_SAYS]]);
+  });
+
+  it('moves only the span out of an unnamed cluster that mixes player words', async () => {
+    expect(await clustersOf({
+      clusters: [[ALPHA, YOU, SHE_SAYS], [M1, M2]],
+      clusterEntities: [null, 'mira']
+    })).toEqual([[M1, M2], [ALPHA, YOU], [I, SHE_SAYS]]);
+  });
+
+  it('judges a mixed cluster as the model gave it, before an earlier label empties it', async () => {
+    const SIGHS = span(TEXT, 'Mira sighs');
+    const playerLine = { start: SIGHS[0], end: SIGHS[1], speakerId: null, rule: 'before-verb', mention: at(YOU), firstPerson: [] };
+    expect(await clustersOf({
+      clusters: [[ALPHA, YOU, SHE_SAYS], [M1, M2]],
+      clusterEntities: [null, 'mira'],
+      quotes: [playerLine, quote()],
+      corrections: [speakerFix('mira', { start: SIGHS[0], end: SIGHS[1] }), speakerFix('alpha')]
+    })).toEqual([[M1, YOU, M2], [I, SHE_SAYS]]);
+  });
+
+  it('names no whole cluster that two speakers claim, in either quote order', async () => {
+    const SIGHS = span(TEXT, 'Mira sighs');
+    const keshLine = { start: SIGHS[0], end: SIGHS[1], speakerId: null, rule: 'before-verb', mention: at(M2), firstPerson: [] };
+    const claimed = {
+      playerId: null,
+      cast: [...CAST, { id: 'kesh', name: 'Kesh', aliases: [], strangerName: null, kind: 'unique' }],
+      clusters: [[ALPHA, SHE_SAYS, M2], [M1]],
+      clusterEntities: [null, 'mira'],
+      corrections: [speakerFix('kesh', { start: SIGHS[0], end: SIGHS[1] }), speakerFix('alpha')]
+    };
+
+    expect(await clustersOf({ ...claimed, quotes: [quote(), keshLine] })).toEqual([[I, SHE_SAYS]]);
+    expect(await clustersOf({ ...claimed, quotes: [keshLine, quote()] })).toEqual([[I, SHE_SAYS]]);
+  });
+
+  it('marks the derived label that named a whole cluster in the queue', async () => {
+    const { body: sent } = await submit(adult(), body({ clusters: [[ALPHA, SHE_SAYS], [M1, M2]], clusterEntities: [null, 'mira'] }));
+
+    const item = (await queue(mod())).body.data.find((entry) => entry.id === sent.data.id);
+    expect(item.derivedLabels).toEqual([
+      { ...at(SHE_SAYS), entityId: 'alpha', wholeCluster: true },
+      { ...at(I), entityId: 'alpha', wholeCluster: false }
+    ]);
+  });
+
+  it('reads a quote\'s own "I" as the speaker\'s, not a player word', async () => {
+    expect(await clustersOf({
+      clusters: [[ALPHA, I], [M1, SHE_SAYS, M2]],
+      clusterEntities: [null, 'mira']
+    })).toEqual([[M1, M2], [ALPHA, I, SHE_SAYS]]);
+  });
+
+  it('moves only the span out of a cluster named for someone else', async () => {
+    expect(await clustersOf({
+      clusters: [[M1, SHE_SAYS, M2], [ALPHA]],
+      clusterEntities: ['mira', null]
+    })).toEqual([[M1, M2], [I, SHE_SAYS]]);
+  });
+
+  it.each(['beat', 'nearest-subject', 'earlier-quote'])('labels only the first person for the %s rule', async (rule) => {
+    expect(await clustersOf({ quotes: [quote({ rule })] })).toEqual([[M1, SHE_SAYS, M2], [ALPHA, I]]);
+  });
+
+  it('labels a player word at the verb only for the player', async () => {
+    const youSay = { quotes: [quote({ mention: at(YOU), firstPerson: [] })], clusters: [[M1, M2], [ALPHA]] };
+    expect(await clustersOf(youSay)).toBeUndefined();
+    expect(await clustersOf({ ...youSay, corrections: [speakerFix('mira')] })).toEqual([[M1, YOU, M2]]);
+    // The persona's own name is a player word too.
+    const named = { quotes: [quote({ mention: at(M2), firstPerson: [] })], clusters: [[M1], [ALPHA]] };
+    expect(await clustersOf(named)).toBeUndefined();
+  });
+
+  it.each([
+    ['a group-kind speaker', { corrections: [speakerFix('pack')] }],
+    ['a null speaker', { corrections: [speakerFix(null)] }],
+    ['a speaker outside the cast', { corrections: [speakerFix('stranger')] }],
+    ['a non-player entity with no kind', { cast: CAST.map((r) => (r.id === 'alpha' ? { ...r, kind: null } : r)) }],
+    ['a correction on another span', { corrections: [speakerFix('alpha', { start: I[0] })] }],
+    ['a row without quotes', { quotes: undefined }],
+    ['a row without cast', { cast: undefined }]
+  ])('derives nothing from %s, so the quote-only row is left out', async (_, over) => {
+    const { staff, id } = await acceptOne(body(over));
+
+    expect(await exported(staff, id)).toBeUndefined();
+    expect(row(id).state).toBe('accepted');
+  });
+
+  it('counts the last speaker fix on a quote', async () => {
+    expect(await clustersOf({ corrections: [speakerFix('pack'), speakerFix('alpha')] }))
+      .toEqual([[M1, M2], [ALPHA, I, SHE_SAYS]]);
+    expect(await clustersOf({ corrections: [speakerFix('alpha'), speakerFix('pack')] })).toBeUndefined();
+  });
+
+  it('lets the player\'s mention or non-mention fix win on the same span', async () => {
+    const mentionFix = { kind: 'mention', start: SHE_SAYS[0], end: SHE_SAYS[1], entityId: 'mira' };
+    expect(await clustersOf({ corrections: [speakerFix('alpha'), mentionFix] }))
+      .toEqual([[M1, SHE_SAYS, M2], [ALPHA, I]]);
+
+    const notAMention = { kind: 'nonMention', start: SHE_SAYS[0], end: SHE_SAYS[1], entityId: null };
+    expect(await clustersOf({
+      clusters: [[ALPHA, SHE_SAYS], [M1, M2]],
+      clusterEntities: [null, 'mira'],
+      corrections: [notAMention, speakerFix('alpha')]
+    })).toEqual([[M1, M2]]);
+  });
+
+  it('leaves out a row whose derived labels the model already had', async () => {
+    expect(await clustersOf({ clusters: [[M1, M2], [ALPHA, I, SHE_SAYS]] })).toBeUndefined();
+  });
+});
+
+describe('the no-change queue', () => {
+  const reject = (user) => request(app).post('/api/coref-contributions/reject-no-change').set(authHeader(user)).send();
+  const QUOTE_ONLY = { corrections: [{ kind: 'quote', start: SHE[0], end: HE[1], entityId: 'courier' }] };
+
+  it('marks each pending row and lists its derived labels', async () => {
+    const changes = (await submit(adult())).body.data.id;
+    const same = (await submit(adult(), payload(QUOTE_ONLY))).body.data.id;
+    const derived = (await submit(adult(), payload({
+      ...QUOTE_ONLY,
+      cast: [{ id: 'courier', name: 'The courier', aliases: [], strangerName: null, kind: 'unique' }],
+      quotes: [{ start: SHE[0], end: HE[1], speakerId: 'mira', rule: 'before-verb', mention: { start: COURIER[0], end: COURIER[1] }, firstPerson: [{ start: SHE[0], end: SHE[1] }] }]
+    }))).body.data.id;
+
+    const items = (await queue(mod())).body.data;
+    const item = (id) => items.find((entry) => entry.id === id);
+    expect(item(changes)).toMatchObject({ changesLabels: true, derivedLabels: [] });
+    expect(item(same)).toMatchObject({ changesLabels: false, derivedLabels: [] });
+    expect(item(derived)).toMatchObject({
+      changesLabels: true,
+      derivedLabels: [
+        { start: COURIER[0], end: COURIER[1], entityId: 'courier', wholeCluster: false },
+        { start: SHE[0], end: SHE[1], entityId: 'courier', wholeCluster: false }
+      ]
+    });
+  });
+
+  it('counts and rejects only pending rows that change no label', async () => {
+    const staff = mod();
+    const changes = (await submit(adult())).body.data.id;
+    const same = [
+      (await submit(adult(), payload(QUOTE_ONLY))).body.data.id,
+      (await submit(adult(), payload(QUOTE_ONLY))).body.data.id
+    ];
+    const acceptedSame = (await acceptOne(payload(QUOTE_ONLY))).id;
+
+    expect((await count(staff)).body).toMatchObject({ pending: 3, noChange: 2 });
+    const res = await reject(staff);
+
+    expect(res.status).toBe(200);
+    expect(res.body.rejected).toBe(2);
+    expect(same.map((id) => row(id))).toEqual([
+      expect.objectContaining({ state: 'rejected', reviewed_by: staff.id }),
+      expect.objectContaining({ state: 'rejected', reviewed_by: staff.id })
+    ]);
+    expect(row(changes).state).toBe('pending');
+    expect(row(acceptedSame).state).toBe('accepted');
+    expect((await count(staff)).body).toMatchObject({ pending: 1, noChange: 0 });
+    expect((await reject(staff)).body.rejected).toBe(0);
+  });
+
+  it('is closed to players', async () => {
+    const id = (await submit(adult(), payload(QUOTE_ONLY))).body.data.id;
+
+    expect((await reject(adult())).status).toBe(403);
+    expect(row(id).state).toBe('pending');
   });
 });
 

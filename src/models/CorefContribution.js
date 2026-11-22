@@ -108,6 +108,26 @@ const CorefContribution = {
     .all(limit)
     .map(present),
 
+  /** @returns {Object[]} Every pending contribution */
+  pendingAll: () => db.prepare(`${SELECT} WHERE c.state = 'pending'`).all().map(present),
+
+  /**
+   * Reject every pending contribution that `test` picks, in one transaction.
+   *
+   * @param {function(Object): boolean} test - Picks a row in the shape the routes answer with
+   * @param {string} reviewerId - The staff account
+   * @returns {number} How many rows were rejected
+   */
+  rejectWhere: db.transaction((test, reviewerId) => {
+    const reject = db.prepare(`
+      UPDATE coref_contributions SET state = 'rejected', reviewed_by = ?, reviewed_at = ?
+      WHERE id = ? AND state = 'pending'
+    `);
+    const at = new Date().toISOString();
+    return CorefContribution.pendingAll().filter(test)
+      .reduce((n, row) => n + reject.run(reviewerId, at, row.id).changes, 0);
+  }),
+
   /** @returns {number} How many contributions wait for review */
   pendingCount: () => db.prepare("SELECT COUNT(*) AS n FROM coref_contributions WHERE state = 'pending'").get().n,
 

@@ -215,53 +215,166 @@ const readSubmission = (body = {}) => {
   };
 };
 
-/**
- * The clusters after every mention correction: the span leaves its cluster, then joins the clusters named
- * its entity (merged when several) or starts a new one; a null entity or a nonMention leaves it out. Quote corrections are
- * skipped (Character Mentions spec Q36). Singletons drop.
- *
- * @param {Array} clusters - `[[[start, end], ...], ...]`
- * @param {Array} clusterEntities - The entity id or null per cluster
- * @param {Array} corrections - `{kind, start, end, entityId}`
- * @returns {Array} The corrected clusters, spans sorted, clusters ordered by their first span
- */
-const applyCorrections = (clusters, clusterEntities, corrections) => {
-  let groups = clusters.map((spans, i) => ({ entity: clusterEntities[i], spans: spans.map((s) => [...s]) }));
+const overlaps = (a, b) => a.start < b.end && b.start < a.end;
+const isLabelCorrection = (correction) => correction.kind === 'mention' || correction.kind === 'nonMention';
 
+const SPEECH_VERB_RULES = ['after-subject-verb', 'after-verb-subject', 'before-verb'];
+const SECOND_PERSON = /^(?:you|your|yours|yourself|yourselves)$/;
+const FIRST_PERSON = /^(?:i|me|my|mine|myself)$/;
+const POSSESSIVE = /['’]s$/;
+const LEADING_ARTICLE = /^(?:a|an|the)\s+/i;
+
+/** A mention's text as the client's player test reads it: lowercased, past a possessive and a leading article. */
+const playerForm = (text) => text.replace(POSSESSIVE, '').toLowerCase().replace(LEADING_ARTICLE, '');
+
+/** A test for "you", the narrator's "I" and the persona's names; a first-person word inside a quote is the speaker's. */
+const playerWordTest = ({ passage, cast, quotes, playerId }) => {
+  const names = playerNames(cast, playerId);
+  const inQuote = (span) => quotes.some((quote) => span.start >= quote.start && span.end <= quote.end);
+  return (span) => {
+    const word = playerForm(passage.slice(span.start, span.end));
+    return SECOND_PERSON.test(word) || names.has(word) || (FIRST_PERSON.test(word) && !inQuote(span));
+  };
+};
+
+/** The persona's name, its words that no other cast name holds, and its aliases, as the client reads them. */
+const playerNames = (cast, playerId) => {
+  const persona = cast.find((record) => record.id === playerId);
+  if (!persona) return new Set();
+  const name = playerForm(persona.name.trim());
+  const castWords = new Set(cast.filter((record) => record !== persona)
+    .flatMap((record) => record.name.toLowerCase().split(/\s+/)));
+  return new Set([name, ...name.split(/\s+/).filter((word) => !castWords.has(word)),
+    ...persona.aliases.map((alias) => playerForm(alias.trim()))]);
+};
+
+/**
+ * Mention labels made from quote corrections (Quote Speaker Data spec, Export). A player's overlapping fix drops one.
+ *
+ * @param {Object} row - A stored contribution, JSON already parsed
+ * @returns {Array<{start: number, end: number, entityId: string}>} In quote order, one per span
+ */
+const deriveLabels = (row) => {
+  const { cast, quotes, playerId, corrections } = row;
+  if (!cast || !quotes) return [];
+
+  const individual = (id) => id === playerId || cast.some((record) => record.id === id && record.kind === 'unique');
+  const isPlayerWord = playerWordTest(row);
+
+  const speakers = new Map();
   for (const { kind, start, end, entityId } of corrections) {
-    if (kind !== 'mention' && kind !== 'nonMention') continue;
+    if (kind === 'quote') speakers.set(`${start}:${end}`, entityId);
+  }
+
+  const labels = new Map();
+  for (const quote of quotes) {
+    const entityId = speakers.get(`${quote.start}:${quote.end}`);
+    if (!entityId || !individual(entityId)) continue;
+
+    const spans = [...quote.firstPerson];
+    if (quote.mention && SPEECH_VERB_RULES.includes(quote.rule)
+      && (entityId === playerId || !isPlayerWord(quote.mention))) {
+      spans.unshift(quote.mention);
+    }
+    for (const span of spans) {
+      labels.set(`${span.start}:${span.end}`, { start: span.start, end: span.end, entityId });
+    }
+  }
+
+  const fixed = corrections.filter(isLabelCorrection);
+  return [...labels.values()].filter((label) => !fixed.some((correction) => overlaps(label, correction)));
+};
+
+/**
+ * The clusters after the derived labels, then the player's corrections (Character Mentions spec Q35, Q38).
+ * A derived label names its whole unnamed cluster, unless that cluster mixes player words (Q67) or derived labels
+ * claim it for more than one entity. Singletons drop.
+ *
+ * @param {Object} row - A stored contribution, JSON already parsed
+ * @param {Array} derived - The row's derived labels, or none for the model's own clusters
+ * @returns {{clusters: Array, named: Set}} The clusters, spans sorted, ordered by their first span; and the derived
+ *   labels that named a whole cluster
+ */
+const labeledClusters = (row, derived) => {
+  const isPlayerWord = derived.length ? playerWordTest(row) : null;
+  const holds = (spans, span) => spans.some(([s, e]) => overlaps({ start: s, end: e }, span));
+  // Both read the model's cluster, before any label moves a span out.
+  const nameable = (spans) => {
+    const player = spans.map(([start, end]) => isPlayerWord({ start, end }));
+    const claimants = new Set(derived.filter((label) => holds(spans, label)).map((label) => label.entityId));
+    return !(player.includes(true) && player.includes(false)) && claimants.size === 1;
+  };
+  let groups = row.clusters.map((spans, i) => ({
+    entity: row.clusterEntities[i],
+    spans: spans.map((s) => [...s]),
+    nameable: isPlayerWord !== null && row.clusterEntities[i] === null && nameable(spans)
+  }));
+  const named = new Set();
+
+  const join = (label, wholeCluster) => {
+    const { start, end, entityId } = label;
+    const unnamedHome = wholeCluster
+      ? groups.find((group) => group.entity === null && group.nameable && holds(group.spans, label))
+      : undefined;
+    if (unnamedHome) named.add(label);
 
     for (const group of groups) {
       group.spans = group.spans.filter(([s, e]) => e <= start || s >= end);
     }
-    if (kind === 'nonMention' || entityId === null) continue;
+    if (entityId === null) return;
 
-    const named = groups.filter((group) => group.entity === entityId);
-    const merged = { entity: entityId, spans: [...named.flatMap((group) => group.spans), [start, end]] };
-    groups = [...groups.filter((group) => group.entity !== entityId), merged];
+    const joined = groups.filter((group) => group.entity === entityId || group === unnamedHome);
+    const merged = { entity: entityId, spans: [...joined.flatMap((group) => group.spans), [start, end]] };
+    groups = [...groups.filter((group) => !joined.includes(group)), merged];
+  };
+
+  for (const label of derived) join(label, true);
+  for (const correction of row.corrections.filter(isLabelCorrection)) {
+    join({ ...correction, entityId: correction.kind === 'nonMention' ? null : correction.entityId }, false);
   }
 
   const byStart = (a, b) => a[0] - b[0] || a[1] - b[1];
-  return groups
+  const clusters = groups
     .map((group) => group.spans.sort(byStart))
     .filter((spans) => spans.length > 1)
     .sort((a, b) => byStart(a[0], b[0]));
+  return { clusters, named };
+};
+
+/**
+ * What the export makes of a row: its clusters, its derived labels, and whether the clusters differ from the model's.
+ *
+ * @param {Object} row - A stored contribution, JSON already parsed
+ * @returns {{clusters: Array, derivedLabels: Array, changesLabels: boolean}}
+ */
+const exportClusters = (row) => {
+  const derived = deriveLabels(row);
+  const { clusters, named } = labeledClusters(row, derived);
+  const model = labeledClusters({ ...row, corrections: [] }, []).clusters;
+  return {
+    clusters,
+    derivedLabels: derived.map((label) => ({ ...label, wholeCluster: named.has(label) })),
+    changesLabels: JSON.stringify(clusters) !== JSON.stringify(model)
+  };
 };
 
 /** A UTF-16 offset into `text` as a code-point offset, which is what the kit's Python reads. */
 const codePointOffset = (text, offset) => Array.from(text.slice(0, offset)).length;
 
 /**
- * One accepted contribution as an annotation-format line.
+ * One accepted contribution as an annotation-format line, or null when it changes no label.
  *
- * @param {Object} row - `{id, passage, clusters, clusterEntities, corrections}`, JSON already parsed
- * @returns {Object} `{id, text, clusters}`
+ * @param {Object} row - A stored contribution, JSON already parsed
+ * @returns {Object|null} `{id, text, clusters}`
  */
-const toAnnotation = (row) => ({
-  id: `contribution-${row.id}`,
-  text: row.passage,
-  clusters: applyCorrections(row.clusters, row.clusterEntities, row.corrections)
-    .map((spans) => spans.map(([s, e]) => [codePointOffset(row.passage, s), codePointOffset(row.passage, e)]))
-});
+const toAnnotation = (row) => {
+  const { clusters, changesLabels } = exportClusters(row);
+  if (!changesLabels) return null;
+  return {
+    id: `contribution-${row.id}`,
+    text: row.passage,
+    clusters: clusters.map((spans) => spans.map(([s, e]) => [codePointOffset(row.passage, s), codePointOffset(row.passage, e)]))
+  };
+};
 
-module.exports = { PASSAGE_MAX, NAME_MAX, readSubmission, toAnnotation };
+module.exports = { PASSAGE_MAX, NAME_MAX, readSubmission, exportClusters, toAnnotation };

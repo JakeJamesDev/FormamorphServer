@@ -1,6 +1,13 @@
 const CorefContribution = require('../models/CorefContribution');
 const Policy = require('../models/Policy');
-const { readSubmission, toAnnotation } = require('../utils/corefCorpus');
+const { readSubmission, exportClusters, toAnnotation } = require('../utils/corefCorpus');
+
+/** A queue row with what the export would make of it. */
+const withLabels = (row) => {
+  const { changesLabels, derivedLabels } = exportClusters(row);
+  return { ...row, changesLabels, derivedLabels };
+};
+const changesNoLabel = (row) => !exportClusters(row).changesLabels;
 
 /**
  * @desc    Contribute a passage's Character Mentions corrections
@@ -40,7 +47,7 @@ exports.getQueue = async (req, res, next) => {
     // Clamped at both ends: SQLite reads a negative LIMIT as no limit.
     const asked = parseInt(req.query.limit, 10);
     const limit = Number.isFinite(asked) && asked > 0 ? Math.min(asked, 200) : 50;
-    const data = CorefContribution.pending({ limit });
+    const data = CorefContribution.pending({ limit }).map(withLabels);
     res.status(200).json({ success: true, count: data.length, data });
   } catch (error) {
     next(error);
@@ -48,13 +55,14 @@ exports.getQueue = async (req, res, next) => {
 };
 
 /**
- * @desc    How many contributions wait for review, for the staff badge
+ * @desc    How many contributions wait for review, and how many of them change no label
  * @route   GET /api/coref-contributions/count
  * @access  Private (staff)
  */
 exports.getCount = async (req, res, next) => {
   try {
-    res.status(200).json({ success: true, pending: CorefContribution.pendingCount() });
+    const noChange = CorefContribution.pendingAll().filter(changesNoLabel).length;
+    res.status(200).json({ success: true, pending: CorefContribution.pendingCount(), noChange });
   } catch (error) {
     next(error);
   }
@@ -85,13 +93,28 @@ exports.accept = review('accepted');
 exports.reject = review('rejected');
 
 /**
- * @desc    Accepted contributions in the training kit's annotation format, one JSON object per line
+ * @desc    Reject every pending contribution that changes no label
+ * @route   POST /api/coref-contributions/reject-no-change
+ * @access  Private (staff)
+ */
+exports.rejectNoChange = async (req, res, next) => {
+  try {
+    const rejected = CorefContribution.rejectWhere(changesNoLabel, req.user.id);
+    res.status(200).json({ success: true, rejected });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Accepted contributions that change a label, as annotation-format JSON Lines
  * @route   GET /api/coref-contributions/export
  * @access  Private (staff)
  */
 exports.exportAccepted = async (req, res, next) => {
   try {
-    const lines = CorefContribution.accepted().map((row) => `${JSON.stringify(toAnnotation(row))}\n`);
+    const lines = CorefContribution.accepted().map(toAnnotation).filter(Boolean)
+      .map((annotation) => `${JSON.stringify(annotation)}\n`);
     res.status(200)
       .type('application/x-ndjson')
       .set('Content-Disposition', 'attachment; filename="accepted.jsonl"')

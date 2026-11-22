@@ -609,10 +609,11 @@ reading's entity per cluster, and the turn's corrections. Staff accept or reject
 | Route | Who | What |
 |---|---|---|
 | `POST /api/coref-contributions` | signed-in, age-attested, not suspended | 60 per hour per account; a passage of at most 16,000 characters; no span may start or end inside a word. A resend of the same world and passage replaces the pending row |
-| `GET /api/coref-contributions` | staff | pending rows, oldest first (`?limit=`, default 50, at most 200) |
-| `GET /api/coref-contributions/count` | staff | `{ pending }` |
+| `GET /api/coref-contributions` | staff | pending rows, oldest first (`?limit=`, default 50, at most 200), each with `changesLabels` and `derivedLabels` (`[{start, end, entityId, wholeCluster}]`) |
+| `GET /api/coref-contributions/count` | staff | `{ pending, noChange }`: `noChange` counts the pending rows that change no label |
 | `POST /api/coref-contributions/:id/accept`, `/reject` | staff | a pending row only; anything else is a 404 |
-| `GET /api/coref-contributions/export` | staff | accepted rows as the training kit's annotation format (JSON Lines) |
+| `POST /api/coref-contributions/reject-no-change` | staff | rejects every pending row that changes no label; returns `{ rejected }` |
+| `GET /api/coref-contributions/export` | staff | accepted rows that change a label, as the training kit's annotation format (JSON Lines) |
 
 - **Speaker data.** A submit may also carry these optional fields. A refused one returns a 400 that names it.
   A row or resend without them stores null, and the queue returns null. A replacing send overwrites all of them.
@@ -627,9 +628,20 @@ reading's entity per cluster, and the turn's corrections. Staff accept or reject
 
   Every span in `quotes` follows the correction span rule (inside the passage, never inside a word or code point).
   Columns: `player_id`, `cast_members`, `quotes`, `client_version`, `reading_version`, added by the
-  `corefQuoteSpeakerData` schema step. The export ignores them until ticket 05.
-- **The export** applies each mention correction to its clusters, skips quote-speaker corrections, drops
-  clusters with one mention, and writes code-point offsets. Each line's `id` is `contribution-<row id>`.
+  `corefQuoteSpeakerData` schema step.
+- **Derived labels.** A quote correction that names a speaker labels mentions for it. It needs the row's `cast` and `quotes`.
+  - The speaker must be the `playerId`, or a `cast` record of kind `unique`.
+  - The correction joins the `quotes` record with the same span. The last correction on a span counts.
+  - The labeled spans are the quote's `firstPerson` spans, and its `mention` when the rule is `after-subject-verb`,
+    `after-verb-subject` or `before-verb`.
+  - A `mention` that is a player word ("you", the narrator's "I", the persona's name or alias) labels only the player.
+  - A player's mention or non-mention correction that overlaps a derived label drops it.
+- **The export** applies the derived labels first, then each mention correction (Q35, Q38). It drops clusters with
+  one mention and writes code-point offsets. Each line's `id` is `contribution-<row id>`.
+  - A derived label whose span sits in an unnamed cluster names that whole cluster, and its `wholeCluster` is true.
+    Only the span moves when the model's cluster mixes player words with other mentions (Q67), or when derived
+    labels claim it for more than one entity.
+  - A row whose final clusters equal the model's clusters changes no label. The export leaves it out, but it stays stored.
 - **Account deletion** drops the account's pending and rejected rows. Accepted rows stay, with the account set null.
 
 To refresh the corpus before a retrain, run from the formamorph checkout:

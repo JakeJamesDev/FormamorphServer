@@ -1,6 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { submit, getQueue, getCount, accept, reject, exportAccepted } = require('../controllers/corefContributionController');
+const { submit, getQueue, getCount, accept, reject, rejectNoChange, exportAccepted } = require('../controllers/corefContributionController');
 const { protect, staff } = require('../middleware/auth');
 
 const router = express.Router();
@@ -18,6 +18,7 @@ const submitLimiter = rateLimit({
 // Ahead of any `/:id` route.
 router.get('/count', protect, staff, getCount);
 router.get('/export', protect, staff, exportAccepted);
+router.post('/reject-no-change', protect, staff, rejectNoChange);
 
 router.get('/', protect, staff, getQueue);
 router.post('/', protect, submitLimiter, submit);
