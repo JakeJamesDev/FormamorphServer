@@ -72,6 +72,7 @@ const STEPS = [
   require('./steps/corefEntityNames'),
   require('./steps/corefQuoteSpeakerData'),
   require('./steps/supporterSchedule'),
+  require('./steps/markPicks'),
   require('./indexes')
 ];
 

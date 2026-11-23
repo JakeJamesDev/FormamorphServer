@@ -173,8 +173,32 @@ const approximatePicture = (entity, list) => {
   return slot.layers[baseLayerIndex(slot.layers)].variants.find((variant) => variant.data && !hasRule(variant))?.data;
 };
 
+// Media List ids an entity owns: flat gallery images and base Layer Variants, never overlays or embedded images.
+const ownMediaIds = (entity, list) => {
+  const slots = Array.isArray(entity.images) ? entity.images : entity.image ? [entity.image] : [];
+  const ids = new Set();
+  for (const slot of slots) {
+    const id = isRecord(slot) ? nonEmptyString(slot.mediaId) : undefined;
+    if (!id) continue;
+    const entry = mediaEntryOf(list, id);
+    if (entry?.kind !== 'layered') {
+      ids.add(id);
+      continue;
+    }
+    // Each Variant's `data` holds its Media List id here.
+    const layers = rigLayers(entry.layers, (variant) => nonEmptyString(variant.mediaId));
+    const base = baseLayerIndex(layers);
+    if (base >= 0) layers[base].variants.forEach((variant) => variant.data && ids.add(variant.data));
+  }
+  return ids;
+};
+
+// The image of a pick, or undefined when the entity does not own that Media List image entry.
+const pickedPicture = (entity, pick, list) => (pick && ownMediaIds(entity, list).has(pick.mediaId)
+  ? mediaImageData(list, pick.mediaId) : undefined);
+
 // Each entity's candidate images in priority order; the first eligible one is its image.
-const entityCandidates = (entity, list) => [approximatePicture(entity, list)].filter(Boolean);
+const entityCandidates = (entity, pick, list) => [pickedPicture(entity, pick, list), approximatePicture(entity, list)].filter(Boolean);
 
 // Entities in World Editor order: folders by `parentId`, siblings by `order`, falling back to array index.
 const entitiesInEditorOrder = (content) => {
@@ -271,7 +295,8 @@ const replaceStrings = (value, replacements) => {
 
 // The cover when markable, then each entity's image in World Editor order, then the largest remaining images.
 // An image that fails to decode passes through, and the next candidate takes its place.
-const processWorld = async (content, mark) => {
+const processWorld = async (content, mark, picks = []) => {
+  const pickOf = new Map(picks.map((pick) => [pick.entityId, pick]));
   const infos = new Map();
   for (const value of imageStrings(content)) infos.set(value, await imageInfo(value));
   const eligible = (value) => {
@@ -293,7 +318,7 @@ const processWorld = async (content, mark) => {
   const list = content?.worldOverview?.mediaList;
   for (const entity of entitiesInEditorOrder(content)) {
     if (replacements.size === WORLD_MARKED_IMAGES) break;
-    const value = entityCandidates(entity, list).find(eligible);
+    const value = entityCandidates(entity, pickOf.get(entity.id), list).find(eligible);
     // An image already chosen counts once; the next entity takes the free mark.
     if (value && !replacements.has(value)) await tryMark(value);
   }
@@ -338,10 +363,11 @@ const clearAccountCache = (userId) =>
  * @param {Object} request.content - The listing's content
  * @param {boolean} [request.cached=true] - Keep a Mascot's result in the private area per account and
  *   revision; false for content that is not the listing's live revision. A world is never cached.
+ * @param {Array<Object>} [request.picks] - A world's stored `{ entityId, mediaId }` picks for this content
  * @returns {Promise<Object>} The content this account receives
  */
-const processForAccount = async ({ userId, listing, content, cached = true }) => {
-  if (listing.kind !== MASCOT_KIND) return processWorld(content, WatermarkMark.markFor(userId));
+const processForAccount = async ({ userId, listing, content, cached = true, picks = [] }) => {
+  if (listing.kind !== MASCOT_KIND) return processWorld(content, WatermarkMark.markFor(userId), picks);
 
   const run = () => processValue(content, WatermarkMark.markFor(userId), seedFor(userId, listing.id, listing.revision));
   if (!cached) return run();

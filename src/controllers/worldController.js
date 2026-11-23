@@ -46,6 +46,7 @@ const { judgingContest, contestLockedBody } = require('../utils/judgingContest')
 const { submissionFor, reviewEnabled, holdsEdit, pendingFields } = require('../utils/listingReview');
 const { MODERATION_STATES, isApproved } = require('../config/listingReview');
 const PendingUpdate = require('../models/PendingUpdate');
+const MarkPicks = require('../models/MarkPicks');
 const { SUPPORTER_ONLY_ERROR, supporterAdmission, tierNotOpenError } = require('../utils/supporterAccess');
 const {
   readSchedule, scheduleRefusal, scheduleSnippet, schedulePayload, scheduleOrderRefusal
@@ -90,7 +91,7 @@ const linkedImagesBeforeFlag = async (world) => {
  * @param {Object} edit - `{ thumbnail, contentData, updateData, dependencies, compatibility }` as the
  *   update route built them
  */
-const holdUpdate = async (worldId, { thumbnail, contentData, updateData, dependencies, compatibility }) => {
+const holdUpdate = async (worldId, { thumbnail, contentData, markPicks, updateData, dependencies, compatibility }) => {
   const fields = {};
   for (const name of PendingUpdate.HELD_FIELDS) {
     if (updateData[name] !== undefined) fields[name] = updateData[name];
@@ -107,7 +108,7 @@ const holdUpdate = async (worldId, { thumbnail, contentData, updateData, depende
       && dependencies === undefined && compatibility === undefined) return;
 
     const { replacedFiles } = PendingUpdate.submit(worldId, {
-      fields, contentFile, thumbnailFile, dependencies, compatibility
+      fields, contentFile, thumbnailFile, dependencies, compatibility, markPicks: MarkPicks.parse(markPicks)
     });
     for (const file of replacedFiles) await deletePendingFile(file);
   } catch (error) {
@@ -568,7 +569,9 @@ exports.getSupporterContent = async (req, res, next) => {
 
     World.incrementDownloads(row.id);
     const world = await World.getContent(row.id, req.user);
-    world.contentData = await processForAccount({ userId: req.user.id, listing: row, content: world.contentData });
+    world.contentData = await processForAccount({
+      userId: req.user.id, listing: row, content: world.contentData, picks: MarkPicks.get(row.id)
+    });
 
     perReader(res);
     res.status(200).json({ success: true, data: world });
@@ -844,6 +847,9 @@ exports.createWorld = async (req, res, next) => {
       }
       else World.create(row, contentFile, thumbnailFile);
 
+      // Any world can be marked Supporter-only later, so every world keeps its picks.
+      if (kind === 'world') MarkPicks.set(worldId, MarkPicks.parse(req.body.markPicks));
+
       if (submission.autoApproved) {
         AuditLog.tryRecord({
           action: 'listing_auto_approved',
@@ -1020,6 +1026,7 @@ exports.updateWorld = async (req, res, next) => {
         await holdUpdate(world.id, {
           thumbnail,
           contentData,
+          markPicks: kind === 'world' ? req.body.markPicks : undefined,
           updateData: { ...updateData, visibility: linked.visibility },
           dependencies: linked.sourceIds,
           compatibility: linked.worldIds
@@ -1042,6 +1049,8 @@ exports.updateWorld = async (req, res, next) => {
         if (contentData) {
           // Save new content
           await saveWorldContent(world.id, contentData, { supporterOnly: Boolean(world.supporter_only) });
+          // The picks belong to the content: new content replaces them, or clears them when none come.
+          if (kind === 'world') MarkPicks.set(world.id, MarkPicks.parse(req.body.markPicks));
         }
       }
 

@@ -550,7 +550,11 @@ The listing's kind picks the path.
   2. 🧑 **One image per entity**, in World Editor order (folders by `parentId`, siblings by `order`), until
      the 5 are spent: 4 characters with a cover, 5 without.
   3. 🏞️ **The largest remaining eligible images** for any marks left. Ties keep first-appearance order.
-- **An entity's image:** its first gallery slot without a Visibility rule. For a Layered Image, the first
+- **Picks:** a publish or update can carry `markPicks`, stored per revision in `world_mark_picks` (held
+  updates keep theirs with the held content). A pick counts when its entity exists, and the Media List image
+  is eligible and is that entity's own: a flat gallery image, or a Variant on the base Layer of a Layered
+  Image in its gallery. A pick that fails the check falls back to the approximation for that entity.
+- **An entity's image without a usable pick:** its first gallery slot without a Visibility rule. For a Layered Image, the first
   Variant without a rule on its base Layer (the first Layer that has a Variant). Slots that draw nothing are
   skipped. An ineligible image skips the entity; an image already chosen counts once.
 - **Eligible:** a non-animated, non-SVG `data:image/...` string of at least 310,000 pixels by its header's

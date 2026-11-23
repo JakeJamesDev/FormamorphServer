@@ -320,6 +320,12 @@ sends none of them publishes and reads exactly as before.
 publish can carry its declarations. A listing read returns `requiredDependencies` on a world and
 `compatibleWorlds` on a component. Every listing carries `visibility` and `revision`.
 
+`POST` and `PUT /api/worlds/:id` for a world also take `markPicks`: a list of `{ entityId, mediaId }`, one per
+entity, naming the Media List image of its start picture. The server uses a checked pick to choose which images
+carry a Supporter's mark. It stores the picks with the content: an update that carries `contentData` replaces
+them, or clears them when `markPicks` is absent, and an update without `contentData` leaves them. A malformed
+list or entry is dropped, never an error. No route returns the picks.
+
 - **`visibility`** is `public` or `unlisted`. Only a character or a dictionary can be unlisted. An unlisted
   listing answers `404` on read, download, search, and browse to everyone but its author and staff, and is
   never an add-on. It reaches other players only through `/dependencies` of a world that requires it.

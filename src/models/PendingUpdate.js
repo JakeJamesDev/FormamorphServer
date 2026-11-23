@@ -2,6 +2,7 @@ const db = require('../config/db');
 const Changelog = require('./Changelog');
 const Compatibility = require('./Compatibility');
 const { parseModels } = require('../utils/modelList');
+const MarkPicks = require('./MarkPicks');
 const { promotePendingFiles, pendingFilesExist, deletePendingFile, deleteThumbnail } = require('../utils/fileStorage');
 
 /**
@@ -103,11 +104,13 @@ const PendingUpdate = {
    *
    * @param {string} worldId - World ID
    * @param {Object} edit - `{ fields, contentFile, thumbnailFile, dependencies, compatibility, spoiler,
-   *   changelog }`, the files already in the pending directory
+   *   changelog, markPicks }`, the files already in the pending directory; `markPicks` (parsed) is held with
+   *   `contentFile` and ignored without it
    * @returns {Object} `{ update, replacedFiles }`: the merged row, and the held files it no longer points at
    */
   submit: db.transaction((worldId, {
-    fields = {}, contentFile = null, thumbnailFile = null, dependencies, compatibility, spoiler, changelog = []
+    fields = {}, contentFile = null, thumbnailFile = null, dependencies, compatibility, spoiler, changelog = [],
+    markPicks = []
   }) => {
     const now = new Date().toISOString();
     const before = PendingUpdate.findByWorldId(worldId);
@@ -146,6 +149,9 @@ const PendingUpdate = {
       now
     });
 
+    // Same transaction as the content file, so held picks never outlive the content they belong to.
+    if (contentFile) MarkPicks.set(worldId, markPicks, { held: true });
+
     return { update: PendingUpdate.findByWorldId(worldId), replacedFiles };
   }),
 
@@ -166,6 +172,7 @@ const PendingUpdate = {
    */
   drop: async (worldId) => {
     const update = PendingUpdate.claim(worldId);
+    MarkPicks.discardHeld(worldId);
     if (update) await PendingUpdate.deleteFiles([update]);
     return update;
   },
@@ -202,6 +209,8 @@ const PendingUpdate = {
         ? Dependency().replaceFor(worldId, existingIds(update.dependencies))
         : false;
       if (Object.keys(data).length > 0 || update.content_file || dependenciesChanged) World.update(worldId, data);
+      // The picks belong to the content: held content brings its picks, or clears the live ones.
+      if (update.content_file) MarkPicks.promote(worldId);
       if (visibility !== undefined) World.setVisibility(worldId, visibility);
       if (update.spoiler !== null) World.updateSpoilerStatus(worldId, update.spoiler);
       if (update.compatibility) Compatibility.replaceFor(worldId, existingIds(update.compatibility));

@@ -40,6 +40,7 @@ const eraseRows = db.transaction((user, removeContent) => {
     if (update.thumbnail_file) pendingFiles.push(update.thumbnail_file);
   }
   db.prepare('DELETE FROM pending_updates WHERE world_id IN (SELECT id FROM worlds WHERE author_id = ?)').run(user.id);
+  db.prepare('DELETE FROM world_mark_picks WHERE held = 1 AND world_id IN (SELECT id FROM worlds WHERE author_id = ?)').run(user.id);
 
   if (removeContent) {
     // Their comments on listings that are staying: each of those listings has to lose the count with them,

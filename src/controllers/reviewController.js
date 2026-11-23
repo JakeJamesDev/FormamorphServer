@@ -6,6 +6,7 @@ const { canModerate, isStaff, STAFF_PROTECTED } = require('../config/roles');
 const { quarantineDays } = require('../config/quarantine');
 const { authorPayload } = require('../utils/authorPayload');
 const PendingUpdate = require('../models/PendingUpdate');
+const MarkPicks = require('../models/MarkPicks');
 const { judgingContest, contestLockedBody } = require('../utils/judgingContest');
 const { THUMBNAIL_CONTENT_TYPES, readPendingContent, readPendingBytes } = require('../utils/fileStorage');
 const { processForAccount } = require('../utils/supporterProcessing');
@@ -141,8 +142,8 @@ exports.getQueueCount = async (req, res, next) => {
 
 // Supporter-only content leaves through the per-account step on this route as on the gated one; held
 // content is not a live revision, so nothing is cached.
-const forAccount = (req, listing, content) => isSupporterOnlyNow(listing)
-  ? processForAccount({ userId: req.user.id, listing, content, cached: false })
+const forAccount = (req, listing, content, picks) => isSupporterOnlyNow(listing)
+  ? processForAccount({ userId: req.user.id, listing, content, cached: false, picks })
   : content;
 
 /**
@@ -169,12 +170,12 @@ exports.getContent = async (req, res, next) => {
       }
 
       const listing = World.findByIdWithAuthor(target.world.id, req.user, { withLiked: false });
-      return res.status(200).json({ success: true, data: { ...listing, contentData: await forAccount(req, target.world, contentData) } });
+      return res.status(200).json({ success: true, data: { ...listing, contentData: await forAccount(req, target.world, contentData, MarkPicks.get(target.world.id, { held: true })) } });
     }
     if (!World.isPendingListing(target.world)) return res.status(404).json(NOT_FOUND);
 
     const world = await World.getContent(target.world.id, req.user);
-    world.contentData = await forAccount(req, target.world, world.contentData);
+    world.contentData = await forAccount(req, target.world, world.contentData, MarkPicks.get(target.world.id));
     res.status(200).json({ success: true, data: world });
   } catch (error) {
     next(error);
