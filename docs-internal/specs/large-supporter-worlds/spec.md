@@ -1,7 +1,7 @@
 # Spec: Large Supporter Worlds
 
 Status: done
-Status note: Closed 2026-11-20. Tickets 01–02; last landing 19506dd (01 in 4c83ac6, SVG follow-up 6f2ce73). Review: one gap fixed in c5d4920 (undecodable world images now pass through). Gates green on 2026-11-20. Not deployed.
+Status note: Closed 2026-11-20. Tickets 01–02; last landing 19506dd (01 in 4c83ac6, SVG follow-up 6f2ce73). Review: one gap fixed in c5d4920 (undecodable world images now pass through). Gates green on 2026-11-20. Deployed 2026-11-20 (`dbb158a`). R2 is replaced by the client repo's `supporter-mark-picks` spec.
 Spec session: large-supporter-worlds — spec
 
 ## Problem Statement
@@ -66,7 +66,7 @@ The fix is server-only. A 3.8.0 client passes plain image strings through its un
 Rulings from the grill on 2026-11-20:
 
 - **R1. Few marked images.** A Supporter world marks only some images. The server passes every other image through without decoding or re-encoding it. Mascots keep marking every layer.
-- **R2. Which images.** The cover plus up to 4 more images: the largest with at least 310k pixels, by width × height. The set is the same for every account in one revision. A world with no eligible image marks only its cover. A world with no cover marks up to 4 eligible images.
+- **R2. Which images.** *Replaced by `supporter-mark-picks`: the cover, then characters, then the largest backdrops, 5 in all.* The cover plus up to 4 more images: the largest with at least 310k pixels, by width × height. The set is the same for every account in one revision. A world with no eligible image marks only its cover. A world with no cover marks up to 4 eligible images.
 - **R3. No scramble for worlds.** Marked world images go out as plain image data URLs. Mascots keep the scramble.
 - **R4. Interim.** Sunmeadow stays Supporter-only until the fix ships. Staff reply on #231.
 - **R5. Changelog.** The fix rewrites the client changelog line from `2d66c416f` ("Large Supporter worlds now download … on slow connections"). That line names the wrong cause. The client idle timeout from that commit stays.

@@ -15,8 +15,9 @@ const { PROCESSING_VERSION } = require('../src/utils/supporterProcessing');
 const { clearWorldProcessedCache } = require('../src/utils/clearWorldProcessedCache');
 
 /**
- * A Supporter world on the gated route and the staff review route marks only its cover and its 4 largest
- * images of at least 310k pixels, as plain lossless WebP. Every other image arrives as uploaded.
+ * A Supporter world on the gated route and the staff review route marks 5 images of at least 310k pixels, as
+ * plain lossless WebP: the cover, each entity's start picture in World Editor order, then the largest backdrops.
+ * Every other image arrives as uploaded.
  */
 
 const staff = () => createUser({ accountType: 'admin' });
@@ -80,7 +81,7 @@ const cacheFiles = (id) => fs.readdirSync(paths.SUPPORTER_PRIVATE_DIR).filter((n
 
 afterEach(() => vi.restoreAllMocks());
 
-// 320k to 550k pixels, each distinct. Only the cover and the four widest should carry a mark.
+// 320k to 550k pixels, each distinct. Marks: the cover, each entity's first slot, then the two widest left.
 const SIZES = [[640, 500], [700, 500], [800, 500], [900, 500], [1000, 500], [1100, 500]];
 
 const sixImageWorld = async () => {
@@ -98,26 +99,6 @@ const sixImageWorld = async () => {
 };
 
 describe('a world on the gated route', () => {
-  it('marks the cover and the 4 largest eligible images for the account, and passes every other image through byte for byte', async () => {
-    const { sources, small, cover, contentData } = await sixImageWorld();
-    const { id } = await flagged(contentData);
-    const member = supporter();
-
-    const res = await gated(id, member);
-
-    expect(res.status).toBe(200);
-    const out = res.body.data.contentData;
-    const served = [...out.entities[0].images, ...out.entities[1].images].map((image) => image.data);
-    // The four widest are sources[2..5]; the two narrowest stay.
-    expect(served.slice(0, 2)).toEqual(sources.slice(0, 2));
-    for (const url of [out.worldOverview.thumbnail, ...served.slice(2)]) {
-      expect(isMarked(url)).toBe(true);
-      expect(await markOf(url)).toBe(WatermarkMark.markFor(member.id));
-    }
-    expect(out.locations[0].images.map((image) => image.data)).toEqual(small);
-    expect(out.worldOverview.thumbnail).not.toBe(cover);
-  }, 120000);
-
   it('sends each marked image as lossless WebP', async () => {
     const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail: await picture(400, 400, 1) } }));
 
@@ -125,27 +106,6 @@ describe('a world on the gated route', () => {
 
     // A WebP file's first chunk is VP8L when lossless, VP8 when lossy.
     expect(Buffer.from(thumbnail.split(',')[1], 'base64').subarray(12, 16).toString('ascii')).toBe('VP8L');
-  }, 120000);
-
-  it('passes an image whose body does not decode through unchanged and marks the next largest in its place', async () => {
-    const { sources, contentData } = await sixImageWorld();
-    const whole = await picture(1400, 500, 50);
-    const bytes = Buffer.from(whole.split(',')[1], 'base64');
-    // The header still reads as the largest image; the body is cut short.
-    const broken = `data:image/jpeg;base64,${bytes.subarray(0, Math.floor(bytes.length / 2)).toString('base64')}`;
-    contentData.entities.push({ ...entityWith([broken]), id: 'e3' });
-    const { id } = await flagged(contentData);
-    const member = supporter();
-
-    const res = await gated(id, member);
-
-    expect(res.status).toBe(200);
-    const out = res.body.data.contentData;
-    expect(out.entities[2].images[0].data).toBe(broken);
-    const served = [...out.entities[0].images, ...out.entities[1].images].map((image) => image.data);
-    // Without the broken one, the four widest are sources[2..5]; sources[1] stays plain.
-    expect(served.slice(0, 2)).toEqual(sources.slice(0, 2));
-    for (const url of served.slice(2)) expect(await markOf(url)).toBe(WatermarkMark.markFor(member.id));
   }, 120000);
 
   it('gives a second account the same marked images, each with its own mark', async () => {
@@ -194,27 +154,6 @@ describe('a world on the gated route', () => {
     expect(out.entities[0].images[0].data).toBe(other);
   }, 120000);
 
-  it('marks the 4 largest eligible images when the world has no cover', async () => {
-    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(700 + i * 50, 500, i)));
-    const { id } = await flagged(content({ worldOverview: { name: 'W' }, entities: [entityWith(sources)] }));
-    const member = supporter();
-
-    const served = (await gated(id, member)).body.data.contentData.entities[0].images.map((image) => image.data);
-
-    expect(served[0]).toBe(sources[0]);
-    for (const url of served.slice(1)) expect(await markOf(url)).toBe(WatermarkMark.markFor(member.id));
-  }, 120000);
-
-  it('breaks a size tie in the order the images first appear', async () => {
-    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(800, 500, i)));
-    const { id } = await flagged(content({ worldOverview: { name: 'W' }, entities: [entityWith(sources)] }));
-
-    const served = (await gated(id, supporter())).body.data.contentData.entities[0].images.map((image) => image.data);
-
-    expect(served.map(isMarked)).toEqual([true, true, true, true, false]);
-    expect(served[4]).toBe(sources[4]);
-  }, 120000);
-
   it('marks a cover named by { mediaId } in its Media List entry, which loses its hash and takes the WebP type', async () => {
     const cover = await picture(500, 400, 1);
     const other = await picture(500, 400, 2);
@@ -233,67 +172,6 @@ describe('a world on the gated route', () => {
     expect(out.mediaList.m1).toMatchObject({ id: 'm1', name: 'Cover', kind: 'image', type: 'image/webp' });
     expect(out.mediaList.m1).not.toHaveProperty('hash');
     expect(out.mediaList.m2).toEqual(mediaList.m2);
-  }, 120000);
-
-  it('never marks an SVG, an SVG cover counting as no cover', async () => {
-    const svg = (width) => `data:image/svg+xml;base64,${Buffer.from(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="1000"><rect width="${width}" height="1000" fill="#36c"/></svg>`
-    ).toString('base64')}`;
-    const cover = svg(1600);
-    const large = svg(1700);
-    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(700 + i * 50, 500, i)));
-    const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail: cover }, entities: [entityWith([large, ...sources])] }));
-
-    const out = (await gated(id, supporter())).body.data.contentData;
-    const served = out.entities[0].images.map((image) => image.data);
-
-    expect(out.worldOverview.thumbnail).toBe(cover);
-    expect(served[0]).toBe(large);
-    expect(served.slice(1).map(isMarked)).toEqual([false, true, true, true, true]);
-  }, 120000);
-
-  it('counts an image string once toward the 4 and marks every place it appears the same way', async () => {
-    const repeated = await picture(1000, 500, 1);
-    const others = await Promise.all([2, 3, 4, 5].map((i) => picture(800 + i, 500, i)));
-    // Five distinct images; the repeated one is the largest, so the 4 are it plus the three next largest.
-    const { id } = await flagged(content({
-      worldOverview: { name: 'W' },
-      entities: [entityWith([repeated, ...others]), { ...entityWith([repeated]), id: 'e2' }]
-    }));
-
-    const out = (await gated(id, supporter())).body.data.contentData.entities;
-    const first = out[0].images.map((image) => image.data);
-
-    expect(first.map(isMarked)).toEqual([true, false, true, true, true]);
-    expect(first[1]).toBe(others[0]);
-    expect(out[1].images[0].data).toBe(first[0]);
-  }, 120000);
-
-  it.each([
-    ['an undecodable cover', 'data:image/webp;base64,AAAA'],
-    ['a { mediaId } naming no entry', { mediaId: 'gone' }]
-  ])('treats %s as no cover', async (_label, thumbnail) => {
-    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(700 + i * 50, 500, i)));
-    const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail }, entities: [entityWith(sources)] }));
-
-    const out = (await gated(id, supporter())).body.data.contentData;
-
-    expect(out.worldOverview.thumbnail).toEqual(thumbnail);
-    expect(out.entities[0].images.map((image) => isMarked(image.data))).toEqual([false, true, true, true, true]);
-  }, 120000);
-
-  it('never marks an animated image, an animated cover counting as no cover', async () => {
-    const cover = await animatedPicture(700, 500);
-    const sources = await Promise.all([0, 1, 2, 3, 4].map((i) => picture(700 + i * 50, 500, i)));
-    const animated = await animatedPicture(1200, 800);
-    const { id } = await flagged(content({ worldOverview: { name: 'W', thumbnail: cover }, entities: [entityWith([animated, ...sources])] }));
-
-    const out = (await gated(id, supporter())).body.data.contentData;
-    const served = out.entities[0].images.map((image) => image.data);
-
-    expect(out.worldOverview.thumbnail).toBe(cover);
-    expect(served[0]).toBe(animated);
-    expect(served.slice(1).map(isMarked)).toEqual([false, true, true, true, true]);
   }, 120000);
 
   it('leaves non-image data, undecodable strings and linked entries as they were', async () => {
@@ -339,6 +217,317 @@ describe('a world on the gated route', () => {
     expect(marked).toHaveLength(4);
   }, 300000);
 });
+
+describe('which images a world marks', () => {
+  // A rule the start never meets: no world here defines the trait.
+  const RULE = [{ conditions: [{ traitId: 't-unknown' }] }];
+  const character = (id, images, extra = {}) => ({ id, name: id, images, ...extra });
+  const flat = (data) => ({ data });
+  // Character art is smaller than backdrops, as in a typical world: 336k pixels against 700k and more.
+  const characterArt = (i) => picture(600, 560, i);
+  const backdropArt = (i, width = 1000) => picture(width, 700, 100 + i);
+  const backdropsOf = (images) => [{ id: 'l1', name: 'Square', images: images.map(flat) }];
+  const served = (entity) => entity.images.map((image) => image.data);
+  const expectMarked = async (url, member) => {
+    expect(isMarked(url)).toBe(true);
+    expect(await markOf(url)).toBe(WatermarkMark.markFor(member.id));
+  };
+
+  const castWorld = async (count, { thumbnail } = {}) => {
+    const arts = await Promise.all(Array.from({ length: count }, (_, i) => characterArt(i)));
+    const backdrops = await Promise.all([0, 1, 2].map((i) => backdropArt(i, 1000 + i * 100)));
+    return {
+      arts, backdrops,
+      contentData: content({
+        worldOverview: { name: 'Cast', ...(thumbnail === undefined ? {} : { thumbnail }) },
+        entities: arts.map((art, i) => character(`c${i}`, [flat(art)])),
+        locations: backdropsOf(backdrops)
+      })
+    };
+  };
+
+  it('marks the cover and the first 4 characters, and no backdrop larger than all of them', async () => {
+    const cover = await picture(700, 450, 99);
+    const { arts, backdrops, contentData } = await castWorld(5, { thumbnail: cover });
+    const { id } = await flagged(contentData);
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+
+    await expectMarked(out.worldOverview.thumbnail, member);
+    for (const entity of out.entities.slice(0, 4)) await expectMarked(entity.images[0].data, member);
+    expect(out.entities[4].images[0].data).toBe(arts[4]);
+    expect(served(out.locations[0])).toEqual(backdrops);
+  }, 120000);
+
+  const svgCover = () => `data:image/svg+xml;base64,${Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#36c"/></svg>'
+  ).toString('base64')}`;
+
+  it.each([
+    ['no cover', async () => undefined],
+    ['an undecodable cover', async () => 'data:image/webp;base64,AAAA'],
+    ['a { mediaId } naming no entry', async () => ({ mediaId: 'gone' })],
+    ['an SVG cover', async () => svgCover()],
+    ['an animated cover', async () => animatedPicture(700, 500)]
+  ])('gives the free mark to a 5th character with %s', async (_label, makeCover) => {
+    const thumbnail = await makeCover();
+    const { arts, backdrops, contentData } = await castWorld(6, { thumbnail });
+    const { id } = await flagged(contentData);
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+
+    expect(out.worldOverview.thumbnail).toEqual(thumbnail);
+    for (const entity of out.entities.slice(0, 5)) await expectMarked(entity.images[0].data, member);
+    expect(out.entities[5].images[0].data).toBe(arts[5]);
+    expect(served(out.locations[0])).toEqual(backdrops);
+  }, 120000);
+
+  it('spends the marks no character can use on the largest backdrops, ties in first-appearance order', async () => {
+    const cover = await picture(700, 450, 99);
+    const arts = await Promise.all([0, 1].map((i) => characterArt(i)));
+    const tooSmall = await picture(500, 600, 7); // 300k pixels
+    const tied = await Promise.all([0, 1, 2].map((i) => backdropArt(i, 1200)));
+    const smaller = await backdropArt(3, 1000);
+    // Larger than every other image, and never markable.
+    const animated = await animatedPicture(1600, 900);
+    const svg = svgCover();
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Few', thumbnail: cover },
+      entities: [character('a', [flat(arts[0])]), character('small', [flat(tooSmall)]), character('b', [flat(arts[1])])],
+      locations: backdropsOf([smaller, animated, svg, ...tied])
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+
+    await expectMarked(out.worldOverview.thumbnail, member);
+    await expectMarked(out.entities[0].images[0].data, member);
+    await expectMarked(out.entities[2].images[0].data, member);
+    expect(out.entities[1].images[0].data).toBe(tooSmall);
+    const places = served(out.locations[0]);
+    expect(places.slice(0, 3)).toEqual([smaller, animated, svg]);
+    await expectMarked(places[3], member);
+    await expectMarked(places[4], member);
+    expect(places[5]).toBe(tied[2]);
+  }, 120000);
+
+  it('marks a character through its first slot without a rule, skipping a slot that names no entry', async () => {
+    const cover = await picture(700, 450, 99);
+    const ruled = await backdropArt(0, 1200);
+    const arts = await Promise.all([0, 1, 2, 3].map((i) => characterArt(i)));
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Rules', thumbnail: cover },
+      entities: [
+        character('a', [{ data: ruled, requires: RULE }, flat(arts[0])]),
+        character('b', [{ mediaId: 'gone' }, flat(arts[1])]),
+        character('c', [flat(arts[2])]),
+        character('d', [flat(arts[3])])
+      ]
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+
+    expect(out.entities[0].images[0].data).toBe(ruled);
+    await expectMarked(out.entities[0].images[1].data, member);
+    expect(out.entities[1].images[0]).toEqual({ mediaId: 'gone' });
+    await expectMarked(out.entities[1].images[1].data, member);
+  }, 120000);
+
+  const layeredWorld = async () => {
+    const ruledBase = await backdropArt(1, 900);
+    const startBase = await characterArt(2);
+    const overlay = await backdropArt(3, 1400);
+    const mediaList = {
+      v0: { id: 'v0', name: 'Body Night', kind: 'image', data: ruledBase, type: 'image/jpeg' },
+      v1: { id: 'v1', name: 'Body', kind: 'image', data: startBase, type: 'image/jpeg' },
+      o1: { id: 'o1', name: 'Carry', kind: 'image', data: overlay, type: 'image/jpeg' },
+      rig: {
+        id: 'rig', name: 'Roxanne', kind: 'layered',
+        layers: [
+          { id: 'l0', name: 'Shadow', variants: [] },
+          { id: 'l1', name: 'Body', variants: [{ mediaId: 'v0', requires: RULE }, { mediaId: 'v1' }] },
+          { id: 'l2', name: 'Carry', variants: [{ mediaId: 'o1' }] }
+        ]
+      }
+    };
+    return { ruledBase, startBase, overlay, mediaList };
+  };
+
+  it('marks a Layered Image character on its base Layer\'s first ruleless Variant', async () => {
+    const { ruledBase, overlay, mediaList } = await layeredWorld();
+    const arts = await Promise.all([0, 1, 3, 4].map((i) => characterArt(i)));
+    // Five characters spend every mark, so no backdrop pick can stand in for the character's own.
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Rig', mediaList },
+      entities: [character('roxanne', [{ mediaId: 'rig' }]), ...arts.map((art, i) => character(`c${i}`, [flat(art)]))]
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData.worldOverview.mediaList;
+
+    await expectMarked(out.v1.data, member);
+    expect(out.v0.data).toBe(ruledBase);
+    expect(out.o1.data).toBe(overlay);
+  }, 120000);
+
+  it('never spends a spare mark on an overlay Variant larger than the base, while base Variants stay in the pool', async () => {
+    const { overlay, mediaList } = await layeredWorld();
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Rig', mediaList },
+      entities: [character('roxanne', [{ mediaId: 'rig' }])]
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData.worldOverview.mediaList;
+
+    await expectMarked(out.v1.data, member);
+    await expectMarked(out.v0.data, member);
+    expect(out.o1.data).toBe(overlay);
+  }, 120000);
+
+  it('keeps an overlay image in the backdrop pool when a gallery slot also shows it', async () => {
+    const { mediaList } = await layeredWorld();
+    const backdrops = await Promise.all([0, 1].map((i) => backdropArt(10 + i, 1600)));
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Rig', mediaList },
+      entities: [character('roxanne', [{ mediaId: 'rig' }]), character('prop', [{ mediaId: 'o1', requires: RULE }])],
+      locations: backdropsOf(backdrops)
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+
+    await expectMarked(out.worldOverview.mediaList.v1.data, member);
+    await expectMarked(out.worldOverview.mediaList.o1.data, member);
+    for (const url of served(out.locations[0])) await expectMarked(url, member);
+  }, 120000);
+
+  it('finds an embedded rig\'s base Layer past a Layer whose Variants hold no image', async () => {
+    const [ruled, start] = await Promise.all([backdropArt(20, 900), characterArt(21)]);
+    const embeddedRig = {
+      name: 'Rig',
+      layers: [
+        { id: 'l0', name: 'Ghost', variants: [{ name: 'Empty' }] },
+        { id: 'l1', name: 'Body', variants: [{ data: ruled, requires: RULE }, { data: start }] }
+      ]
+    };
+    const backdrops = await Promise.all([0, 1, 2].map((i) => backdropArt(30 + i, 1600)));
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Rig' },
+      entities: [character('a', [{ layered: embeddedRig }])],
+      locations: backdropsOf(backdrops)
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData;
+    const variants = out.entities[0].images[0].layered.layers[1].variants;
+
+    await expectMarked(variants[1].data, member);
+    // A base Variant stays in the backdrop pool, with the 3 larger backdrops.
+    await expectMarked(variants[0].data, member);
+    for (const url of served(out.locations[0])) await expectMarked(url, member);
+  }, 120000);
+
+  it('marks an image two characters share once, and the next character takes the free mark', async () => {
+    const cover = await picture(700, 450, 99);
+    const arts = await Promise.all([0, 1, 2, 3, 4].map((i) => characterArt(i)));
+    const backdrops = await Promise.all([0, 1, 2].map((i) => backdropArt(i, 1000 + i * 100)));
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Twins', thumbnail: cover },
+      entities: [
+        character('a', [flat(arts[0])]), character('twin', [flat(arts[0])]),
+        ...arts.slice(1).map((art, i) => character(`c${i}`, [flat(art)]))
+      ],
+      locations: backdropsOf(backdrops)
+    }));
+    const member = supporter();
+
+    const world = (await gated(id, member)).body.data.contentData;
+    const out = world.entities;
+
+    await expectMarked(out[0].images[0].data, member);
+    expect(out[1].images[0].data).toBe(out[0].images[0].data);
+    for (const entity of out.slice(2, 5)) await expectMarked(entity.images[0].data, member);
+    expect(out[5].images[0].data).toBe(arts[4]);
+    expect(served(world.locations[0])).toEqual(backdrops);
+  }, 120000);
+
+  it('resolves embedded images, an embedded Layered Image and the legacy portrait field', async () => {
+    const arts = await Promise.all([0, 1, 2, 3].map((i) => characterArt(i)));
+    const overlay = await backdropArt(5, 1400);
+    const embeddedRig = {
+      name: 'Rig',
+      layers: [
+        { id: 'l0', name: 'Body', variants: [{ data: arts[2] }] },
+        { id: 'l1', name: 'Carry', variants: [{ data: overlay }] }
+      ]
+    };
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Shapes' },
+      entities: [
+        { id: 'a', name: 'a', images: [arts[0]] },
+        character('b', [flat(arts[1])]),
+        character('c', [{ layered: embeddedRig }]),
+        { id: 'd', name: 'd', image: arts[3] }
+      ]
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData.entities;
+
+    await expectMarked(out[0].images[0], member);
+    await expectMarked(out[1].images[0].data, member);
+    await expectMarked(out[2].images[0].layered.layers[0].variants[0].data, member);
+    expect(out[2].images[0].layered.layers[1].variants[0].data).toBe(overlay);
+    await expectMarked(out[3].image, member);
+  }, 120000);
+
+  it('takes characters in World Editor order: folders and `order` before the array', async () => {
+    const cover = await picture(700, 450, 99);
+    const arts = await Promise.all([0, 1, 2, 3, 4, 5].map((i) => characterArt(i)));
+    const entities = arts.map((art, i) => character(`c${i}`, [flat(art)]));
+    // c5 sits in the first folder; c0 sorts last among the root rows.
+    entities[5].groupId = 'g1';
+    entities[0].order = 99;
+    const { id } = await flagged(content({
+      worldOverview: { name: 'Order', thumbnail: cover },
+      entityGroups: [{ id: 'g1', name: 'Leads', parentId: null, order: 0 }],
+      entities
+    }));
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData.entities;
+
+    expect(out.map((entity) => isMarked(entity.images[0].data))).toEqual([false, true, true, true, false, true]);
+  }, 120000);
+
+  it('passes a character image whose body does not decode through, and the next character takes its mark', async () => {
+    const cover = await picture(700, 450, 99);
+    const whole = await characterArt(9);
+    const bytes = Buffer.from(whole.split(',')[1], 'base64');
+    // The header still reads as eligible; the body is cut short.
+    const broken = `data:image/jpeg;base64,${bytes.subarray(0, Math.floor(bytes.length / 2)).toString('base64')}`;
+    const { arts, contentData } = await castWorld(5, { thumbnail: cover });
+    contentData.entities.unshift(character('broken', [flat(broken)]));
+    const { id } = await flagged(contentData);
+    const member = supporter();
+
+    const out = (await gated(id, member)).body.data.contentData.entities;
+
+    expect(out[0].images[0].data).toBe(broken);
+    for (const entity of out.slice(1, 5)) await expectMarked(entity.images[0].data, member);
+    expect(out[5].images[0].data).toBe(arts[4]);
+  }, 120000);
+
+  it('retires the cached copies of the cover-plus-4-largest rule', () => {
+    // PROCESSING_VERSION under the cover-plus-4-largest rule, at 66dc591.
+    expect(PROCESSING_VERSION).not.toBe('f5aaec31b413');
+  });
+});
+
 
 describe('the staff review content route for a world', () => {
   it('follows the world rule and caches nothing', async () => {

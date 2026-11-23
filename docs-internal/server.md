@@ -544,11 +544,18 @@ The listing's kind picks the path.
 
 **World** (every other kind):
 
-- **Marked images:** the cover plus the 4 largest eligible images, the same set for every account in a
-  revision. The cover is `worldOverview.thumbnail`: a data URL, or `{ mediaId }` into
-  `worldOverview.mediaList`. Eligible: a non-animated, non-SVG `data:image/...` string of at least 310,000
-  pixels by its header's width × height (`sharp` metadata, no pixel decode), not the cover. Ties keep
-  first-appearance order. A missing, linked, animated, SVG or undecodable cover counts as no cover.
+- **Marked images:** 5 in all, the same set for every account in a revision, chosen in this order:
+  1. 🖼️ **The cover**, when markable. It is `worldOverview.thumbnail`: a data URL, or `{ mediaId }` into
+     `worldOverview.mediaList`. A missing, linked, animated, SVG or undecodable cover counts as no cover.
+  2. 🧑 **One image per entity**, in World Editor order (folders by `parentId`, siblings by `order`), until
+     the 5 are spent: 4 characters with a cover, 5 without.
+  3. 🏞️ **The largest remaining eligible images** for any marks left. Ties keep first-appearance order.
+- **An entity's image:** its first gallery slot without a Visibility rule. For a Layered Image, the first
+  Variant without a rule on its base Layer (the first Layer that has a Variant). Slots that draw nothing are
+  skipped. An ineligible image skips the entity; an image already chosen counts once.
+- **Eligible:** a non-animated, non-SVG `data:image/...` string of at least 310,000 pixels by its header's
+  width × height (`sharp` metadata, no pixel decode). A Variant above its rig's base Layer is never marked in
+  step 3 unless the image is also used elsewhere.
 - **Output:** a marked image is a plain `data:image/webp;base64,...` string, lossless, in the source string's
   place, in every place that string appears. No scramble, no seed. A Media Entry whose data was marked drops
   its `hash` and takes `type: 'image/webp'`.
