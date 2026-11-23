@@ -52,6 +52,13 @@ const svg = () => `data:image/svg+xml;base64,${Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><rect width="1600" height="1000" fill="#36c"/></svg>'
 ).toString('base64')}`;
 
+// A PNG whose header reads (700x500) but whose pixel data is cut short, so it fails to decode.
+const undecodable = async () => {
+  const png = await sharp(await sharp({ create: { width: 700, height: 500, channels: 3, background: '#36c' } }).png().toBuffer())
+    .png().toBuffer();
+  return `data:image/png;base64,${png.subarray(0, Math.floor(png.length / 2)).toString('base64')}`;
+};
+
 const markOf = async (url) => {
   const { data, info } = await sharp(Buffer.from(url.split(',')[1], 'base64')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   return read({ width: info.width, height: info.height, data: new Uint8ClampedArray(data) });
@@ -194,6 +201,34 @@ describe('a pick that fails the check', () => {
 
     expect(isMarked(out.alt.data)).toBe(true);
     expect(out.start.data).toBe(images.start);
+  }, 120000);
+});
+
+describe('an image whose body does not decode', () => {
+  it('falls back to the approximation when a valid pick will not decode', async () => {
+    const build = async () => buildWorld({ images: { broken: await undecodable() } });
+    const { id, images } = await published([{ entityId: 'e1', mediaId: 'broken' }], build);
+
+    const { member, out } = await gated(id);
+
+    await expectMarkedFor(out.start.data, member);
+    expect(out.broken.data).toBe(images.broken);
+  }, 120000);
+
+  it('skips a character whose approximated image will not decode, and the next character takes the mark', async () => {
+    const build = async () => {
+      const world = await buildWorld();
+      world.broken = await undecodable();
+      world.contentData.entities[0].images = [{ data: world.broken }];
+      return world;
+    };
+    const { id, broken } = await published(undefined, build);
+
+    const { member, entities } = await gated(id);
+
+    expect(entities[0].images[0].data).toBe(broken);
+    // The cover plus e2 to e5 fill all 5 marks.
+    for (const entity of entities.slice(1)) await expectMarkedFor(entity.images[0].data, member);
   }, 120000);
 });
 

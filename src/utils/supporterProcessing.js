@@ -301,13 +301,15 @@ const processWorld = async (content, mark, picks = []) => {
   for (const value of imageStrings(content)) infos.set(value, await imageInfo(value));
   const eligible = (value) => {
     const info = infos.get(value);
-    return !!info && !info.animated && info.pixels >= WORLD_MIN_PIXELS;
+    return !!info && !info.animated && info.pixels >= WORLD_MIN_PIXELS && !undecodable.has(value);
   };
 
   const replacements = new Map();
+  const undecodable = new Set();
   const tryMark = async (value) => {
     const marked = await markWorldImage(value, mark);
     if (marked) replacements.set(value, marked);
+    else undecodable.add(value);
     return !!marked;
   };
 
@@ -318,9 +320,11 @@ const processWorld = async (content, mark, picks = []) => {
   const list = content?.worldOverview?.mediaList;
   for (const entity of entitiesInEditorOrder(content)) {
     if (replacements.size === WORLD_MARKED_IMAGES) break;
-    const value = entityCandidates(entity, pickOf.get(entity.id), list).find(eligible);
-    // An image already chosen counts once; the next entity takes the free mark.
-    if (value && !replacements.has(value)) await tryMark(value);
+    // The first eligible candidate that marks; a body that fails to decode falls to the next candidate.
+    for (const value of entityCandidates(entity, pickOf.get(entity.id), list).filter(eligible)) {
+      // An image already chosen counts once; the next entity takes the free mark.
+      if (replacements.has(value) || await tryMark(value)) break;
+    }
   }
 
   const overlays = overlayOnlyStrings(content);
