@@ -672,6 +672,13 @@ Invoke-WebRequest -UseBasicParsing https://api.formamorph.ai/api/coref-contribut
 
 ## Deploy log
 
+- **2026-11-26** — deployed `f9ed4ce`: the v3.9.0 bundled fingerprint list. It also shipped the six commits
+  after `9f377cb`: quote speaker data, coref labels, Supporter mark order and picks, the marked-image decode
+  fallback, and the Weather prompt type. All 3,946 tests passed in 58.2 s (62 s wall). Boot applied
+  `corefQuoteSpeakerData` (five nullable columns) and `markPicks` (new table). Both are additive. No
+  pre-deploy backup was taken; the newest is the nightly `db-2026-11-26.db.zst`. Service active with zero
+  restarts, boot logged `Server running on port` with no stack trace, public route 200.
+
 - **2026-11-20** — deployed `9f377cb`: marked world images encode at WebP effort 0. All 3,850 tests passed in
   51.9 s (53 s wall). No schema, env, or policy change, so no backup. Service active with zero restarts, boot
   logged `Server running on port` with no stack trace, public route 200. Sunmeadow processing on the box
